@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.2.0-rc.1 - 2026-09-07
+## 1.2.0 - 2026-09-08
 
 - Added compatibility with the renamed ChatGPT desktop app while retaining Codex data paths and legacy app discovery.
 - Updated Fast Mode to use current desktop settings, recognize priority/fast tiers, and preserve recovery backups.
