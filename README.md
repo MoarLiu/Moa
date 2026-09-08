@@ -1,17 +1,27 @@
 # Moa
 
-Moa is a focused macOS menu bar app for Codex Desktop, Claude Desktop, and local Provider Bridge workflows.
+Moa is a focused macOS menu bar app for ChatGPT (formerly Codex Desktop), Claude Desktop, and local Provider Bridge workflows.
 
 It intentionally excludes the original Moa Companion surface: no desktop pet, AI quick actions, reminders, journal, Pomodoro, MCP helper, workflow runner, asset upload, dashboard, skins, or sounds.
 
 ## Features
 
-- Codex controls: Fast Mode, Remote Connections, official account switching, provider profile import/export, and Codex reopen helpers.
+- ChatGPT / Codex controls: Fast Mode, a remote connection settings shortcut, official account switching, provider profile import/export, and client reopen helpers.
 - Provider Bridge: local loopback Responses bridge for Chat Completions upstreams, with DeepSeek and common gateway presets.
 - Claude Desktop profiles: write Claude Desktop 3P gateway profiles and copy Claude Code environment snippets.
 - Usage insights: local Codex and Claude usage summaries with configurable daily alerts.
 - Moa Data: export/import data packages, export redacted diagnostics, and optionally switch the active data root to iCloud Drive.
 - Updates: check GitHub Releases from the main menu, then download, verify, and install the matching macOS DMG.
+
+## ChatGPT Client Compatibility
+
+Moa locates the client by its `com.openai.codex` bundle identifier, supporting both `ChatGPT.app` and legacy `Codex.app` installations. `CODEX_APP` can override the application location. Configuration and credentials remain under `~/.codex`, or the directory selected by `CODEX_HOME`.
+
+For current clients, Fast Mode reads and writes `desktop.default-service-tier` in `config.toml`, recognizes both `priority` and `fast`, and synchronizes the root `service_tier`. Legacy Codex retains its JSON state path. Provider switching starts from the live client configuration, preserving other settings, unknown fields, and unrelated provider definitions.
+
+The remote connection menu opens `codex://settings/connections`; ChatGPT manages the connections itself. The old `MoaApplyRemoteConnections` headless command returns migration guidance. Use `MoaOpenRemoteConnections=1` to open the settings page.
+
+Usage scanning supports both `token_usage_record` and legacy `token_count` events without counting both, and retains cache reads, cache writes, and request boundaries. Long-context prices apply per request. Built-in GPT-6 Astra and GPT-5.6 prices use [official OpenAI pricing](https://developers.openai.com/api/docs/pricing) checked on 2026-09-07. These are standard API price estimates for local Codex tasks, not ChatGPT subscription invoices.
 
 ## App Identity
 
@@ -66,7 +76,7 @@ To create a DMG:
 CODE_SIGN_IDENTITY=- ./scripts/package-dmg.sh
 ```
 
-The DMG is written to `dist/Moa-<version>-macos-<arch>.dmg` with a matching SHA-256 file.
+The DMG is written to `dist/Moa-<release-version>-macos-<arch>.dmg` with a matching SHA-256 file.
 
 ## Local Run Button
 
@@ -84,3 +94,5 @@ The script builds `Moa.app`, stops any currently running Moa process, and launch
 - Diagnostic packages redact auth, key, and token fields.
 - Packaging scripts refuse to include `.moa`, `.codex`, auth/config/profile files, environment files, and signing keys.
 - Moa does not bundle `MoaMCP` and does not expose local workflow tools.
+
+For release candidates, `scripts/version.env` keeps `APP_VERSION` numeric for macOS bundle metadata and uses `APP_RELEASE_VERSION` for the displayed version, GitHub tag, and DMG filename. Both architecture builds must use the same `APP_BUILD`; set `MOA_AUTO_BUMP_BUILD=0` after choosing that build number.

@@ -7,14 +7,12 @@ extension ConfigProfileController {
         let providerTable = "model_providers.\(providerID)"
         let extraProviderLines = providerExtraLines(in: output, table: providerTable)
 
-        output = removeProviderTables(from: output)
-        let remoteConnectionsEnabled = remoteConnectionsEnabled(in: output)
+        output = removeTomlTables(in: output) { $0 == providerTable }
 
         output = upsertRootTomlStringValue(in: output, key: "model_provider", value: providerID)
         if let model = profile.resolvedModel {
             output = upsertRootTomlStringValue(in: output, key: "model", value: model)
         }
-        output = setRemoteConnections(remoteConnectionsEnabled, in: output)
         output = insertProviderBlock(providerBlock(for: profile, providerID: providerID, extraLines: extraProviderLines), into: output)
         return collapseTomlBlankLines(output)
     }
@@ -27,7 +25,9 @@ extension ConfigProfileController {
             let slug = Self.providerIdentifierSlug(profile.name)
             return slug.isEmpty ? "moa-bridge" : "moa-\(slug)"
         }
-        return selectedProviderID(in: config)
+        let selected = selectedProviderID(in: config)
+        // The built-in OpenAI provider cannot be overridden by a user table.
+        return selected == "openai" ? "moa-custom" : selected
     }
 
     static func providerIdentifierSlug(_ value: String) -> String {
@@ -42,12 +42,8 @@ extension ConfigProfileController {
 
     func syncedMoaConfig() throws -> String {
         var moaConfig = (try? String(contentsOf: moaConfigURL, encoding: .utf8)) ?? Self.defaultConfig
-        guard fileManager.fileExists(atPath: codexConfigURL.path),
-              let codexConfig = try? String(contentsOf: codexConfigURL, encoding: .utf8),
-              !codexConfig.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        else {
-            return moaConfig
-        }
+        guard fileManager.fileExists(atPath: codexConfigURL.path) else { return moaConfig }
+        let codexConfig = try String(contentsOf: codexConfigURL, encoding: .utf8)
 
         let syncedConfig = syncConfigStructure(from: codexConfig, into: moaConfig)
         if syncedConfig != moaConfig {
@@ -59,32 +55,11 @@ extension ConfigProfileController {
     }
 
     func syncConfigStructure(from codexConfig: String, into moaConfig: String) -> String {
-        let codexEntries = tomlEntries(in: codexConfig)
-        guard !codexEntries.isEmpty else {
-            return moaConfig
-        }
-
-        let moaEntries = tomlEntries(in: moaConfig)
-        var output = moaConfig
-
-        var knownPaths = Set(moaEntries.map(\.path))
-        for entry in codexEntries where !knownPaths.contains(entry.path) && !isMoaManagedConfigPath(entry.path) {
-            output = appendTomlEntry(entry, to: output)
-            knownPaths.insert(entry.path)
-        }
-
-        let refreshedEntries = tomlEntries(in: output)
-        for entry in codexEntries where isMarketplaceLastUpdated(entry.path) {
-            guard let existing = refreshedEntries.first(where: { $0.path == entry.path }),
-                  existing.value != entry.value
-            else {
-                continue
-            }
-
-            output = replaceTomlEntry(existing, with: entry.value, in: output)
-        }
-
-        return output
+        // The live client owns all settings except the provider selected by the
+        // explicit apply operation. Replaying the Moa snapshot resurrects deleted
+        // settings and overwrites current desktop preferences.
+        // Keep the original text, including unknown tables and multiline values.
+        codexConfig
     }
 
     typealias TomlEntry = MoaTomlEditor.Entry
@@ -306,8 +281,13 @@ extension ConfigProfileController {
         for context in MoaTomlEditor.lineContexts(in: text) {
             let line = context.text
             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            if context.isStructural, let tableName = parseTomlTableName(from: trimmed) {
-                skipping = shouldRemove(tableName)
+            if context.isStructural {
+                if let tableName = parseTomlTableName(from: trimmed) {
+                    skipping = shouldRemove(tableName)
+                } else if trimmed.hasPrefix("[["), trimmed.hasSuffix("]]") {
+                    let tableName = String(trimmed.dropFirst(2).dropLast(2)).trimmingCharacters(in: .whitespacesAndNewlines)
+                    skipping = shouldRemove(tableName)
+                }
             }
 
             if !skipping {
@@ -539,20 +519,7 @@ extension ConfigProfileController {
     }
 
     func upsertRootTomlStringValue(in text: String, key: String, value: String) -> String {
-        let quoted = tomlQuoted(value)
-        if let entry = tomlEntries(in: text).first(where: { $0.table.isEmpty && $0.key == key }) {
-            return replaceTomlEntry(entry, with: quoted, in: text)
-        }
-
-        var output = text
-        if !output.hasSuffix("\n") {
-            output.append("\n")
-        }
-
-        let insertion = tomlRootInsertionIndex(in: output)
-        let prefix = insertion > output.startIndex && output[output.index(before: insertion)] == "\n" ? "" : "\n"
-        output.insert(contentsOf: "\(prefix)\(key) = \(quoted)\n", at: insertion)
-        return output
+        MoaTomlEditor.upsertingString(value, in: text, table: "", key: key)
     }
 
     func tomlQuoted(_ value: String) -> String {

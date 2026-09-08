@@ -232,7 +232,7 @@ final class MoaProfileActionCoordinator {
         statusItemText.title = AppDelegate.statusTitle("Migrating Codex history...")
         DispatchQueue.global(qos: .userInitiated).async {
             let result = Result {
-                self.controller.quitCodex()
+                try self.controller.quitCodex()
                 return try self.profileController.migrateCodexSessionModelProvider(to: providerID)
             }
 

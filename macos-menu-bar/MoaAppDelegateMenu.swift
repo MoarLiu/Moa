@@ -77,7 +77,7 @@ extension AppDelegate {
         applyFastMode(sender.state != .on)
     }
 
-    @objc func toggleRemoteConnectionsAction(_ sender: NSMenuItem) {
-        applyRemoteConnections(sender.state != .on)
+    @objc func openRemoteConnectionsSettingsAction() {
+        controller.openRemoteConnectionsSettings()
     }
 }

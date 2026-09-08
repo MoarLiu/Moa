@@ -38,6 +38,9 @@ enum MoaTomlEditor {
 
             if let tableName = tableName(from: trimmed) {
                 currentTable = tableName
+            } else if trimmed.hasPrefix("[["), trimmed.hasSuffix("]]") {
+                // Array members are never root/desktop scalar settings.
+                currentTable = trimmed
             } else if let keyValue = keyValue(from: line) {
                 entries.append(Entry(table: currentTable, key: keyValue.key, value: keyValue.value, lineRange: context.contentRange))
             }
@@ -279,6 +282,63 @@ enum MoaTomlEditor {
 
     private static func isStructuralBlank(_ context: LineContext) -> Bool {
         context.isStructural && context.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    static func stringValue(in text: String, table: String, key: String) -> String? {
+        guard let entry = entries(in: text).first(where: { matches($0, table: table, key: key) }) else {
+            return nil
+        }
+        let value = entry.value
+        if value.hasPrefix("\""), value.hasSuffix("\""),
+           let data = value.data(using: .utf8),
+           let decoded = try? JSONSerialization.jsonObject(with: data, options: .fragmentsAllowed) as? String {
+            return decoded
+        }
+        if value.hasPrefix("'"), value.hasSuffix("'"), value.count >= 2 {
+            return String(value.dropFirst().dropLast())
+        }
+        return nil
+    }
+
+    static func upsertingString(_ value: String, in text: String, table: String, key: String) -> String {
+        var output = text
+        if let entry = entries(in: text).first(where: { matches($0, table: table, key: key) }) {
+            output.replaceSubrange(entry.lineRange, with: "\(entry.key) = \(quotedString(value))")
+            return output
+        }
+
+        let contexts = lineContexts(in: text)
+        let headers = contexts.filter {
+            let line = $0.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            return $0.isStructural && (tableName(from: line) != nil || line.hasPrefix("[["))
+        }
+        var insertion: String.Index?
+        if table.isEmpty {
+            insertion = headers.first?.contentRange.lowerBound ?? text.endIndex
+        } else if let index = headers.firstIndex(where: { unquotedKey(tableName(from: $0.text) ?? "") == table }) {
+            insertion = headers.dropFirst(index + 1).first?.contentRange.lowerBound ?? text.endIndex
+        }
+        if let insertion {
+            let prefix = insertion == output.startIndex || output[output.index(before: insertion)] == "\n" ? "" : "\n"
+            output.insert(contentsOf: "\(prefix)\(key) = \(quotedString(value))\n", at: insertion)
+        } else {
+            if !output.isEmpty, !output.hasSuffix("\n") { output.append("\n") }
+            output.append("\n[\(table)]\n\(key) = \(quotedString(value))\n")
+        }
+        return output
+    }
+
+    private static func matches(_ entry: Entry, table: String, key: String) -> Bool {
+        (unquotedKey(entry.table) == table && unquotedKey(entry.key) == key)
+            || (!table.isEmpty && entry.table.isEmpty && entry.key == "\(table).\(key)")
+    }
+
+    private static func unquotedKey(_ value: String) -> String {
+        if value.count >= 2,
+           (value.hasPrefix("\"") && value.hasSuffix("\"")) || (value.hasPrefix("'") && value.hasSuffix("'")) {
+            return String(value.dropFirst().dropLast())
+        }
+        return value
     }
 
     static func quotedString(_ value: String) -> String {

@@ -4,15 +4,12 @@ import Foundation
 func runHeadlessCommandIfNeeded() -> Int32? {
     let environment = ProcessInfo.processInfo.environment
     if let remoteValue = environment["MoaApplyRemoteConnections"], !remoteValue.isEmpty {
-        let enabled = remoteValue == "1" || remoteValue.lowercased() == "true"
-        let controller = FastStateController(environment: environment)
-        do {
-            try controller.applyRemoteConnections(enabled)
-            return 0
-        } catch {
-            fputs("Moa: \(error.localizedDescription)\n", stderr)
-            return 1
-        }
+        fputs("Moa: Remote connections are now managed in ChatGPT Settings. Use MoaOpenRemoteConnections=1 to open that page.\n", stderr)
+        return 1
+    }
+    if environment["MoaOpenRemoteConnections"] == "1" {
+        FastStateController(environment: environment).openRemoteConnectionsSettings()
+        return 0
     }
 
     guard let profileID = environment["MoaApplyProfileID"], !profileID.isEmpty else {

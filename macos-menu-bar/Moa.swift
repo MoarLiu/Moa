@@ -51,7 +51,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let claudeUsageDetailsItem = NSMenuItem(title: MoaL10n.text("Usage Details"), action: #selector(showClaudeUsageDetailsAction), keyEquivalent: "")
     let zcodeUsageDetailsItem = NSMenuItem(title: MoaL10n.text("Usage Details"), action: #selector(showZCodeUsageDetailsAction), keyEquivalent: "")
     let fastModeItem = NSMenuItem(title: MoaL10n.text("Fast Mode"), action: #selector(toggleFastModeAction(_:)), keyEquivalent: "")
-    let remoteConnectionsItem = NSMenuItem(title: MoaL10n.text("Remote Connections"), action: #selector(toggleRemoteConnectionsAction(_:)), keyEquivalent: "")
+    let remoteConnectionsItem = NSMenuItem(title: MoaL10n.text("Remote Connection Settings…"), action: #selector(openRemoteConnectionsSettingsAction), keyEquivalent: "")
     let codexOfficialItem = NSMenuItem(title: MoaL10n.text("Codex Official"), action: nil, keyEquivalent: "")
     let codexOfficialMenu = NSMenu(title: MoaL10n.text("Codex Official"))
     let codexProviderBridgeModeItem = NSMenuItem(title: MoaL10n.text("Provider Bridge Mode"), action: #selector(applyCodexProviderBridgeModeAction), keyEquivalent: "")
@@ -152,7 +152,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     static func versionTitle() -> String {
-        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+        let version = MoaUpdateController.currentVersion
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
 
         guard let version, !version.isEmpty else {
@@ -262,34 +262,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 }
 
                 self.fastModeItem.isEnabled = true
-            }
-        }
-    }
-
-    func applyRemoteConnections(_ enabled: Bool) {
-        remoteConnectionsItem.isEnabled = false
-        remoteConnectionsItem.state = enabled ? .on : .off
-        statusItemText.title = enabled ? Self.statusTitle("Turning Remote on...") : Self.statusTitle("Turning Remote off...")
-
-        let controller = controller
-        DispatchQueue.global(qos: .userInitiated).async {
-            let result = Result {
-                try controller.applyRemoteConnections(enabled)
-            }
-
-            DispatchQueue.main.async {
-                switch result {
-                case .success:
-                    self.refreshStatus()
-                case .failure(let error):
-                    NSSound.beep()
-                    self.remoteConnectionsItem.state = self.controller.isRemoteConnectionsEnabled() ? .on : .off
-                    self.remoteConnectionsItem.isEnabled = true
-                    self.statusItemText.title = Self.statusTitle("Failed")
-                    self.showError(error.localizedDescription)
-                }
-
-                self.remoteConnectionsItem.isEnabled = true
             }
         }
     }

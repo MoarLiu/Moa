@@ -88,11 +88,9 @@ final class MoaMainMenuCoordinator {
     }
 
     func refreshStatus() {
-        let tier = app.controller.serviceTier()
-        let isFast = tier == "fast"
-        let remoteEnabled = app.controller.isRemoteConnectionsEnabled()
+        let isFast = app.controller.isFastEnabled()
         app.fastModeItem.state = isFast ? .on : .off
-        app.remoteConnectionsItem.state = remoteEnabled ? .on : .off
+        app.remoteConnectionsItem.state = .off
 
         if let button = app.statusItem.button {
             button.toolTip = MoaL10n.text("Moa - Codex, Claude, ZCode, Provider Bridge")
@@ -279,7 +277,7 @@ final class MoaMainMenuCoordinator {
         app.fastModeItem.title = MoaL10n.text("Fast Mode")
         app.codexProfilesMenu.addItem(app.fastModeItem)
         app.remoteConnectionsItem.target = app
-        app.remoteConnectionsItem.title = MoaL10n.text("Remote Connections")
+        app.remoteConnectionsItem.title = MoaL10n.text("Remote Connection Settings…")
         app.codexProfilesMenu.addItem(app.remoteConnectionsItem)
         app.codexProfilesMenu.addItem(NSMenuItem.separator())
 

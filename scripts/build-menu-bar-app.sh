@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=version.env
 source "$ROOT/scripts/version.env"
+APP_RELEASE_VERSION="${APP_RELEASE_VERSION:-$APP_VERSION}"
 # shellcheck source=sources.env
 source "$ROOT/scripts/sources.env"
 
@@ -139,6 +140,8 @@ cat >"$CONTENTS/Info.plist" <<PLIST
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
   <string>$APP_VERSION</string>
+  <key>MoaReleaseVersion</key>
+  <string>$APP_RELEASE_VERSION</string>
   <key>CFBundleVersion</key>
   <string>$APP_BUILD</string>
   <key>LSMinimumSystemVersion</key>

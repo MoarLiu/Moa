@@ -169,7 +169,7 @@
 "Open 3P Profile Folder" = "打开 3P Profile 文件夹";
 "Open Claude Desktop" = "打开 Claude Desktop";
 "Open Claude Folder" = "打开 Claude 文件夹";
-"Open Codex" = "打开 Codex";
+"Open Codex" = "打开 ChatGPT";
 "Open Codex Folder" = "打开 Codex 文件夹";
 "Open iCloud Data Folder" = "打开 iCloud 数据文件夹";
 "Open Moa Data Folder" = "打开 Moa 数据文件夹";
@@ -202,7 +202,7 @@
 "Rename Codex Official Account" = "重命名 Codex 官方账号";
 "Rename Current Account" = "重命名当前账号";
 "Reopen Claude Desktop" = "重启 Claude Desktop";
-"Reopen Codex" = "重启 Codex";
+"Reopen Codex" = "重启 ChatGPT";
 "Reopen ZCode" = "重启 ZCode";
 "Reopening ZCode..." = "正在重启 ZCode...";
 "Rollback package: %@\nRestart Moa if any window still shows old data." = "回滚数据包：%@\n如果有窗口仍显示旧数据，请重启 Moa。";
@@ -296,3 +296,6 @@
 "The saved Codex official account path is invalid: %@" = "已保存的 Codex 官方账号路径无效：%@";
 "Load Failed" = "加载失败";
 "Unable to load %@ data: %@" = "无法加载 %@ 数据：%@";
+
+"Remote Connection Settings…" = "远程连接设置…";
+"ChatGPT could not be closed. Finish the active task and try again." = "无法关闭 ChatGPT。请结束正在运行的任务后重试。";

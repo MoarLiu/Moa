@@ -228,15 +228,20 @@ final class MoaUsagePricingOverrideController {
         try save(overrides().filter { !($0.source == source && $0.model == normalized) })
     }
 
-    func codexCostEstimate(model: String, inputTokens: Int, cachedInputTokens: Int, outputTokens: Int) -> MoaUsagePricing.CostEstimate? {
+    func codexCostEstimate(model: String, inputTokens: Int, cachedInputTokens: Int, cacheWriteInputTokens: Int = 0, outputTokens: Int) -> MoaUsagePricing.CostEstimate? {
         guard let override = override(source: .codex, model: model) else { return nil }
         let cached = min(max(0, cachedInputTokens), max(0, inputTokens))
-        let nonCached = max(0, inputTokens - cached)
+        let cacheWrite = min(max(0, cacheWriteInputTokens), max(0, inputTokens - cached))
+        let nonCached = max(0, inputTokens - cached - cacheWrite)
         let cachedRate = override.cacheReadUSDPerMillion
             ?? MoaUsagePricing.codexCacheReadUSDPerMillion(model: override.model, inputTokens: inputTokens)
             ?? override.inputUSDPerMillion
+        let writeRate = override.cacheCreationUSDPerMillion
+            ?? MoaUsagePricing.codexCacheWriteUSDPerMillion(model: override.model, inputTokens: inputTokens)
+            ?? override.inputUSDPerMillion
         let cost = Self.cost(tokens: nonCached, perMillion: override.inputUSDPerMillion)
             + Self.cost(tokens: cached, perMillion: cachedRate)
+            + Self.cost(tokens: cacheWrite, perMillion: writeRate)
             + Self.cost(tokens: outputTokens, perMillion: override.outputUSDPerMillion)
         return MoaUsagePricing.CostEstimate(
             costUSD: cost,
@@ -399,24 +404,61 @@ enum CodexUsageMenuState {
 }
 
 final class CodexUsageScanner {
-    private static let cacheVersion = 2
+    private static let cacheVersion = 3
+
+    private struct TokenCounts: Codable, Equatable {
+        var input: Int = 0
+        var cached: Int = 0
+        var cacheWrite: Int = 0
+        var output: Int = 0
+
+        init(_ values: [String: Any]) {
+            input = max(0, CodexUsageScanner.intValue(values["input_tokens"]))
+            cached = min(input, max(0, CodexUsageScanner.intValue(values["cached_input_tokens"] ?? values["cache_read_input_tokens"])))
+            cacheWrite = min(input - cached, max(0, CodexUsageScanner.intValue(values["cache_write_input_tokens"])))
+            output = max(0, CodexUsageScanner.intValue(values["output_tokens"]))
+        }
+
+        init(input: Int = 0, cached: Int = 0, cacheWrite: Int = 0, output: Int = 0) {
+            self.input = max(0, input)
+            self.cached = min(self.input, max(0, cached))
+            self.cacheWrite = min(self.input - self.cached, max(0, cacheWrite))
+            self.output = max(0, output)
+        }
+
+        func difference(from previous: Self) -> Self {
+            Self(input: max(0, input - previous.input), cached: max(0, cached - previous.cached),
+                 cacheWrite: max(0, cacheWrite - previous.cacheWrite), output: max(0, output - previous.output))
+        }
+
+        func decreased(from previous: Self) -> Bool {
+            input < previous.input || cached < previous.cached || cacheWrite < previous.cacheWrite || output < previous.output
+        }
+    }
 
     private struct TokenUsage: Codable, Equatable {
         var input: Int = 0
         var cached: Int = 0
+        var cacheWrite: Int = 0
         var output: Int = 0
-        var costUSD: Double = 0
+        // Preserve request boundaries: long-context pricing applies per request,
+        // not to the sum of every request in a day. Prices can still refresh
+        // without rereading the source rollouts.
+        var requests: [TokenCounts] = []
 
-        var totalTokens: Int {
-            input + output
+        mutating func add(_ counts: TokenCounts) {
+            input += counts.input
+            cached += counts.cached
+            cacheWrite += counts.cacheWrite
+            output += counts.output
+            requests.append(counts)
         }
+    }
 
-        mutating func add(input: Int, cached: Int, output: Int, costUSD: Double) {
-            self.input += input
-            self.cached += cached
-            self.output += output
-            self.costUSD += costUSD
-        }
+    private struct PendingUsage {
+        var day: String
+        var model: String
+        var counts: TokenCounts
     }
 
     private struct CachedFile: Codable, Equatable {
@@ -431,12 +473,6 @@ final class CodexUsageScanner {
         var files: [String: CachedFile]
     }
 
-    private struct RunningTotals {
-        var input: Int = 0
-        var cached: Int = 0
-        var output: Int = 0
-    }
-
     private let fileManager = FileManager.default
     private let environment: [String: String]
     private let codexHome: URL
@@ -445,7 +481,7 @@ final class CodexUsageScanner {
 
     private var cacheURL: URL {
         MoaDataRoot.currentURL(environment: environment)
-            .appendingPathComponent("codex-usage-cache-v2.json")
+            .appendingPathComponent("codex-usage-cache-v3.json")
     }
 
     init(environment: [String: String] = ProcessInfo.processInfo.environment) {
@@ -528,114 +564,101 @@ final class CodexUsageScanner {
     private func parseSessionFile(_ fileURL: URL) -> [String: [String: TokenUsage]] {
         var days: [String: [String: TokenUsage]] = [:]
         var currentModel: String?
-        var previousTotals: RunningTotals?
-        var hasModelContext = false
+        var previousTotals: TokenCounts?
+        var legacyEvents: [PendingUsage] = []
+        var usageRecords: [PendingUsage] = []
+        var hasUsageRecords = false
+        var seenResponses = Set<String>()
 
-        func add(dayKey: String, model: String, input: Int, cached: Int, output: Int) {
-            guard input > 0 || cached > 0 || output > 0 else { return }
-            let normalizedModel = CodexUsagePricing.normalizeModel(model)
-            let clampedCached = min(max(0, cached), max(0, input))
-            days[dayKey, default: [:]][normalizedModel, default: TokenUsage()]
-                .add(input: input, cached: clampedCached, output: output, costUSD: 0)
+        func flushTurn() {
+            // New clients emit both formats. Select one source for each model
+            // context, retaining legacy-only turns in upgraded session files.
+            for event in hasUsageRecords ? usageRecords : legacyEvents {
+                guard event.counts.input > 0 || event.counts.output > 0 else { continue }
+                let model = CodexUsagePricing.normalizeModel(event.model)
+                days[event.day, default: [:]][model, default: TokenUsage()].add(event.counts)
+            }
+            legacyEvents.removeAll(keepingCapacity: true)
+            usageRecords.removeAll(keepingCapacity: true)
+            hasUsageRecords = false
         }
 
         do {
             try scanLines(fileURL: fileURL) { line in
                 guard shouldInspect(line) else { return }
                 if line.count > 512 * 1024 {
-                    if line.containsASCII(#""type":"turn_context""#),
-                       let model = extractStringField("model", fromPrefixOf: line)
-                    {
-                        currentModel = model
-                        hasModelContext = true
+                    let prefix = Data(line.prefix(1024))
+                    if prefix.containsASCII(#""type":"turn_context""#) || prefix.containsASCII(#""type": "turn_context""#) {
+                        flushTurn()
+                        currentModel = extractStringField("model", fromPrefixOf: line)
                     }
                     return
                 }
-
                 guard let object = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any],
-                      let type = object["type"] as? String
-                else { return }
-
+                      let type = object["type"] as? String,
+                      let payload = object["payload"] as? [String: Any] else { return }
                 if type == "turn_context" {
-                    if let payload = object["payload"] as? [String: Any] {
-                        currentModel = payload["model"] as? String
-                            ?? (payload["info"] as? [String: Any])?["model"] as? String
-                        hasModelContext = currentModel?.isEmpty == false
+                    flushTurn()
+                    currentModel = payload["model"] as? String
+                        ?? (payload["info"] as? [String: Any])?["model"] as? String
+                    return
+                }
+                guard let timestamp = object["timestamp"] as? String,
+                      let day = Self.dayKey(from: timestamp) else { return }
+
+                if type == "token_usage_record" {
+                    guard let values = payload["usage"] as? [String: Any],
+                          let model = payload["model"] as? String ?? currentModel, !model.isEmpty else { return }
+                    hasUsageRecords = true
+                    let counts = TokenCounts(values)
+                    let identity: String
+                    if let responseID = payload["response_id"] as? String, !responseID.isEmpty {
+                        identity = "response:\(responseID)"
+                    } else {
+                        let total = TokenCounts(payload["thread_token_usage"] as? [String: Any] ?? values)
+                        let turn = payload["turn_id"] as? String ?? timestamp
+                        identity = "usage:\(turn):\(total.input):\(total.cached):\(total.cacheWrite):\(total.output)"
                     }
+                    guard seenResponses.insert(identity).inserted else { return }
+                    usageRecords.append(PendingUsage(day: day, model: model, counts: counts))
                     return
                 }
 
-                guard type == "event_msg",
-                      let payload = object["payload"] as? [String: Any],
-                      (payload["type"] as? String) == "token_count",
-                      let timestamp = object["timestamp"] as? String,
-                      let dayKey = Self.dayKey(from: timestamp)
-                else { return }
-
+                guard type == "event_msg", payload["type"] as? String == "token_count" else { return }
                 let info = payload["info"] as? [String: Any]
-                let eventModel = info?["model"] as? String
+                let total = (info?["total_token_usage"] as? [String: Any]).map(TokenCounts.init)
+                let last = (info?["last_token_usage"] as? [String: Any]).map(TokenCounts.init)
+                let previous = previousTotals
+                // Advance the baseline even when copied parent history has no
+                // model context and must not be counted for this rollout.
+                if let total { previousTotals = total }
+                if let total, let previous, total == previous { return }
+
+                let model = currentModel
+                    ?? info?["model"] as? String
                     ?? info?["model_name"] as? String
                     ?? payload["model"] as? String
                     ?? object["model"] as? String
-                let model = currentModel
-                    ?? eventModel
-
-                // Forked/subagent rollouts can begin with a compressed copy of the
-                // parent's historical token_count events but without the parent's
-                // turn_context records. Counting that bootstrap history duplicates
-                // usage, and assigning an arbitrary GPT-5 fallback mislabels it.
-                // Only accept events once this rollout provides verifiable model
-                // context (or the event itself names its model).
-                guard hasModelContext || eventModel?.isEmpty == false,
-                      let model, !model.isEmpty
-                else { return }
-                let total = info?["total_token_usage"] as? [String: Any]
-                let last = info?["last_token_usage"] as? [String: Any]
-                let delta: RunningTotals?
-
-                if let last {
-                    delta = RunningTotals(
-                        input: max(0, Self.intValue(last["input_tokens"])),
-                        cached: max(0, Self.intValue(last["cached_input_tokens"] ?? last["cache_read_input_tokens"])),
-                        output: max(0, Self.intValue(last["output_tokens"])))
-                } else if let total {
-                    let current = RunningTotals(
-                        input: max(0, Self.intValue(total["input_tokens"])),
-                        cached: max(0, Self.intValue(total["cached_input_tokens"] ?? total["cache_read_input_tokens"])),
-                        output: max(0, Self.intValue(total["output_tokens"])))
-                    let previous = previousTotals ?? RunningTotals()
-                    if current.input < previous.input || current.cached < previous.cached || current.output < previous.output {
-                        delta = current
-                    } else {
-                        delta = RunningTotals(
-                            input: max(0, current.input - previous.input),
-                            cached: max(0, current.cached - previous.cached),
-                            output: max(0, current.output - previous.output))
-                    }
+                guard let model, !model.isEmpty else { return }
+                let delta: TokenCounts?
+                if let total, let previous, !total.decreased(from: previous) {
+                    delta = total.difference(from: previous)
                 } else {
-                    delta = nil
+                    delta = last ?? total
                 }
-
-                if let total {
-                    previousTotals = RunningTotals(
-                        input: max(0, Self.intValue(total["input_tokens"])),
-                        cached: max(0, Self.intValue(total["cached_input_tokens"] ?? total["cache_read_input_tokens"])),
-                        output: max(0, Self.intValue(total["output_tokens"])))
-                } else if let delta {
-                    let previous = previousTotals ?? RunningTotals()
-                    previousTotals = RunningTotals(
-                        input: previous.input + delta.input,
-                        cached: previous.cached + delta.cached,
-                        output: previous.output + delta.output)
-                }
-
                 guard let delta else { return }
-                add(dayKey: dayKey, model: model, input: delta.input, cached: delta.cached, output: delta.output)
+                if total == nil {
+                    let previous = previousTotals ?? TokenCounts()
+                    previousTotals = TokenCounts(input: previous.input + delta.input, cached: previous.cached + delta.cached,
+                                                 cacheWrite: previous.cacheWrite + delta.cacheWrite, output: previous.output + delta.output)
+                }
+                legacyEvents.append(PendingUsage(day: day, model: model, counts: delta))
             }
         } catch {
-            return days
+            // Keep complete usage records read before a concurrently changing
+            // file ended or became unavailable.
         }
-
+        flushTurn()
         return days
     }
 
@@ -672,13 +695,9 @@ final class CodexUsageScanner {
     }
 
     private func shouldInspect(_ line: Data) -> Bool {
-        if line.containsASCII(#""token_count""#) {
-            return true
-        }
-        if line.containsASCII(#""type":"turn_context""#) {
-            return true
-        }
-        return false
+        line.containsASCII(#""token_count""#)
+            || line.containsASCII(#""token_usage_record""#)
+            || line.containsASCII(#""turn_context""#)
     }
 
     private func extractStringField(_ field: String, fromPrefixOf line: Data) -> String? {
@@ -700,29 +719,28 @@ final class CodexUsageScanner {
         for cachedFile in cache.files.values {
             for (dayKey, models) in cachedFile.days {
                 for (model, usage) in models {
-                    let metadata = pricingOverrides.codexCostEstimate(
-                        model: model,
-                        inputTokens: usage.input,
-                        cachedInputTokens: usage.cached,
-                        outputTokens: usage.output
-                    ) ?? CodexUsagePricing.codexCostEstimate(
-                        model: model,
-                        inputTokens: usage.input,
-                        cachedInputTokens: usage.cached,
-                        outputTokens: usage.output
-                    )
+                    let estimates = usage.requests.compactMap { request in
+                        pricingOverrides.codexCostEstimate(
+                            model: model, inputTokens: request.input, cachedInputTokens: request.cached,
+                            cacheWriteInputTokens: request.cacheWrite, outputTokens: request.output
+                        ) ?? CodexUsagePricing.codexCostEstimate(
+                            model: model, inputTokens: request.input, cachedInputTokens: request.cached,
+                            cacheWriteInputTokens: request.cacheWrite, outputTokens: request.output
+                        )
+                    }
+                    let metadata = estimates.first
                     let row = MoaUsageDetailRow(
                         source: .codex,
                         dayKey: dayKey,
                         model: metadata?.normalizedModel ?? model,
-                        input: max(0, usage.input - usage.cached),
+                        input: max(0, usage.input - usage.cached - usage.cacheWrite),
                         cachedInput: usage.cached,
                         cacheReadInput: 0,
-                        cacheCreationInput: 0,
+                        cacheCreationInput: usage.cacheWrite,
                         output: usage.output,
-                        costUSD: metadata?.costUSD ?? 0,
+                        costUSD: estimates.reduce(0) { $0 + $1.costUSD },
                         pricingModel: metadata?.pricingModel ?? model,
-                        usesFallbackPricing: metadata?.usesFallbackPricing ?? false
+                        usesFallbackPricing: estimates.contains { $0.usesFallbackPricing }
                     )
                     if var existing = buckets[row.id] {
                         existing.merge(row)
@@ -1334,6 +1352,13 @@ enum MoaUsagePricing {
         let priorityInputCostPerToken: Double?
         let priorityOutputCostPerToken: Double?
         let priorityCacheReadInputCostPerToken: Double?
+        var cacheWriteInputCostPerToken: Double? = nil
+        var cacheWriteInputCostPerTokenAboveThreshold: Double? = nil
+        var priorityCacheWriteInputCostPerToken: Double? = nil
+        var priorityInputCostPerTokenAboveThreshold: Double? = nil
+        var priorityOutputCostPerTokenAboveThreshold: Double? = nil
+        var priorityCacheReadInputCostPerTokenAboveThreshold: Double? = nil
+        var priorityCacheWriteInputCostPerTokenAboveThreshold: Double? = nil
     }
 
     private struct ClaudePricing {
@@ -1376,13 +1401,38 @@ enum MoaUsagePricing {
         "gpt-5.4-pro": CodexPricing(inputCostPerToken: 3e-5, outputCostPerToken: 1.8e-4, cacheReadInputCostPerToken: nil, displayLabel: nil, thresholdTokens: nil, inputCostPerTokenAboveThreshold: nil, outputCostPerTokenAboveThreshold: nil, cacheReadInputCostPerTokenAboveThreshold: nil, priorityInputCostPerToken: nil, priorityOutputCostPerToken: nil, priorityCacheReadInputCostPerToken: nil),
         "gpt-5.5": CodexPricing(inputCostPerToken: 5e-6, outputCostPerToken: 3e-5, cacheReadInputCostPerToken: 5e-7, displayLabel: nil, thresholdTokens: 272_000, inputCostPerTokenAboveThreshold: 1e-5, outputCostPerTokenAboveThreshold: 4.5e-5, cacheReadInputCostPerTokenAboveThreshold: 1e-6, priorityInputCostPerToken: 1.25e-5, priorityOutputCostPerToken: 7.5e-5, priorityCacheReadInputCostPerToken: 1.25e-6),
         "gpt-5.5-pro": CodexPricing(inputCostPerToken: 3e-5, outputCostPerToken: 1.8e-4, cacheReadInputCostPerToken: nil, displayLabel: nil, thresholdTokens: nil, inputCostPerTokenAboveThreshold: nil, outputCostPerTokenAboveThreshold: nil, cacheReadInputCostPerTokenAboveThreshold: nil, priorityInputCostPerToken: nil, priorityOutputCostPerToken: nil, priorityCacheReadInputCostPerToken: nil),
-        // Refreshed 2026-07-10 from https://models.dev/api.json and cross-checked against
-        // https://developers.openai.com/api/docs/pricing.md. The gpt-5.6 alias routes to Sol.
-        "gpt-5.6": CodexPricing(inputCostPerToken: 5e-6, outputCostPerToken: 3e-5, cacheReadInputCostPerToken: 5e-7, displayLabel: nil, thresholdTokens: 272_000, inputCostPerTokenAboveThreshold: 1e-5, outputCostPerTokenAboveThreshold: 4.5e-5, cacheReadInputCostPerTokenAboveThreshold: 1e-6, priorityInputCostPerToken: 1e-5, priorityOutputCostPerToken: 6e-5, priorityCacheReadInputCostPerToken: 1e-6),
-        "gpt-5.6-sol": CodexPricing(inputCostPerToken: 5e-6, outputCostPerToken: 3e-5, cacheReadInputCostPerToken: 5e-7, displayLabel: nil, thresholdTokens: 272_000, inputCostPerTokenAboveThreshold: 1e-5, outputCostPerTokenAboveThreshold: 4.5e-5, cacheReadInputCostPerTokenAboveThreshold: 1e-6, priorityInputCostPerToken: 1e-5, priorityOutputCostPerToken: 6e-5, priorityCacheReadInputCostPerToken: 1e-6),
-        "gpt-5.6-terra": CodexPricing(inputCostPerToken: 2.5e-6, outputCostPerToken: 1.5e-5, cacheReadInputCostPerToken: 2.5e-7, displayLabel: nil, thresholdTokens: 272_000, inputCostPerTokenAboveThreshold: 5e-6, outputCostPerTokenAboveThreshold: 2.25e-5, cacheReadInputCostPerTokenAboveThreshold: 5e-7, priorityInputCostPerToken: 5e-6, priorityOutputCostPerToken: 3e-5, priorityCacheReadInputCostPerToken: 5e-7),
-        "gpt-5.6-luna": CodexPricing(inputCostPerToken: 1e-6, outputCostPerToken: 6e-6, cacheReadInputCostPerToken: 1e-7, displayLabel: nil, thresholdTokens: 272_000, inputCostPerTokenAboveThreshold: 2e-6, outputCostPerTokenAboveThreshold: 9e-6, cacheReadInputCostPerTokenAboveThreshold: 2e-7, priorityInputCostPerToken: 2e-6, priorityOutputCostPerToken: 1.2e-5, priorityCacheReadInputCostPerToken: 2e-7)
+        // Official standard/Fast pricing and 272K request threshold, checked
+        // 2026-09-07: https://developers.openai.com/api/docs/pricing.md
+        // Cache writes for GPT-5.6+ cost 1.25x uncached input; reads cost 0.1x.
+        "gpt-6-astra": modernCodexPricing(inputPerMillion: 10, outputPerMillion: 50),
+        "gpt-5.6": modernCodexPricing(inputPerMillion: 4, outputPerMillion: 20),
+        "gpt-5.6-sol": modernCodexPricing(inputPerMillion: 4, outputPerMillion: 20),
+        "gpt-5.6-terra": modernCodexPricing(inputPerMillion: 2, outputPerMillion: 12),
+        "gpt-5.6-luna": modernCodexPricing(inputPerMillion: 0.2, outputPerMillion: 1.2)
     ]
+
+    private static let refreshedCodexModels: Set<String> = [
+        "gpt-6-astra", "gpt-5.6", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"
+    ]
+    private static let officialCodexPricingDate = ISO8601DateFormatter().date(from: "2026-09-06T16:00:00Z") ?? .distantPast
+
+    private static func modernCodexPricing(inputPerMillion: Double, outputPerMillion: Double) -> CodexPricing {
+        let input = inputPerMillion / 1_000_000
+        let output = outputPerMillion / 1_000_000
+        return CodexPricing(
+            inputCostPerToken: input, outputCostPerToken: output, cacheReadInputCostPerToken: input * 0.1,
+            displayLabel: nil, thresholdTokens: 272_000,
+            inputCostPerTokenAboveThreshold: input * 2, outputCostPerTokenAboveThreshold: output * 1.5,
+            cacheReadInputCostPerTokenAboveThreshold: input * 0.2,
+            priorityInputCostPerToken: input * 2, priorityOutputCostPerToken: output * 2,
+            priorityCacheReadInputCostPerToken: input * 0.2,
+            cacheWriteInputCostPerToken: input * 1.25, cacheWriteInputCostPerTokenAboveThreshold: input * 2.5,
+            priorityCacheWriteInputCostPerToken: input * 2.5,
+            priorityInputCostPerTokenAboveThreshold: input * 4, priorityOutputCostPerTokenAboveThreshold: output * 3,
+            priorityCacheReadInputCostPerTokenAboveThreshold: input * 0.4,
+            priorityCacheWriteInputCostPerTokenAboveThreshold: input * 5
+        )
+    }
 
     private static let claude: [String: ClaudePricing] = [
         "claude-haiku-4-5-20251001": ClaudePricing(inputCostPerToken: 1e-6, outputCostPerToken: 5e-6, cacheCreationInputCostPerToken: 1.25e-6, cacheReadInputCostPerToken: 1e-7, thresholdTokens: nil, inputCostPerTokenAboveThreshold: nil, outputCostPerTokenAboveThreshold: nil, cacheCreationInputCostPerTokenAboveThreshold: nil, cacheReadInputCostPerTokenAboveThreshold: nil),
@@ -1423,7 +1473,10 @@ enum MoaUsagePricing {
         catalogStoreLock.lock()
         let store = catalogStore
         catalogStoreLock.unlock()
-        return store.pricing(source: source, model: model)
+        // A previously downloaded catalog must not override a newer verified
+        // built-in price. Fresh catalogs and explicit user overrides still win.
+        let notBefore = source == .codex && refreshedCodexModels.contains(model) ? officialCodexPricingDate : nil
+        return store.pricing(source: source, model: model, notBefore: notBefore)
     }
 
     private static func codexPricing(model: String) -> CodexPricing? {
@@ -1440,7 +1493,14 @@ enum MoaUsagePricing {
             cacheReadInputCostPerTokenAboveThreshold: remote.cacheReadUSDPerMillionAboveThreshold.map(perToken) ?? builtIn?.cacheReadInputCostPerTokenAboveThreshold,
             priorityInputCostPerToken: builtIn?.priorityInputCostPerToken,
             priorityOutputCostPerToken: builtIn?.priorityOutputCostPerToken,
-            priorityCacheReadInputCostPerToken: builtIn?.priorityCacheReadInputCostPerToken
+            priorityCacheReadInputCostPerToken: builtIn?.priorityCacheReadInputCostPerToken,
+            cacheWriteInputCostPerToken: remote.cacheCreationUSDPerMillion.map(perToken) ?? builtIn?.cacheWriteInputCostPerToken,
+            cacheWriteInputCostPerTokenAboveThreshold: remote.cacheCreationUSDPerMillionAboveThreshold.map(perToken) ?? builtIn?.cacheWriteInputCostPerTokenAboveThreshold,
+            priorityCacheWriteInputCostPerToken: builtIn?.priorityCacheWriteInputCostPerToken,
+            priorityInputCostPerTokenAboveThreshold: builtIn?.priorityInputCostPerTokenAboveThreshold,
+            priorityOutputCostPerTokenAboveThreshold: builtIn?.priorityOutputCostPerTokenAboveThreshold,
+            priorityCacheReadInputCostPerTokenAboveThreshold: builtIn?.priorityCacheReadInputCostPerTokenAboveThreshold,
+            priorityCacheWriteInputCostPerTokenAboveThreshold: builtIn?.priorityCacheWriteInputCostPerTokenAboveThreshold
         )
     }
 
@@ -1567,12 +1627,14 @@ enum MoaUsagePricing {
         model: String,
         inputTokens: Int,
         cachedInputTokens: Int,
+        cacheWriteInputTokens: Int = 0,
         outputTokens: Int) -> Double?
     {
         codexCostEstimate(
             model: model,
             inputTokens: inputTokens,
             cachedInputTokens: cachedInputTokens,
+            cacheWriteInputTokens: cacheWriteInputTokens,
             outputTokens: outputTokens
         )?.costUSD
     }
@@ -1581,6 +1643,7 @@ enum MoaUsagePricing {
         model: String,
         inputTokens: Int,
         cachedInputTokens: Int,
+        cacheWriteInputTokens: Int = 0,
         outputTokens: Int) -> CostEstimate?
     {
         let normalized = normalizeCodexModel(model)
@@ -1591,6 +1654,7 @@ enum MoaUsagePricing {
             pricing: pricing,
             inputTokens: inputTokens,
             cachedInputTokens: cachedInputTokens,
+            cacheWriteInputTokens: cacheWriteInputTokens,
             outputTokens: outputTokens)
         return CostEstimate(
             costUSD: cost,
@@ -1610,17 +1674,29 @@ enum MoaUsagePricing {
         return rate * 1_000_000
     }
 
+    static func codexCacheWriteUSDPerMillion(model: String, inputTokens: Int = 1) -> Double? {
+        let normalized = normalizeCodexModel(model)
+        let pricingModel = codexPricing(model: normalized) == nil ? fallbackCodexPricingModel : normalized
+        guard let pricing = codexPricing(model: pricingModel) else { return nil }
+        let longContext = pricing.thresholdTokens.map { max(0, inputTokens) > $0 } ?? false
+        let rate = longContext
+            ? pricing.cacheWriteInputCostPerTokenAboveThreshold ?? pricing.inputCostPerTokenAboveThreshold ?? pricing.cacheWriteInputCostPerToken ?? pricing.inputCostPerToken
+            : pricing.cacheWriteInputCostPerToken ?? pricing.inputCostPerToken
+        return rate * 1_000_000
+    }
+
     static func codexPriorityCostUSD(
         model: String,
         inputTokens: Int,
         cachedInputTokens: Int = 0,
+        cacheWriteInputTokens: Int = 0,
         outputTokens: Int) -> Double?
     {
         let normalized = normalizeCodexModel(model)
         guard let pricing = codexPricing(model: normalized),
               let priorityInput = pricing.priorityInputCostPerToken,
               let priorityOutput = pricing.priorityOutputCostPerToken,
-              max(0, inputTokens) <= codexPriorityInputTokenLimit
+              (max(0, inputTokens) <= codexPriorityInputTokenLimit || pricing.priorityInputCostPerTokenAboveThreshold != nil)
         else {
             return nil
         }
@@ -1630,17 +1706,20 @@ enum MoaUsagePricing {
             outputCostPerToken: priorityOutput,
             cacheReadInputCostPerToken: pricing.priorityCacheReadInputCostPerToken,
             displayLabel: nil,
-            thresholdTokens: nil,
-            inputCostPerTokenAboveThreshold: nil,
-            outputCostPerTokenAboveThreshold: nil,
-            cacheReadInputCostPerTokenAboveThreshold: nil,
+            thresholdTokens: pricing.thresholdTokens,
+            inputCostPerTokenAboveThreshold: pricing.priorityInputCostPerTokenAboveThreshold,
+            outputCostPerTokenAboveThreshold: pricing.priorityOutputCostPerTokenAboveThreshold,
+            cacheReadInputCostPerTokenAboveThreshold: pricing.priorityCacheReadInputCostPerTokenAboveThreshold,
             priorityInputCostPerToken: nil,
             priorityOutputCostPerToken: nil,
-            priorityCacheReadInputCostPerToken: nil)
+            priorityCacheReadInputCostPerToken: nil,
+            cacheWriteInputCostPerToken: pricing.priorityCacheWriteInputCostPerToken,
+            cacheWriteInputCostPerTokenAboveThreshold: pricing.priorityCacheWriteInputCostPerTokenAboveThreshold)
         return codexCostUSD(
             pricing: priorityPricing,
             inputTokens: inputTokens,
             cachedInputTokens: cachedInputTokens,
+            cacheWriteInputTokens: cacheWriteInputTokens,
             outputTokens: outputTokens)
     }
 
@@ -1746,18 +1825,25 @@ enum MoaUsagePricing {
         pricing: CodexPricing,
         inputTokens: Int,
         cachedInputTokens: Int,
+        cacheWriteInputTokens: Int = 0,
         outputTokens: Int) -> Double
     {
         let cached = min(max(0, cachedInputTokens), max(0, inputTokens))
-        let nonCached = max(0, inputTokens - cached)
+        let cacheWrite = min(max(0, cacheWriteInputTokens), max(0, inputTokens - cached))
+        let nonCached = max(0, inputTokens - cached - cacheWrite)
         let cachedRate = pricing.cacheReadInputCostPerToken ?? pricing.inputCostPerToken
         let usesLongContextRates = pricing.thresholdTokens.map { max(0, inputTokens) > $0 } ?? false
         let inputRate = usesLongContextRates ? pricing.inputCostPerTokenAboveThreshold ?? pricing.inputCostPerToken : pricing.inputCostPerToken
         let cachedInputRate = usesLongContextRates ? pricing.cacheReadInputCostPerTokenAboveThreshold ?? cachedRate : cachedRate
         let outputRate = usesLongContextRates ? pricing.outputCostPerTokenAboveThreshold ?? pricing.outputCostPerToken : pricing.outputCostPerToken
 
+        let cacheWriteRate = usesLongContextRates
+            ? pricing.cacheWriteInputCostPerTokenAboveThreshold ?? inputRate
+            : pricing.cacheWriteInputCostPerToken ?? inputRate
+
         return Double(nonCached) * inputRate
             + Double(cached) * cachedInputRate
+            + Double(cacheWrite) * cacheWriteRate
             + Double(max(0, outputTokens)) * outputRate
     }
 

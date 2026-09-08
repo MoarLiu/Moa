@@ -169,7 +169,7 @@
 "Open 3P Profile Folder" = "Open 3P Profile Folder";
 "Open Claude Desktop" = "Open Claude Desktop";
 "Open Claude Folder" = "Open Claude Folder";
-"Open Codex" = "Open Codex";
+"Open Codex" = "Open ChatGPT";
 "Open Codex Folder" = "Open Codex Folder";
 "Open iCloud Data Folder" = "Open iCloud Data Folder";
 "Open Moa Data Folder" = "Open Moa Data Folder";
@@ -202,7 +202,7 @@
 "Rename Codex Official Account" = "Rename Codex Official Account";
 "Rename Current Account" = "Rename Current Account";
 "Reopen Claude Desktop" = "Reopen Claude Desktop";
-"Reopen Codex" = "Reopen Codex";
+"Reopen Codex" = "Reopen ChatGPT";
 "Reopen ZCode" = "Reopen ZCode";
 "Reopening ZCode..." = "Reopening ZCode...";
 "Rollback package: %@\nRestart Moa if any window still shows old data." = "Rollback package: %@\nRestart Moa if any window still shows old data.";
@@ -296,3 +296,6 @@
 "The saved Codex official account path is invalid: %@" = "The saved Codex official account path is invalid: %@";
 "Load Failed" = "Load Failed";
 "Unable to load %@ data: %@" = "Unable to load %@ data: %@";
+
+"Remote Connection Settings…" = "Remote Connection Settings…";
+"ChatGPT could not be closed. Finish the active task and try again." = "ChatGPT could not be closed. Finish the active task and try again.";

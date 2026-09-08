@@ -10,11 +10,12 @@ fi
 
 # shellcheck source=version.env
 source "$ROOT/scripts/version.env"
+APP_RELEASE_VERSION="${APP_RELEASE_VERSION:-$APP_VERSION}"
 APP_NAME="Moa"
 APP="$ROOT/$APP_NAME.app"
 DIST_DIR="$ROOT/dist"
 DMG_ROOT="$DIST_DIR/dmg-root"
-DMG_PATH="$DIST_DIR/$APP_NAME-$APP_VERSION-macos-$APP_ARCH.dmg"
+DMG_PATH="$DIST_DIR/$APP_NAME-$APP_RELEASE_VERSION-macos-$APP_ARCH.dmg"
 CHECKSUM_PATH="$DMG_PATH.sha256"
 CODE_SIGN_IDENTITY="${CODE_SIGN_IDENTITY:-${MOA_CODE_SIGN_IDENTITY:--}}"
 NOTARIZE="${NOTARIZE:-0}"
@@ -24,6 +25,7 @@ rm -rf "$DMG_ROOT" "$DMG_PATH" "$CHECKSUM_PATH"
 mkdir -p "$DMG_ROOT" "$DIST_DIR"
 
 APP_VERSION="$APP_VERSION" \
+APP_RELEASE_VERSION="$APP_RELEASE_VERSION" \
 APP_BUILD="$APP_BUILD" \
 CODE_SIGN_IDENTITY="$CODE_SIGN_IDENTITY" \
 bash "$ROOT/scripts/build-menu-bar-app.sh"
@@ -86,7 +88,7 @@ if [[ -n "$SENSITIVE_XATTR_MATCH" ]]; then
 fi
 
 /usr/bin/hdiutil create \
-  -volname "$APP_NAME $APP_VERSION" \
+  -volname "$APP_NAME $APP_RELEASE_VERSION" \
   -srcfolder "$DMG_ROOT" \
   -ov \
   -format UDZO \

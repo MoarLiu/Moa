@@ -16,7 +16,6 @@ final class ConfigProfileController {
     let fileManager = FileManager.default
     let environment: [String: String]
     let codexHome: URL
-    let codexApp: URL
     let stateLock = NSRecursiveLock()
 
     #if MOA_TESTING
@@ -66,10 +65,8 @@ final class ConfigProfileController {
         self.environment = environment
         let home = environment["HOME"] ?? NSHomeDirectory()
         let codexHomePath = environment["CODEX_HOME"].flatMap { $0.isEmpty ? nil : $0 } ?? "\(home)/.codex"
-        let codexAppPath = environment["CODEX_APP"].flatMap { $0.isEmpty ? nil : $0 } ?? "/Applications/Codex.app"
 
         codexHome = URL(fileURLWithPath: codexHomePath).standardizedFileURL
-        codexApp = URL(fileURLWithPath: codexAppPath).standardizedFileURL
 
         try? bootstrap()
     }
@@ -85,11 +82,6 @@ final class ConfigProfileController {
 	model_provider = "Codex"
 	model = "gpt-5.5"
 	model_reasoning_effort = "high"
-	disable_response_storage = true
-
-	[features]
-	remote_connections = true
-	remote_control = true
 
 	[model_providers.Codex]
 	name = "Codex"

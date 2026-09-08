@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.2.0-rc.1 - 2026-09-07
+
+- Added compatibility with the renamed ChatGPT desktop app while retaining Codex data paths and legacy app discovery.
+- Updated Fast Mode to use current desktop settings, recognize priority/fast tiers, and preserve recovery backups.
+- Preserved live desktop preferences, unknown TOML content, and unrelated providers when switching configurations.
+- Replaced obsolete remote connection toggles with a shortcut to ChatGPT connection settings.
+- Added deduplicated usage-record support, cache-write accounting, and per-request long-context pricing.
+- Refreshed GPT-6 Astra and GPT-5.6 prices and tracked catalog freshness per model.
+- Fixed release-candidate version comparisons and kept automatic update fallback on the stable release channel.
+- Added compatibility and prerelease regression coverage.
+
 ## 1.1.8 - 2026-07-12
 
 - Fixed Codex usage statistics so inherited subagent history is not counted again.

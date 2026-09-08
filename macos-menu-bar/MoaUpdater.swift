@@ -91,6 +91,11 @@ final class MoaUpdateController {
     private static var releaseAtomFeedURL: URL {
         githubURL(path: "/\(gitHubRepository)/releases.atom")
     }
+    static var currentVersion: String? {
+        Bundle.main.object(forInfoDictionaryKey: "MoaReleaseVersion") as? String
+            ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+    }
+
     static let retainedUpdateBackupCount = 2
     private static var releaseAssetArchitecture: String {
         #if arch(x86_64)
@@ -135,7 +140,7 @@ final class MoaUpdateController {
         let release = try JSONDecoder().decode(GitHubRelease.self, from: data)
         let remoteVersion = Self.version(from: release)
         let remoteBuild = Self.build(from: release)
-        let localVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
+        let localVersion = Self.currentVersion ?? "0"
         let localBuild = Int(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "")
         guard Self.isRemoteVersion(remoteVersion, remoteBuild: remoteBuild, newerThan: localVersion, localBuild: localBuild) else {
             return .upToDate(remoteVersion: remoteVersion, remoteBuild: remoteBuild)
@@ -172,7 +177,7 @@ final class MoaUpdateController {
             }
 
             let update = try Self.releaseInfo(fromAtomFeed: feed)
-            let localVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
+            let localVersion = Self.currentVersion ?? "0"
             let localBuild = Int(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "")
             guard Self.isRemoteVersion(update.version, remoteBuild: update.build, newerThan: localVersion, localBuild: localBuild) else {
                 return .upToDate(remoteVersion: update.version, remoteBuild: update.build)
@@ -336,11 +341,19 @@ final class MoaUpdateController {
         return release.tagName.trimmingCharacters(in: CharacterSet(charactersIn: "vV"))
     }
 
-    static func releaseInfo(fromAtomFeed feed: String) throws -> MoaUpdateInfo {
-        guard let entry = firstCapture(in: feed, pattern: #"<entry\b[^>]*>(.*?)</entry>"#, options: [.dotMatchesLineSeparators]) else {
-            throw MoaUpdateError.invalidReleaseResponse
+    static func releaseInfo(fromAtomFeed feed: String, includePrereleases: Bool = false) throws -> MoaUpdateInfo {
+        let regex = try NSRegularExpression(pattern: #"<entry\b[^>]*>(.*?)</entry>"#, options: [.dotMatchesLineSeparators])
+        for match in regex.matches(in: feed, range: NSRange(feed.startIndex..<feed.endIndex, in: feed)) {
+            guard let range = Range(match.range(at: 1), in: feed),
+                  let update = try? releaseInfo(fromAtomEntry: String(feed[range])) else { continue }
+            // The API's /latest endpoint excludes prereleases. Keep the Atom
+            // fallback on that same stable channel instead of promoting an RC.
+            if includePrereleases || versionParts(update.version).prerelease == nil { return update }
         }
+        throw MoaUpdateError.invalidReleaseResponse
+    }
 
+    private static func releaseInfo(fromAtomEntry entry: String) throws -> MoaUpdateInfo {
         let link = firstCapture(in: entry, pattern: #"<link\b[^>]*rel="alternate"[^>]*href="([^"]+)""#)
             ?? firstCapture(in: entry, pattern: #"<link\b[^>]*href="([^"]+)""#)
         let title = firstCapture(in: entry, pattern: #"<title>(.*?)</title>"#, options: [.dotMatchesLineSeparators]) ?? ""
@@ -384,7 +397,7 @@ final class MoaUpdateController {
 
     private static func version(fromCandidates candidates: [String]) -> String? {
         for candidate in candidates {
-            if let match = candidate.range(of: #"\d+(?:\.\d+){1,3}"#, options: .regularExpression) {
+            if let match = candidate.range(of: #"\d+(?:\.\d+){1,3}(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?(?:\+[0-9A-Za-z.-]+)?"#, options: .regularExpression) {
                 return String(candidate[match])
             }
         }
@@ -502,13 +515,25 @@ final class MoaUpdateController {
     static func isRemoteVersion(_ remoteVersion: String, remoteBuild: Int?, newerThan localVersion: String, localBuild: Int?) -> Bool {
         let remoteParts = versionParts(remoteVersion)
         let localParts = versionParts(localVersion)
-        let count = max(remoteParts.count, localParts.count)
-        for index in 0..<count {
-            let remote = index < remoteParts.count ? remoteParts[index] : 0
-            let local = index < localParts.count ? localParts[index] : 0
-            if remote != local {
-                return remote > local
+        for index in 0..<max(remoteParts.core.count, localParts.core.count) {
+            let remote = index < remoteParts.core.count ? remoteParts.core[index] : 0
+            let local = index < localParts.core.count ? localParts.core[index] : 0
+            if remote != local { return remote > local }
+        }
+        switch (remoteParts.prerelease, localParts.prerelease) {
+        case (nil, .some): return true
+        case (.some, nil): return false
+        case let (.some(remote), .some(local)):
+            for index in 0..<min(remote.count, local.count) where remote[index] != local[index] {
+                switch (Int(remote[index]), Int(local[index])) {
+                case let (.some(lhs), .some(rhs)): return lhs > rhs
+                case (.some, nil): return false
+                case (nil, .some): return true
+                case (nil, nil): return remote[index] > local[index]
+                }
             }
+            if remote.count != local.count { return remote.count > local.count }
+        case (nil, nil): break
         }
         return (remoteBuild ?? 0) > (localBuild ?? 0)
     }
@@ -592,11 +617,13 @@ final class MoaUpdateController {
         URL(string: "https://github.com\(path)")!
     }
 
-    private static func versionParts(_ version: String) -> [Int] {
-        version
-            .trimmingCharacters(in: CharacterSet(charactersIn: "vV"))
-            .split(separator: ".")
-            .map { Int($0) ?? 0 }
+    private static func versionParts(_ version: String) -> (core: [Int], prerelease: [String]?) {
+        let normalized = version.trimmingCharacters(in: CharacterSet(charactersIn: "vV"))
+        let withoutMetadata = normalized.split(separator: "+", maxSplits: 1).first.map(String.init) ?? normalized
+        let parts = withoutMetadata.split(separator: "-", maxSplits: 1).map(String.init)
+        let core = (parts.first ?? "0").split(separator: ".").map { Int($0) ?? 0 }
+        let prerelease = parts.count > 1 ? parts[1].split(separator: ".").map(String.init) : nil
+        return (core, prerelease)
     }
 
     private static func timestamp() -> String {

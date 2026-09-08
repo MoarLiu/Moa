@@ -1,21 +1,50 @@
 import AppKit
+import Darwin
 import Foundation
 
 private enum FastModeError: LocalizedError {
     case invalidStateFile(URL)
+    case clientStillRunning
 
     var errorDescription: String? {
         switch self {
+        case .clientStillRunning:
+            return MoaL10n.text("ChatGPT could not be closed. Finish the active task and try again.")
         case .invalidStateFile(let url):
             return MoaL10n.format("Invalid JSON state file: %@", url.path)
         }
     }
 }
 
+enum CodexDesktopApplication {
+    static let bundleIdentifier = "com.openai.codex"
+
+    static func applicationURL(environment: [String: String]) -> URL? {
+        let fileManager = FileManager.default
+        if let override = environment["CODEX_APP"], !override.isEmpty {
+            let url = URL(fileURLWithPath: override).resolvingSymlinksInPath().standardizedFileURL
+            return fileManager.fileExists(atPath: url.path) ? url : nil
+        }
+        if let installed = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier),
+           fileManager.fileExists(atPath: installed.path) {
+            return installed.resolvingSymlinksInPath().standardizedFileURL
+        }
+        let home = environment["HOME"] ?? NSHomeDirectory()
+        for path in ["/Applications/ChatGPT.app", "\(home)/Applications/ChatGPT.app",
+                     "/Applications/Codex.app", "\(home)/Applications/Codex.app"] {
+            let url = URL(fileURLWithPath: path)
+            if fileManager.fileExists(atPath: path), Bundle(url: url)?.bundleIdentifier == bundleIdentifier {
+                return url
+            }
+        }
+        return nil
+    }
+}
+
 final class FastStateController: Sendable {
     private let environment: [String: String]
     private let codexHome: URL
-    private let codexApp: URL
+    private var codexApp: URL? { CodexDesktopApplication.applicationURL(environment: environment) }
     private let backupDir: URL
 
     private var fileManager: FileManager { .default }
@@ -44,62 +73,102 @@ final class FastStateController: Sendable {
         self.environment = environment
         let home = environment["HOME"] ?? NSHomeDirectory()
         let codexHomePath = environment["CODEX_HOME"].flatMap { $0.isEmpty ? nil : $0 } ?? "\(home)/.codex"
-        let codexAppPath = environment["CODEX_APP"].flatMap { $0.isEmpty ? nil : $0 } ?? "/Applications/Codex.app"
 
         codexHome = URL(fileURLWithPath: codexHomePath).standardizedFileURL
-        codexApp = URL(fileURLWithPath: codexAppPath).standardizedFileURL
         backupDir = codexHome.appendingPathComponent("fast-toggle-backups")
     }
 
     func serviceTier() -> String? {
-        guard
-            let root = try? loadState(from: stateURL),
-            let atom = root["electron-persisted-atom-state"] as? [String: Any],
-            let tier = atom["default-service-tier"] as? String
-        else {
-            return nil
+        let config = try? String(contentsOf: codexConfigURL, encoding: .utf8)
+        if let config,
+           let desktopTier = MoaTomlEditor.stringValue(in: config, table: "desktop", key: "default-service-tier") {
+            return desktopTier
         }
-
-        return tier
+        // Match the desktop migration: an unmigrated persisted preference wins
+        // over the root config fallback when the desktop key is absent.
+        if let root = try? loadState(from: stateURL),
+           let atom = root["electron-persisted-atom-state"] as? [String: Any],
+           let tier = atom["default-service-tier"] as? String, !tier.isEmpty {
+            return tier
+        }
+        guard let config, !usesLegacyServiceTierStorage else { return nil }
+        return MoaTomlEditor.stringValue(in: config, table: "", key: "service_tier")
     }
 
     func isFastEnabled() -> Bool {
-        serviceTier() == "fast"
+        serviceTier().map { ["fast", "priority"].contains($0.lowercased()) } ?? false
+    }
+
+    private var usesLegacyServiceTierStorage: Bool {
+        if let config = try? String(contentsOf: codexConfigURL, encoding: .utf8),
+           MoaTomlEditor.lineContexts(in: config).contains(where: {
+               $0.isStructural && MoaTomlEditor.tableName(from: $0.text) == "desktop"
+           }) { return false }
+        guard let codexApp else { return false }
+        return Bundle(url: codexApp)?.executableURL?.lastPathComponent == "Codex"
     }
 
     func applyFastMode(_ enabled: Bool) throws {
-        quitCodexIfNeeded()
-        try backupExistingFiles()
-        try rewriteStateFile(stateURL, enabled: enabled)
-        try rewriteStateFile(stateBackupURL, enabled: enabled)
-        openCodexIfAvailable()
+        guard quitCodexIfNeeded() else { throw FastModeError.clientStillRunning }
+        defer { openCodexIfAvailable() }
+        let legacy = usesLegacyServiceTierStorage
+        var targets = legacy ? [stateURL, stateBackupURL] : [codexConfigURL]
+        if !legacy, fileManager.fileExists(atPath: moaConfigURL.path) { targets.append(moaConfigURL) }
+        let snapshots = try targets.map { url -> (url: URL, data: Data?, permissions: Any?) in
+            guard fileManager.fileExists(atPath: url.path) else { return (url, nil, nil) }
+            return (url, try Data(contentsOf: url), try fileManager.attributesOfItem(atPath: url.path)[.posixPermissions])
+        }
+        if legacy { try backupExistingFiles() } else { try backupConfigFiles() }
+        do {
+            for url in targets {
+                if legacy { try rewriteStateFile(url, enabled: enabled) }
+                else { try rewriteServiceTierConfig(url, enabled: enabled) }
+            }
+        } catch {
+            let originalError = error
+            for snapshot in snapshots {
+                if let data = snapshot.data {
+                    try data.write(to: snapshot.url, options: .atomic)
+                    if let permissions = snapshot.permissions {
+                        try fileManager.setAttributes([.posixPermissions: permissions], ofItemAtPath: snapshot.url.path)
+                    }
+                } else if fileManager.fileExists(atPath: snapshot.url.path) {
+                    try fileManager.removeItem(at: snapshot.url)
+                }
+            }
+            throw originalError
+        }
     }
 
-    func isRemoteConnectionsEnabled() -> Bool {
-        guard let config = try? String(contentsOf: codexConfigURL, encoding: .utf8) else {
-            return false
-        }
-
-        return remoteConnectionsEnabled(in: config)
+    func openRemoteConnectionsSettings() {
+        guard let codexApp else { return }
+        _ = run("/usr/bin/open", ["-a", codexApp.path, "codex://settings/connections"])
     }
 
-    func applyRemoteConnections(_ enabled: Bool) throws {
-        quitCodexIfNeeded()
-        try backupConfigFiles()
-        try rewriteRemoteConnectionsConfig(codexConfigURL, enabled: enabled, createIfMissing: enabled)
-        if fileManager.fileExists(atPath: moaConfigURL.path) {
-            try rewriteRemoteConnectionsConfig(moaConfigURL, enabled: enabled, createIfMissing: false)
+    private func rewriteServiceTierConfig(_ url: URL, enabled: Bool) throws {
+        let config: String
+        if fileManager.fileExists(atPath: url.path) {
+            config = try String(contentsOf: url, encoding: .utf8)
+        } else {
+            config = ""
         }
-        openCodexIfAvailable()
+        let tier = enabled ? "priority" : "default"
+        var output = MoaTomlEditor.upsertingString(tier, in: config, table: "desktop", key: "default-service-tier")
+        // Explicitly reset the root fallback as well, so disabling Fast cannot
+        // reveal an older priority preference when the desktop setting is cleared.
+        output = MoaTomlEditor.upsertingString(tier, in: output, table: "", key: "service_tier")
+        try fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try output.write(to: url, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
     }
 
     func reopenCodex() {
-        quitCodexIfNeeded()
+        guard quitCodexIfNeeded() else { return }
         openCodexIfAvailable()
     }
 
-    func quitCodex() {
-        quitCodexIfNeeded()
+    func quitCodex() throws {
+        guard quitCodexIfNeeded() else { throw FastModeError.clientStillRunning }
     }
 
     func openCodex() {
@@ -162,24 +231,8 @@ final class FastStateController: Sendable {
         try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
     }
 
-    private func rewriteRemoteConnectionsConfig(_ url: URL, enabled: Bool, createIfMissing: Bool) throws {
-        guard fileManager.fileExists(atPath: url.path) || createIfMissing else {
-            return
-        }
-
-        try fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-
-        let config = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
-        let output = setRemoteConnections(enabled, in: config)
-        var text = output
-        if !text.hasSuffix("\n") {
-            text.append("\n")
-        }
-
-        try text.write(to: url, atomically: true, encoding: .utf8)
-        try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
-    }
-
+    // Legacy TOML transformations are retained for importing older configurations.
+    // Live desktop connections are managed through the client's settings page.
     func remoteConnectionsEnabled(in text: String) -> Bool {
         tomlBoolValue(in: text, table: "features", key: "remote_connections") == true
             && tomlBoolValue(in: text, table: "features", key: "remote_control") == true
@@ -358,31 +411,35 @@ final class FastStateController: Sendable {
         return root
     }
 
-    private func quitCodexIfNeeded() {
-        guard isCodexRunning() else { return }
-
-        _ = run("/usr/bin/osascript", ["-e", "tell application id \"com.openai.codex\" to quit"])
-        _ = waitForCodexRunning(false, timeout: 4)
-
-        if isCodexRunning() {
-            _ = run("/usr/bin/pkill", ["-f", codexExecutableMatchPattern()])
-            _ = waitForCodexRunning(false, timeout: 3)
-        }
+    @discardableResult
+    private func quitCodexIfNeeded() -> Bool {
+        let applications = runningCodexApplications()
+        guard !applications.isEmpty else { return true }
+        applications.forEach { _ = $0.terminate() }
+        if waitForCodexRunning(false, timeout: 4) { return true }
+        runningCodexApplications().forEach { _ = $0.forceTerminate() }
+        return waitForCodexRunning(false, timeout: 3)
     }
 
     private func openCodexIfAvailable() {
-        guard fileManager.fileExists(atPath: codexApp.path) else { return }
+        guard let codexApp else { return }
         _ = run("/usr/bin/open", [codexApp.path])
     }
 
-    private func isCodexRunning() -> Bool {
-        run("/usr/bin/pgrep", ["-f", codexExecutableMatchPattern()]) == 0
+    private func runningCodexApplications() -> [NSRunningApplication] {
+        guard let codexApp else { return [] }
+        let identifier = Bundle(url: codexApp)?.bundleIdentifier ?? CodexDesktopApplication.bundleIdentifier
+        return NSRunningApplication.runningApplications(withBundleIdentifier: identifier).filter { application in
+            guard application.bundleURL?.resolvingSymlinksInPath().standardizedFileURL.path == codexApp.resolvingSymlinksInPath().standardizedFileURL.path,
+                  application.processIdentifier > 0 else { return false }
+            // AppKit termination state waits for a main run-loop turn. Check
+            // process existence too so synchronous reopen cannot poll stale apps.
+            return Darwin.kill(application.processIdentifier, 0) == 0 || errno == EPERM
+        }
     }
 
-    private func codexExecutableMatchPattern() -> String {
-        NSRegularExpression.escapedPattern(
-            for: codexApp.appendingPathComponent("Contents/MacOS/Codex").path
-        )
+    private func isCodexRunning() -> Bool {
+        !runningCodexApplications().isEmpty
     }
 
     private func waitForCodexRunning(_ running: Bool, timeout: TimeInterval) -> Bool {

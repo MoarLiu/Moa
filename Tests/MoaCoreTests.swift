@@ -60,6 +60,13 @@ private enum MoaCoreTests {
             ("updater compares versions and parses release feed", testUpdaterVersionComparisonAndFeedParsing),
             ("updater prunes old backups", testUpdaterBackupPruning),
             ("GPT-5.6 family uses current local pricing", testGPT56Pricing),
+            ("ChatGPT application override respects renamed bundles", testChatGPTApplicationOverride),
+            ("Fast mode updates desktop and root config safely", testChatGPTFastMode),
+            ("provider switching preserves live desktop and unrelated tables", testLiveConfigPreservation),
+            ("TOML scalar updates respect quoted keys and arrays", testDesktopTomlScalarStyles),
+            ("Codex new records deduplicate mirrored legacy events", testCodexNewUsageRecords),
+            ("GPT-6 prices include cache writes and request boundaries", testGPT6PricingAndCatalogFreshness),
+            ("updater orders RC versions and keeps stable feed isolated", testPrereleaseUpdates),
             ("Codex usage ignores inherited model-less token history", testCodexUsageIgnoresInheritedHistory),
             ("remote pricing catalog parses, merges, and overrides fallback", testRemotePricingCatalog),
             ("pricing updater schedules the daily local check", testPricingUpdateSchedule),
@@ -997,10 +1004,10 @@ private enum MoaCoreTests {
         defer { MoaUsagePricing.resetRemoteCatalogStoreForTesting() }
 
         let standardCases: [(model: String, expected: Double)] = [
-            ("gpt-5.6", 3.775),
-            ("gpt-5.6-sol", 3.775),
-            ("openai/gpt-5.6-terra", 1.8875),
-            ("gpt-5.6-luna-2026-07-09", 0.755)
+            ("gpt-5.6", 2.62),
+            ("gpt-5.6-sol", 2.62),
+            ("openai/gpt-5.6-terra", 1.51),
+            ("gpt-5.6-luna-2026-07-09", 0.151)
         ]
         for item in standardCases {
             let estimate = MoaUsagePricing.codexCostEstimate(
@@ -1014,9 +1021,9 @@ private enum MoaCoreTests {
         }
 
         let longContextCases: [(model: String, expected: Double)] = [
-            ("gpt-5.6-sol", 6.6),
-            ("gpt-5.6-terra", 3.3),
-            ("gpt-5.6-luna", 1.32)
+            ("gpt-5.6-sol", 4.68),
+            ("gpt-5.6-terra", 2.64),
+            ("gpt-5.6-luna", 0.264)
         ]
         for item in longContextCases {
             let cost = MoaUsagePricing.codexCostUSD(
@@ -1029,10 +1036,10 @@ private enum MoaCoreTests {
         }
 
         let priorityCases: [(model: String, expected: Double)] = [
-            ("gpt-5.6", 7.55),
-            ("gpt-5.6-sol", 7.55),
-            ("gpt-5.6-terra", 3.775),
-            ("gpt-5.6-luna", 1.51)
+            ("gpt-5.6", 5.24),
+            ("gpt-5.6-sol", 5.24),
+            ("gpt-5.6-terra", 3.02),
+            ("gpt-5.6-luna", 0.302)
         ]
         for item in priorityCases {
             let cost = MoaUsagePricing.codexPriorityCostUSD(
@@ -1043,6 +1050,178 @@ private enum MoaCoreTests {
             )
             try expectClose(cost ?? -1, item.expected, "\(item.model) should use current priority pricing")
         }
+    }
+
+    private static func testChatGPTApplicationOverride() throws {
+        let home = try temporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let app = home.appendingPathComponent("Renamed Client.app")
+        let contents = app.appendingPathComponent("Contents")
+        try FileManager.default.createDirectory(at: contents, withIntermediateDirectories: true)
+        let plist: [String: Any] = ["CFBundleIdentifier": "com.openai.codex", "CFBundleExecutable": "ChatGPT", "CFBundlePackageType": "APPL"]
+        try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0).write(to: contents.appendingPathComponent("Info.plist"))
+        try expect(CodexDesktopApplication.applicationURL(environment: ["HOME": home.path, "CODEX_APP": app.path])?.path == app.resolvingSymlinksInPath().path, "explicit application path must support renamed bundles")
+        try expect(CodexDesktopApplication.applicationURL(environment: ["HOME": home.path, "CODEX_APP": home.appendingPathComponent("Missing.app").path]) == nil, "missing explicit app must not fall back to a real running client")
+    }
+
+    private static func testChatGPTFastMode() throws {
+        let home = try temporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let codex = home.appendingPathComponent(".codex")
+        let moa = home.appendingPathComponent(".moa")
+        for directory in [codex, moa] { try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true) }
+        let config = codex.appendingPathComponent("config.toml")
+        let mirror = moa.appendingPathComponent("config.toml")
+        let state = codex.appendingPathComponent(".codex-global-state.json")
+        let originalState = #"{"electron-persisted-atom-state":{"default-service-tier":"fast","unrelated":true}}"#
+        try originalState.write(to: state, atomically: true, encoding: .utf8)
+        let initial = "service_tier = \"default\"\n[desktop]\ndefault-service-tier = \"priority\"\nappearanceTheme = \"dark\"\n"
+        try initial.write(to: config, atomically: true, encoding: .utf8)
+        try initial.write(to: mirror, atomically: true, encoding: .utf8)
+        let controller = FastStateController(environment: ["HOME": home.path, "CODEX_APP": home.appendingPathComponent("Missing.app").path])
+        try expect(controller.isFastEnabled(), "desktop priority must report Fast enabled")
+        try controller.applyFastMode(false)
+        try expect(!controller.isFastEnabled(), "explicit desktop default must override legacy fast")
+        let disabled = try String(contentsOf: config, encoding: .utf8)
+        try expect(MoaTomlEditor.stringValue(in: disabled, table: "", key: "service_tier") == "default", "disabling Fast must clear the root fallback")
+        try expect(MoaTomlEditor.stringValue(in: disabled, table: "desktop", key: "appearanceTheme") == "dark", "unrelated preferences must survive")
+        let mirrored = try String(contentsOf: mirror, encoding: .utf8)
+        try expect(mirrored == disabled, "Moa mirror must follow the speed change")
+        let savedState = try String(contentsOf: state, encoding: .utf8)
+        try expect(savedState == originalState, "modern changes must not rewrite legacy JSON")
+        try controller.applyFastMode(true)
+        try expect(controller.isFastEnabled(), "enabling Fast must update the current desktop setting")
+        try expect(FileManager.default.fileExists(atPath: codex.appendingPathComponent("fast-toggle-backups").path), "Fast changes must create recovery backups")
+    }
+
+    private static func testLiveConfigPreservation() throws {
+        let home = try temporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let controller = ConfigProfileController(environment: ["HOME": home.path])
+        let live = #"""
+        model_provider = "one"
+        service_tier = "default"
+        instructions = """
+        keep this [desktop] text
+        """
+        [desktop]
+        default-service-tier = "priority"
+        appearanceTheme = "light"
+        [model_providers.one]
+        name = "One"
+        base_url = "https://old.example/v1"
+        [model_providers.backup]
+        name = "Backup"
+        base_url = "https://backup.example/v1"
+        [[skills.config]]
+        path = "example-skill"
+        enabled = false
+        """#
+        let old = "obsolete = true\nservice_tier = \"priority\"\n[desktop]\ndefault-service-tier = \"default\"\n"
+        try expect(controller.syncConfigStructure(from: live, into: old) == live, "live client text must be authoritative")
+        try expect(controller.syncConfigStructure(from: "", into: old).isEmpty, "cleared config must not resurrect old preferences")
+        let profile = ConfigProfile(id: "replacement", name: "Replacement", baseURL: "https://new.example/v1", apiKey: "example-test-key")
+        let generated = controller.generateConfig(live, selecting: profile)
+        try expect(generated.contains("https://new.example/v1") && !generated.contains("https://old.example/v1"), "selected provider must be replaced")
+        try expect(generated.contains("https://backup.example/v1"), "unrelated provider must survive")
+        try expect(generated.contains("[[skills.config]]") && generated.contains("example-skill"), "array tables after providers must survive")
+        try expect(MoaTomlEditor.stringValue(in: generated, table: "desktop", key: "default-service-tier") == "priority", "desktop preference must remain current")
+        try expect(!generated.contains("remote_connections = true"), "provider switching must not add obsolete connection flags")
+        let stock = controller.generateConfig("model_provider = \"openai\"\n", selecting: profile)
+        try expect(!stock.contains("[model_providers.openai]"), "built-in OpenAI provider must not be overridden")
+    }
+
+    private static func testDesktopTomlScalarStyles() throws {
+        let dotted = "desktop.default-service-tier = 'fast'\n[[skills.config]]\nservice_tier = 'nested'\n"
+        let updated = MoaTomlEditor.upsertingString("default", in: dotted, table: "desktop", key: "default-service-tier")
+        try expect(MoaTomlEditor.stringValue(in: updated, table: "desktop", key: "default-service-tier") == "default", "dotted key should be updated in place")
+        let root = MoaTomlEditor.upsertingString("priority", in: updated, table: "", key: "service_tier")
+        try expect(MoaTomlEditor.stringValue(in: root, table: "", key: "service_tier") == "priority", "root insertion must occur before an array table")
+        try expect(root.contains("service_tier = 'nested'"), "array member must not be overwritten as a root key")
+        let quoted = "[\"desktop\"]\n\"default-service-tier\" = 'priority'\n"
+        let changed = MoaTomlEditor.upsertingString("default", in: quoted, table: "desktop", key: "default-service-tier")
+        try expect(MoaTomlEditor.stringValue(in: changed, table: "desktop", key: "default-service-tier") == "default", "quoted desktop keys must remain readable after editing")
+    }
+
+    private static func testCodexNewUsageRecords() throws {
+        let home = try temporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        MoaUsagePricing.useRemoteCatalogStoreForTesting(MoaUsagePricingCatalogStore(environment: ["HOME": home.path]))
+        defer { MoaUsagePricing.resetRemoteCatalogStoreForTesting() }
+        let sessions = home.appendingPathComponent(".codex/sessions")
+        try FileManager.default.createDirectory(at: sessions, withIntermediateDirectories: true)
+        func counts(_ multiplier: Int) -> [String: Int] {
+            ["input_tokens": 200_000 * multiplier, "cached_input_tokens": 50_000 * multiplier,
+             "cache_write_input_tokens": 100_000 * multiplier, "output_tokens": 10_000 * multiplier]
+        }
+        var events: [[String: Any]] = []
+        func append(_ type: String, _ payload: [String: Any]) {
+            events.append(["type": type, "timestamp": "2026-09-05T10:00:00Z", "payload": payload])
+        }
+        append("turn_context", ["model": "gpt-6-astra"])
+        for index in 1...2 {
+            let record: [String: Any] = ["response_id": "example-response-\(index)", "usage": counts(1), "thread_token_usage": counts(index)]
+            append("token_usage_record", record)
+            append("token_usage_record", record)
+            let legacy: [String: Any] = ["type": "token_count", "info": ["last_token_usage": counts(1), "total_token_usage": counts(index)]]
+            append("event_msg", legacy)
+            append("event_msg", legacy)
+        }
+        // A legacy-only context in the same file must not disappear.
+        append("turn_context", ["model": "gpt-5.6-luna"])
+        let legacyCounts = ["input_tokens": 100_000, "cached_input_tokens": 20_000, "output_tokens": 1_000]
+        let legacy: [String: Any] = ["type": "token_count", "info": ["last_token_usage": legacyCounts, "total_token_usage": legacyCounts]]
+        append("event_msg", legacy)
+        append("event_msg", legacy)
+        let text = try events.map { String(decoding: try JSONSerialization.data(withJSONObject: $0, options: .sortedKeys), as: UTF8.self) }.joined(separator: "\n") + "\n"
+        try text.write(to: sessions.appendingPathComponent("sample.jsonl"), atomically: true, encoding: .utf8)
+        let scanner = CodexUsageScanner(environment: ["HOME": home.path])
+        let report = try scanner.loadReport(forceRefresh: true)
+        guard let astra = report.rows.first(where: { $0.model == "gpt-6-astra" }),
+              let luna = report.rows.first(where: { $0.model == "gpt-5.6-luna" }) else { throw TestError.failure("both record formats must produce rows") }
+        try expect(astra.totalTokens == 420_000 && astra.cacheCreationInput == 200_000 && astra.cachedInput == 100_000, "new records must count each response once and retain cache writes")
+        try expectClose(astra.costUSD, 4.6, "two 200K requests must each use short-context prices")
+        try expect(luna.totalTokens == 101_000, "duplicate legacy totals must not count twice")
+        try expectClose(luna.costUSD, 0.0176, "legacy-only context must use its own model price")
+        let cached = try scanner.loadReport(forceRefresh: false)
+        try expectClose(cached.totalCostUSD, report.totalCostUSD, "persisted v3 cache must preserve request-level prices")
+    }
+
+    private static func testGPT6PricingAndCatalogFreshness() throws {
+        let home = try temporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let store = MoaUsagePricingCatalogStore(environment: ["HOME": home.path])
+        MoaUsagePricing.useRemoteCatalogStoreForTesting(store)
+        defer { MoaUsagePricing.resetRemoteCatalogStoreForTesting() }
+        let cost = MoaUsagePricing.codexCostEstimate(model: "gpt-6-astra", inputTokens: 200_000, cachedInputTokens: 50_000, cacheWriteInputTokens: 100_000, outputTokens: 10_000)
+        try expect(cost?.usesFallbackPricing == false, "Astra must not use GPT-5.5 fallback")
+        try expectClose(cost?.costUSD ?? -1, 2.3, "Astra must charge cache writes at 1.25x input")
+        try expectClose(MoaUsagePricing.codexCostUSD(model: "gpt-6-astra", inputTokens: 272_000, cachedInputTokens: 0, outputTokens: 0) ?? -1, 2.72, "272K request stays in short-context tier")
+        try expectClose(MoaUsagePricing.codexCostUSD(model: "gpt-6-astra", inputTokens: 272_001, cachedInputTokens: 0, outputTokens: 0) ?? -1, 5.44002, "larger request uses long-context tier")
+        try expectClose(MoaUsagePricing.codexPriorityCostUSD(model: "gpt-6-astra", inputTokens: 300_000, cachedInputTokens: 100_000, outputTokens: 100_000) ?? -1, 23.4, "Astra Fast mode supports long-context prices")
+        let stale = MoaUsageRemotePricing(inputUSDPerMillion: 0.1, outputUSDPerMillion: 0.2)
+        _ = try store.merge(MoaUsagePricingCatalogSnapshot(sourceURL: "https://example.com/pricing", fetchedAt: Date(timeIntervalSince1970: 1_700_000_000), models: ["codex": ["gpt-6-astra": stale]]))
+        try expectClose(MoaUsagePricing.codexCostUSD(model: "gpt-6-astra", inputTokens: 100_000, cachedInputTokens: 0, outputTokens: 0) ?? -1, 1, "stale downloaded catalog must not replace verified built-in prices")
+        _ = try store.merge(MoaUsagePricingCatalogSnapshot(sourceURL: "https://example.com/pricing", fetchedAt: Date(timeIntervalSince1970: 1_900_000_000), models: ["codex": ["example-future-model": stale]]))
+        try expectClose(MoaUsagePricing.codexCostUSD(model: "gpt-6-astra", inputTokens: 100_000, cachedInputTokens: 0, outputTokens: 0) ?? -1, 1, "refreshing other models must not mark omitted old prices as fresh")
+        _ = try store.merge(MoaUsagePricingCatalogSnapshot(sourceURL: "https://example.com/pricing", fetchedAt: Date(timeIntervalSince1970: 1_900_000_000), models: ["codex": ["gpt-6-astra": stale]]))
+        try expectClose(MoaUsagePricing.codexCostUSD(model: "gpt-6-astra", inputTokens: 100_000, cachedInputTokens: 0, outputTokens: 0) ?? -1, 0.01, "newer catalog remains eligible to refresh prices")
+    }
+
+    private static func testPrereleaseUpdates() throws {
+        try expect(MoaUpdateController.isRemoteVersion("1.2.0", remoteBuild: 117, newerThan: "1.2.0-rc.1", localBuild: 116), "stable release must supersede its RC")
+        try expect(!MoaUpdateController.isRemoteVersion("1.2.0-rc.1", remoteBuild: 118, newerThan: "1.2.0", localBuild: 117), "a newer build number must not promote an RC over stable")
+        try expect(MoaUpdateController.isRemoteVersion("1.2.0-rc.10", remoteBuild: nil, newerThan: "1.2.0-rc.2", localBuild: nil), "RC identifiers must compare numerically")
+        let feed = """
+        <feed>
+        <entry><title>Moa 1.2.0-rc.1</title><link rel="alternate" href="https://github.com/MoarLiu/Moa/releases/tag/v1.2.0-rc.1"/><content>Moa-1.2.0-rc.1-macos-arm64.dmg Moa-1.2.0-rc.1-macos-x86_64.dmg Build: 116</content></entry>
+        <entry><title>Moa 1.1.8</title><link rel="alternate" href="https://github.com/MoarLiu/Moa/releases/tag/v1.1.8"/><content>Moa-1.1.8-macos-arm64.dmg Moa-1.1.8-macos-x86_64.dmg Build: 115</content></entry>
+        </feed>
+        """
+        let stable = try MoaUpdateController.releaseInfo(fromAtomFeed: feed)
+        try expect(stable.version == "1.1.8", "stable feed fallback must skip RC entries")
+        let candidate = try MoaUpdateController.releaseInfo(fromAtomFeed: feed, includePrereleases: true)
+        try expect(candidate.version == "1.2.0-rc.1" && candidate.dmgURL.lastPathComponent.contains("-rc.1-"), "explicit prerelease parsing must retain complete RC asset names")
     }
 
     private static func testCodexUsageIgnoresInheritedHistory() throws {

@@ -371,7 +371,7 @@ final class MoaDataPackageController {
         self.environment = environment
         self.providerBridgeDiagnostics = providerBridgeDiagnostics
         home = MoaDataRoot.homeDirectory(environment: environment)
-        appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
+        appVersion = MoaUpdateController.currentVersion ?? "dev"
         appBuild = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0"
     }
 

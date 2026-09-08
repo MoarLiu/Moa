@@ -33,16 +33,19 @@ struct MoaUsagePricingCatalogSnapshot: Codable, Equatable, Sendable {
     var sourceURL: String
     var fetchedAt: Date
     var models: [String: [String: MoaUsageRemotePricing]]
+    var modelFetchedAt: [String: [String: Date]]?
 
     init(
         sourceURL: String,
         fetchedAt: Date,
-        models: [String: [String: MoaUsageRemotePricing]]
+        models: [String: [String: MoaUsageRemotePricing]],
+        modelFetchedAt: [String: [String: Date]]? = nil
     ) {
         version = Self.currentVersion
         self.sourceURL = sourceURL
         self.fetchedAt = fetchedAt
         self.models = models
+        self.modelFetchedAt = modelFetchedAt ?? models.mapValues { $0.mapValues { _ in fetchedAt } }
     }
 }
 
@@ -100,10 +103,13 @@ final class MoaUsagePricingCatalogStore: @unchecked Sendable {
         self.decoder = decoder
     }
 
-    func pricing(source: MoaUsageSource, model: String) -> MoaUsageRemotePricing? {
+    func pricing(source: MoaUsageSource, model: String, notBefore: Date? = nil) -> MoaUsageRemotePricing? {
         lock.lock()
         defer { lock.unlock() }
-        return loadSnapshotIfNeeded()?.models[source.rawValue]?[model.lowercased()]
+        guard let snapshot = loadSnapshotIfNeeded() else { return nil }
+        let checkedAt = snapshot.modelFetchedAt?[source.rawValue]?[model.lowercased()] ?? snapshot.fetchedAt
+        guard notBefore.map({ checkedAt >= $0 }) ?? true else { return nil }
+        return snapshot.models[source.rawValue]?[model.lowercased()]
     }
 
     func snapshot() -> MoaUsagePricingCatalogSnapshot? {
@@ -118,12 +124,23 @@ final class MoaUsagePricingCatalogStore: @unchecked Sendable {
 
         let current = loadSnapshotIfNeeded()
         var mergedModels = current?.models ?? [:]
+        var modelDates = current?.modelFetchedAt
+            ?? current?.models.mapValues { $0.mapValues { _ in current?.fetchedAt ?? .distantPast } } ?? [:]
+        var freshnessChanged = false
         var added = 0
         var changed = 0
 
         for (source, models) in remote.models {
             var mergedSource = mergedModels[source] ?? [:]
             for (model, pricing) in models {
+                // Only models actually present in this response become fresh;
+                // omitted entries retain their previous verification date.
+                let previousDate = modelDates[source]?[model] ?? .distantPast
+                guard remote.fetchedAt >= previousDate else { continue }
+                if remote.fetchedAt > previousDate {
+                    modelDates[source, default: [:]][model] = remote.fetchedAt
+                    freshnessChanged = true
+                }
                 if let existing = mergedSource[model] {
                     let mergedPricing = pricing.mergingMissingFields(from: existing)
                     if existing != mergedPricing {
@@ -138,21 +155,22 @@ final class MoaUsagePricingCatalogStore: @unchecked Sendable {
             mergedModels[source] = mergedSource
         }
 
-        guard added > 0 || changed > 0 else {
+        guard added > 0 || changed > 0 || freshnessChanged else {
             return .unchanged
         }
 
         let merged = MoaUsagePricingCatalogSnapshot(
             sourceURL: remote.sourceURL,
-            fetchedAt: remote.fetchedAt,
-            models: mergedModels
+            fetchedAt: max(remote.fetchedAt, current?.fetchedAt ?? .distantPast),
+            models: mergedModels,
+            modelFetchedAt: modelDates
         )
         try write(merged, to: catalogURL)
         cachedSnapshot = merged
         cachedURL = catalogURL
         cachedModifiedAt = modificationDate(of: catalogURL)
         lastFileCheckAt = Date()
-        return .updated(added: added, changed: changed)
+        return added > 0 || changed > 0 ? .updated(added: added, changed: changed) : .unchanged
     }
 
     func lastSuccessfulCheck() -> Date? {
