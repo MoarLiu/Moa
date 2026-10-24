@@ -24,6 +24,10 @@ final class MoaMainMenuCoordinator {
         app.menu.addItem(app.claudeDesktopProfilesItem)
         app.zcodeItem.submenu = app.zcodeMenu
         app.menu.addItem(app.zcodeItem)
+        app.workbuddyCNItem.submenu = app.workbuddyCNMenu
+        app.menu.addItem(app.workbuddyCNItem)
+        app.workbuddyItem.submenu = app.workbuddyMenu
+        app.menu.addItem(app.workbuddyItem)
         app.providerBridgeItem.submenu = app.providerBridgeMenu
         app.menu.addItem(app.providerBridgeItem)
         app.menu.addItem(NSMenuItem.separator())
@@ -50,6 +54,7 @@ final class MoaMainMenuCoordinator {
         rebuildProfileMenu()
         rebuildClaudeDesktopProfilesMenu()
         rebuildZCodeMenu()
+        app.rebuildWorkBuddyMenus()
         rebuildProviderBridgeMenu()
         configureMoaDataMenu()
         refreshStatus()
@@ -93,7 +98,7 @@ final class MoaMainMenuCoordinator {
         app.remoteConnectionsItem.state = .off
 
         if let button = app.statusItem.button {
-            button.toolTip = MoaL10n.text("Moa - Codex, Claude, ZCode, Provider Bridge")
+            button.toolTip = MoaL10n.text("Moa - Codex, Claude, ZCode, WorkBuddy, WorkBuddy AI, Provider Bridge")
         }
     }
 

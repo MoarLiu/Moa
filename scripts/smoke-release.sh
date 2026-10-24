@@ -67,6 +67,12 @@ check_mach_o_deployment_target "$EXECUTABLE"
 if find "$APP" \( \
   -name ".moa" -o \
   -name ".codex" -o \
+  -name ".workbuddy" -o \
+  -name ".workbuddy-ai" -o \
+  -name "workbuddy-accounts" -o \
+  -name "workbuddy-cn-accounts" -o \
+  -name "workbuddy-desktop*.info" -o \
+  -name "keyblob" -o \
   -name ".env" -o \
   -name ".env.*" -o \
   -name "auth.json" -o \

@@ -9,6 +9,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let providerBridgeServer = MoaProviderBridgeServer()
     let zcodeController = ZCodeController()
     lazy var usageCoordinator = MoaUsageCoordinator()
+    lazy var workbuddyCoordinator = MoaWorkBuddyCoordinator(app: self, edition: .international)
+    lazy var workbuddyCNCoordinator = MoaWorkBuddyCoordinator(app: self, edition: .china)
     let dataPackageController = MoaDataPackageController()
     let updateController = MoaUpdateController()
     lazy var mainMenuCoordinator = MoaMainMenuCoordinator(app: self)
@@ -18,6 +20,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         codexScanner: usageCoordinator.codexScanner,
         claudeScanner: usageCoordinator.claudeScanner,
         zcodeScanner: usageCoordinator.zcodeScanner,
+        workbuddyScanner: usageCoordinator.workbuddyScanner,
+        workbuddyCNScanner: usageCoordinator.workbuddyCNScanner,
         usageAlertThresholdProvider: { kind in
             DailyUsageAlertController.threshold(for: kind)
         },
@@ -26,6 +30,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.rebuildProfileMenu()
             self?.rebuildClaudeDesktopProfilesMenu()
             self?.rebuildZCodeMenu()
+            self?.rebuildWorkBuddyMenus()
         }
     )
 
@@ -41,6 +46,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let claudeDesktopProfilesMenu = NSMenu()
     let zcodeItem = NSMenuItem(title: MoaL10n.text("ZCode"), action: nil, keyEquivalent: "")
     let zcodeMenu = NSMenu(title: MoaL10n.text("ZCode"))
+    var workbuddyItem: NSMenuItem { workbuddyCoordinator.item }
+    var workbuddyMenu: NSMenu { workbuddyCoordinator.menu }
+    var workbuddyCNItem: NSMenuItem { workbuddyCNCoordinator.item }
+    var workbuddyCNMenu: NSMenu { workbuddyCNCoordinator.menu }
     let providerBridgeItem = NSMenuItem(title: MoaL10n.text("Provider Bridge"), action: nil, keyEquivalent: "")
     let providerBridgeMenu = NSMenu(title: MoaL10n.text("Provider Bridge"))
 
@@ -102,6 +111,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         usageCoordinator.onZCodeSummaryLoaded = { [weak self] summary in
             self?.maybeShowDailyUsageAlert(kind: .zcode, summary: summary)
         }
+        usageCoordinator.onWorkBuddySummaryLoaded = { [weak self] summary in
+            self?.maybeShowDailyUsageAlert(kind: .workbuddy, summary: summary)
+        }
+        usageCoordinator.onWorkBuddyCNSummaryLoaded = { [weak self] summary in
+            self?.maybeShowDailyUsageAlert(kind: .workbuddyCN, summary: summary)
+        }
     }
 
     private func repairLegacyICloudDataSplitIfNeeded() {
@@ -146,7 +161,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if let button = statusItem.button {
             button.image = Self.makeMenuBarIcon()
             button.imageScaling = .scaleProportionallyDown
-            button.toolTip = MoaL10n.text("Moa - Codex, Claude, ZCode, Provider Bridge")
+            button.toolTip = MoaL10n.text("Moa - Codex, Claude, ZCode, WorkBuddy, WorkBuddy AI, Provider Bridge")
         }
         statusItem.menu = menu
     }

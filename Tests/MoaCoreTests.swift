@@ -11,8 +11,8 @@ private enum TestError: Error, CustomStringConvertible {
     }
 }
 
-private func expect(_ condition: @autoclosure () -> Bool, _ message: String) throws {
-    guard condition() else {
+private func expect(_ condition: @autoclosure () throws -> Bool, _ message: String) throws {
+    guard try condition() else {
         throw TestError.failure(message)
     }
 }
@@ -30,10 +30,52 @@ private func temporaryHome() throws -> URL {
     return root
 }
 
+private final class WorkBuddyFakeRuntime: WorkBuddyAppManaging {
+    var isRunning = true
+    var events: [String] = []
+    var onQuit: (() throws -> Void)?
+    var onLaunch: (() throws -> Void)?
+    var rejectQuit = false
+    func quit() throws {
+        events.append("quit")
+        if rejectQuit { throw TestError.failure("quit refused") }
+        try onQuit?()
+        isRunning = false
+    }
+    func launch() throws {
+        events.append("launch")
+        try onLaunch?()
+        isRunning = true
+    }
+}
+
 @main
 private enum MoaCoreTests {
     static func main() {
         let tests: [(String, () throws -> Void)] = [
+            ("WorkBuddy saves exact encrypted login after quit", testWorkBuddySnapshot),
+            ("WorkBuddy switching preserves refreshed outgoing accounts", testWorkBuddySwitch),
+            ("WorkBuddy new-account login and launch rollback", testWorkBuddyNewLoginAndRollback),
+            ("WorkBuddy rejects key mismatch, invalid auth and symlinks", testWorkBuddyCredentialGuards),
+            ("WorkBuddy credentials stay outside packages and iCloud", testWorkBuddyStorageIsolation),
+            ("WorkBuddy usage normalizes and deduplicates logs", testWorkBuddyUsage),
+            ("WorkBuddy usage prices requests and custom overrides", testWorkBuddyUsagePricing),
+            ("WorkBuddy account writes exclude other instances", testWorkBuddyConcurrentControllers),
+            ("WorkBuddy rollback retains tokens rotated during launch", testWorkBuddyRollbackPreservesTarget),
+            ("WorkBuddy distinct requests survive cross-file deduplication", testWorkBuddyDistinctRequests),
+            ("usage sources load independently after a source fails", testUsageSourceFailureIsolation),
+            ("Sub2API pricing units, Fast rates and context tiers parse", testSub2APIPricingParser),
+            ("WorkBuddy aliases use API list prices without credit discounts", testWorkBuddyOriginalAPIPrices),
+            ("GPT-6 Sol and Luna use current standard and Fast rates", testCurrentGPT6Prices),
+            ("Claude current models apply correct context and cache prices", testCurrentClaudePrices),
+            ("official pricing corrections override stale and regional mirrors", testPricingCorrectionsAndPreview),
+            ("ZCode context prices apply to requests before aggregation", testZCodeRequestPricingTiers),
+            ("WorkBuddy editions have separate identities and state paths", testWorkBuddyEditionPaths),
+            ("WorkBuddy China switching and recovery preserve the AI client", testWorkBuddyChinaSwitchIsolation),
+            ("WorkBuddy cross-edition snapshots are rejected and old AI data loads", testWorkBuddyEditionGuardsAndLegacy),
+            ("WorkBuddy China usage and prices remain separate from AI", testWorkBuddyChinaUsageIsolation),
+            ("WorkBuddy China and AI daily alerts are independent", testWorkBuddyEditionAlertIsolation),
+            ("WorkBuddy operation locks are scoped to their own client", testWorkBuddyEditionLockIsolation),
             ("data root paths are Moa scoped", testDataRootPaths),
             ("profile caches distinguish data root paths", testProfileCacheDistinguishesDataRoots),
             ("legacy Moa-Lite local data migrates without overwrite", testLegacyMoaLiteLocalDataMigration),
@@ -96,6 +138,664 @@ private enum MoaCoreTests {
             fputs(failures.joined(separator: "\n") + "\n", stderr)
             exit(1)
         }
+    }
+
+    private static func workbuddyLogin(_ uid: String, token: String = "fixture") throws -> Data {
+        try JSONSerialization.data(withJSONObject: [
+            "account": ["uid": uid, "nickname": ["$wbEncrypted": 1, "envelope": "test-name"]],
+            "auth": ["accessToken": ["$wbEncrypted": 1, "envelope": "access-" + token],
+                     "refreshToken": ["$wbEncrypted": 1, "envelope": "refresh-" + token]],
+            "accounts": [], "allAccounts": [], "unknown": ["preserved": true]
+        ], options: [.prettyPrinted, .sortedKeys])
+    }
+
+    private static func workbuddyFixture(_ home: URL, _ runtime: WorkBuddyFakeRuntime, edition: WorkBuddyEdition = .international) throws -> WorkBuddyController {
+        let controller = WorkBuddyController(environment: ["HOME": home.path], edition: edition, runtime: runtime)
+        try FileManager.default.createDirectory(at: controller.authURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: controller.keyURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data((edition == .china ? "synthetic-cn-device-key" : "synthetic-device-key").utf8).write(to: controller.keyURL)
+        return controller
+    }
+
+    private static func testWorkBuddySnapshot() throws {
+        let home = try temporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let runtime = WorkBuddyFakeRuntime()
+        let controller = try workbuddyFixture(home, runtime)
+        try workbuddyLogin("A", token: "old").write(to: controller.authURL)
+        let fresh = try workbuddyLogin("A", token: "rotated-on-quit")
+        runtime.onQuit = { try fresh.write(to: controller.authURL) }
+        let a = try controller.saveCurrent(name: "  Personal  ")
+        try expect(a.name == "Personal", "display names should be trimmed")
+        try expect(a.snapshot == fresh, "save must capture final tokens after the client exits")
+        try expect(runtime.events == ["quit", "launch"], "save should restore a previously running client")
+        try expect(a.keyFingerprint?.count == 64, "encrypted snapshots should be bound to their local keyblob")
+        _ = try controller.saveCurrent(name: "Renamed")
+        let accounts = try controller.accounts()
+        try expect(accounts.count == 1 && accounts[0].id == a.id, "UID identity must deduplicate renamed accounts")
+        let mode = try FileManager.default.attributesOfItem(atPath: controller.storageURL.path)[.posixPermissions] as? NSNumber
+        let directoryMode = try FileManager.default.attributesOfItem(atPath: controller.storageURL.deletingLastPathComponent().path)[.posixPermissions] as? NSNumber
+        try expect(mode?.intValue == 0o600 && directoryMode?.intValue == 0o700, "credential file and directory permissions must be private")
+        try expect(try Data(contentsOf: controller.authURL) == fresh, "saving must not reconstruct or strip encrypted fields")
+    }
+
+    private static func testWorkBuddySwitch() throws {
+        let home = try temporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let runtime = WorkBuddyFakeRuntime()
+        let controller = try workbuddyFixture(home, runtime)
+        let domestic = controller.authURL.deletingLastPathComponent().appendingPathComponent("workbuddy-desktop.info")
+        try Data("domestic-sentinel".utf8).write(to: domestic)
+        let session = home.appendingPathComponent(".workbuddy-ai/workbuddy.db")
+        try Data("session-sentinel".utf8).write(to: session)
+        let aData = try workbuddyLogin("A")
+        try aData.write(to: controller.authURL)
+        let a = try controller.saveCurrent(name: "A")
+        try workbuddyLogin("B").write(to: controller.authURL)
+        let b = try controller.saveCurrent(name: "B")
+        let freshB = try workbuddyLogin("B", token: "new-refresh")
+        runtime.onQuit = { try freshB.write(to: controller.authURL) }
+        runtime.onLaunch = { try expect(try Data(contentsOf: controller.authURL) == aData, "launch must happen after the target login is installed") }
+        _ = try controller.apply(id: a.id)
+        let accounts = try controller.accounts()
+        try expect(accounts.first(where: { $0.id == b.id })?.snapshot == freshB, "switch must save the actual outgoing account's rotated tokens")
+        runtime.onQuit = nil; runtime.onLaunch = nil
+        let sameA = try workbuddyLogin("A", token: "newest-A")
+        try sameA.write(to: controller.authURL)
+        _ = try controller.apply(id: a.id)
+        try expect(try Data(contentsOf: controller.authURL) == sameA, "selecting the current account must not restore stale tokens")
+        try workbuddyLogin("C").write(to: controller.authURL)
+        _ = try controller.apply(id: a.id)
+        try expect(try controller.accounts().contains(where: { $0.uid == "C" }), "unsaved outgoing accounts must not be lost")
+        try expect(try Data(contentsOf: domestic) == Data("domestic-sentinel".utf8), "international switching must not touch domestic auth")
+        try expect(try Data(contentsOf: session) == Data("session-sentinel".utf8), "switching must not modify conversation databases")
+        try controller.rename(id: a.id, name: "Personal")
+        try controller.delete(id: a.id)
+        try expect(try Data(contentsOf: controller.authURL) == sameA, "forgetting a saved account must leave the live login intact")
+    }
+
+    private static func testWorkBuddyNewLoginAndRollback() throws {
+        let home = try temporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let runtime = WorkBuddyFakeRuntime()
+        let controller = try workbuddyFixture(home, runtime)
+        let original = try workbuddyLogin("A")
+        try original.write(to: controller.authURL)
+        runtime.onLaunch = { try expect(!FileManager.default.fileExists(atPath: controller.authURL.path), "new-account startup needs a clean login") }
+        try controller.prepareNewLogin()
+        let a = try controller.accounts()[0]
+        try expect(a.snapshot == original, "new login must save the outgoing account without revoking it")
+        runtime.onLaunch = nil
+        _ = try controller.apply(id: a.id)
+        try workbuddyLogin("B").write(to: controller.authURL)
+        let b = try controller.saveCurrent(name: "B")
+        _ = try controller.apply(id: a.id)
+        var failures = 1
+        runtime.onLaunch = {
+            if failures > 0 { failures -= 1; throw TestError.failure("launch failed") }
+        }
+        do { _ = try controller.apply(id: b.id); throw TestError.failure("launch failure must surface") }
+        catch TestError.failure(let message) where message == "launch failed" { }
+        try expect(try Data(contentsOf: controller.authURL) == original, "failed startup must restore the original login")
+        failures = 1
+        do { try controller.prepareNewLogin(); throw TestError.failure("new-login launch failure must surface") }
+        catch TestError.failure(let message) where message == "launch failed" { }
+        try expect(try Data(contentsOf: controller.authURL) == original, "failed new-login startup must also restore auth")
+        runtime.rejectQuit = true
+        do { _ = try controller.apply(id: b.id); throw TestError.failure("quit refusal must surface") }
+        catch TestError.failure(let message) where message == "quit refused" { }
+        try expect(try Data(contentsOf: controller.authURL) == original, "a running client must never have credentials replaced")
+    }
+
+    private static func testWorkBuddyCredentialGuards() throws {
+        let home = try temporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let runtime = WorkBuddyFakeRuntime()
+        let controller = try workbuddyFixture(home, runtime)
+        let original = try workbuddyLogin("A")
+        try original.write(to: controller.authURL)
+        let a = try controller.saveCurrent(name: "A")
+        let eventCount = runtime.events.count
+        try Data("different-key".utf8).write(to: controller.keyURL)
+        do { _ = try controller.apply(id: a.id); throw TestError.failure("different keyblob must be rejected") }
+        catch is WorkBuddyError { }
+        try expect(runtime.events.count == eventCount, "key mismatch should be rejected before quitting")
+        try Data("synthetic-device-key".utf8).write(to: controller.keyURL)
+        try Data("not-json".utf8).write(to: controller.authURL)
+        do { _ = try controller.apply(id: a.id); throw TestError.failure("invalid live auth must not be overwritten") }
+        catch is WorkBuddyError { }
+        try expect(try Data(contentsOf: controller.authURL) == Data("not-json".utf8), "invalid outgoing auth should be preserved for recovery")
+        try FileManager.default.removeItem(at: controller.authURL)
+        let outside = home.appendingPathComponent("outside-auth")
+        try original.write(to: outside)
+        try FileManager.default.createSymbolicLink(at: controller.authURL, withDestinationURL: outside)
+        do { _ = try controller.saveCurrent(name: "symlink"); throw TestError.failure("auth symlinks must be rejected") }
+        catch is WorkBuddyError { }
+        try expect(try Data(contentsOf: outside) == original, "symlink targets must not be modified")
+        try FileManager.default.removeItem(at: controller.authURL)
+        try original.write(to: controller.authURL)
+        try FileManager.default.removeItem(at: controller.storageURL)
+        try FileManager.default.createSymbolicLink(at: controller.storageURL, withDestinationURL: outside)
+        do { _ = try controller.accounts(); throw TestError.failure("database symlinks must be rejected") }
+        catch is WorkBuddyError { }
+    }
+
+    private static func testWorkBuddyStorageIsolation() throws {
+        let home = try temporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let environment = ["HOME": home.path]
+        let runtime = WorkBuddyFakeRuntime()
+        let controller = try workbuddyFixture(home, runtime)
+        try workbuddyLogin("private-synthetic-account").write(to: controller.authURL)
+        _ = try controller.saveCurrent(name: "private-synthetic-name")
+        let cnController = try workbuddyFixture(home, WorkBuddyFakeRuntime(), edition: .china)
+        try workbuddyLogin("private-synthetic-cn-account").write(to: cnController.authURL)
+        _ = try cnController.saveCurrent(name: "private-synthetic-cn-name")
+        let storage = controller.storageURL
+        let packages = MoaDataPackageController(environment: environment)
+        let moaHome = MoaDataRoot.localURL(environment: environment)
+        try FileManager.default.createDirectory(at: moaHome, withIntermediateDirectories: true)
+        try Data("{}".utf8).write(to: moaHome.appendingPathComponent("profiles.json"))
+        let zip = home.appendingPathComponent("data.zip")
+        _ = try packages.exportDataPackage(to: zip)
+        let diagnostic = home.appendingPathComponent("diagnostic.zip")
+        _ = try packages.exportDiagnosticPackage(to: diagnostic)
+        for (index, archive) in [zip, diagnostic].enumerated() {
+            let extract = home.appendingPathComponent("extract-" + String(index))
+            try runProcess("/usr/bin/ditto", ["-x", "-k", archive.path, extract.path])
+            let enumerator = FileManager.default.enumerator(at: extract, includingPropertiesForKeys: nil)!
+            for case let url as URL in enumerator {
+                guard !url.hasDirectoryPath, let data = try? Data(contentsOf: url) else { continue }
+                try expect(!url.path.contains("workbuddy-accounts") && !url.path.contains("workbuddy-cn-accounts") && data.range(of: Data("private-synthetic".utf8)) == nil, "packages must exclude both WorkBuddy editions' credential metadata and snapshots")
+            }
+        }
+        try FileManager.default.createDirectory(at: MoaDataRoot.iCloudDriveRoot(environment: environment), withIntermediateDirectories: true)
+        _ = try packages.enableICloudStorage()
+        let cloudController = WorkBuddyController(environment: environment, runtime: runtime)
+        try expect(cloudController.storageURL == storage, "iCloud toggles must not move device-bound snapshots")
+        try expect(try cloudController.accounts().count == 1, "saved accounts should remain available after data-root changes")
+        let cnAfterMove = WorkBuddyController(environment: environment, edition: .china, runtime: runtime)
+        try expect(cnAfterMove.storageURL == cnController.storageURL && (try cnAfterMove.accounts().count) == 1, "China credentials must also remain local after an iCloud data-root change")
+        _ = try packages.disableICloudStorage()
+    }
+
+    private static func writeWorkBuddyLogs(_ values: [[String: Any]], to url: URL) throws {
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let lines = try values.map { String(decoding: try JSONSerialization.data(withJSONObject: $0, options: [.sortedKeys]), as: UTF8.self) }
+        try (lines.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    private static func testWorkBuddyUsage() throws {
+        let home = try temporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let scanner = WorkBuddyUsageScanner(environment: ["HOME": home.path])
+        try expect(try scanner.loadReport().rows.isEmpty, "uninstalled clients should produce an empty source")
+        let timestamp: Int = 1_790_000_000_123
+        var values: [[String: Any]] = [
+            ["id": "one", "timestamp": timestamp, "type": "function_call",
+             "message": ["usage": ["input_tokens": 1000, "cache_read_input_tokens": 0, "prompt_cache_hit_tokens": 300, "output_tokens": 100]],
+             "providerData": ["model": "future-model", "usage": ["inputTokens": 9999, "outputTokens": 999], "rawUsage": ["cache_write_input_tokens": 100]]],
+            ["id": "two", "timestamp": timestamp + 1000, "providerData": ["model": "future-model", "usage": ["inputTokens": "500", "outputTokens": 50, "inputTokensDetails": [["cached_tokens": 200]], "prompt_cache_miss_tokens": 300]]],
+            ["id": "three", "timestamp": timestamp + 2000, "model": "future-model", "usage": ["prompt_tokens": 200, "completion_tokens": 20, "prompt_tokens_details": ["cached_tokens": 80]]],
+            ["id": "four", "timestamp": timestamp + 3000, "model": "future-model", "usage": ["input_tokens": 0, "output_tokens": 10]],
+            // A distinct event can have the same timestamp and counters.
+            ["id": "five", "timestamp": timestamp + 3000, "model": "future-model", "usage": ["input_tokens": 0, "output_tokens": 10]],
+            ["model": "ignored", "usage": ["input_tokens": 1000, "output_tokens": 100]],
+            ["timestamp": timestamp, "usage": ["requests": 1]]
+        ]
+        values = values.map { value in
+            var record = value
+            if let id = record["id"] as? String {
+                var provider = record["providerData"] as? [String: Any] ?? [:]
+                provider["messageId"] = id
+                record["providerData"] = provider
+            }
+            return record
+        }
+        let project = home.appendingPathComponent(".workbuddy-ai/projects/example/session.jsonl")
+        try writeWorkBuddyLogs(values, to: project)
+        let copied = values.enumerated().map { index, value -> [String: Any] in
+            var copy = value
+            if copy["id"] is String { copy["id"] = "copied-\(index)" }
+            return copy
+        }
+        try writeWorkBuddyLogs(copied, to: home.appendingPathComponent(".workbuddy-ai/sessions/copied.jsonl"))
+        try writeWorkBuddyLogs(values, to: home.appendingPathComponent(".workbuddy-ai/projects/example/subagents/agent.jsonl"))
+        let now = Date(timeIntervalSince1970: Double(timestamp) / 1000)
+        let report = try scanner.loadReport(now: now)
+        try expect(report.rows.count == 1 && report.rows[0].source == .workbuddy, "logs should aggregate by local day and model")
+        let row = report.rows[0]
+        try expect(row.input == 1020 && row.cacheReadInput == 580 && row.cacheCreationInput == 100 && row.output == 190, "aliases, precedence and cache splits must not double count tokens")
+        try expect(row.totalTokens == 1890, "mirror copies and subagent context must not inflate total tokens")
+        try expect(row.pricingModel == "unpriced" && row.costUSD == 0 && row.usesFallbackPricing, "unknown models must report tokens without fabricated prices")
+        let summary = try scanner.loadSummary(now: now)
+        try expect(summary.todayTokens == 1890 && summary.totalTokens == 1890, "summary should use the same accounting as details")
+        try expectClose(summary.cacheHitPercent, 580.0 / 1890 * 100, "cache percentage should match the Codex report denominator")
+        try expect(MoaUsageReportExporter.csv(report: report).contains("WorkBuddy AI"), "CSV should include WorkBuddy rows")
+        try expect(MoaUsageReportExporter.markdown(report: report).contains("unpriced"), "exports should retain missing-price markers")
+        try writeWorkBuddyLogs(values + [["id": "six", "timestamp": timestamp + 4000, "model": "future-model", "usage": ["input_tokens": 10, "output_tokens": 1]]], to: project)
+        try expect(try scanner.loadReport(now: now).totalTokens == 1901, "changed files must invalidate in-memory caches")
+        try FileManager.default.removeItem(at: project)
+        try expect(try scanner.loadReport(now: now).totalTokens == 1890, "deleted files must be evicted from the cache")
+    }
+
+    private static func testWorkBuddyUsagePricing() throws {
+        let home = try temporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let environment = ["HOME": home.path]
+        let scanner = WorkBuddyUsageScanner(environment: environment)
+        let timestamp: Int = 1_790_000_000_123
+        let values: [[String: Any]] = [
+            ["id": "one", "timestamp": timestamp, "model": "future-model", "usage": ["input_tokens": 1000, "cache_read_input_tokens": 300, "cache_write_input_tokens": 100, "output_tokens": 100]],
+            ["id": "two", "timestamp": timestamp + 1000, "model": "future-model", "usage": ["input_tokens": 1000, "cache_read_input_tokens": 300, "cache_write_input_tokens": 100, "output_tokens": 100]]
+        ]
+        try writeWorkBuddyLogs(values, to: home.appendingPathComponent(".workbuddy-ai/projects/session.jsonl"))
+        let store = MoaUsagePricingCatalogStore(environment: environment)
+        let remote = MoaUsageRemotePricing(inputUSDPerMillion: 2, outputUSDPerMillion: 10, cacheReadUSDPerMillion: 0.5, cacheCreationUSDPerMillion: 3, thresholdTokens: 1500, inputUSDPerMillionAboveThreshold: 4, outputUSDPerMillionAboveThreshold: 20, cacheReadUSDPerMillionAboveThreshold: 1, cacheCreationUSDPerMillionAboveThreshold: 6)
+        _ = try store.merge(MoaUsagePricingCatalogSnapshot(sourceURL: "https://models.dev/api.json", fetchedAt: Date(), models: ["workbuddy": ["future-model": remote]]))
+        let now = Date(timeIntervalSince1970: Double(timestamp) / 1000)
+        let report = try scanner.loadReport(now: now)
+        try expectClose(report.totalCostUSD, 0.0053, "long-context prices must apply per request, never to the aggregated day")
+        try expect(report.rows[0].usesFallbackPricing == false, "recognized remote prices should be marked known")
+        let overrides = MoaUsagePricingOverrideController(environment: environment)
+        try overrides.upsert(source: .workbuddy, model: "future-model", inputUSDPerMillion: 1, outputUSDPerMillion: 2, cacheReadUSDPerMillion: 0.1, cacheCreationUSDPerMillion: 1.5)
+        try expectClose(try scanner.loadReport(now: now).totalCostUSD, 0.00196, "WorkBuddy custom prices must override remote prices on cached records")
+        try expect(overrides.override(source: .codex, model: "future-model") == nil, "WorkBuddy overrides must remain source scoped")
+    }
+
+    private static func testWorkBuddyConcurrentControllers() throws {
+        let home = try temporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let runtime = WorkBuddyFakeRuntime()
+        let first = try workbuddyFixture(home, runtime)
+        try workbuddyLogin("A").write(to: first.authURL)
+        let a = try first.saveCurrent(name: "A")
+        let secondRuntime = WorkBuddyFakeRuntime()
+        let second = WorkBuddyController(environment: ["HOME": home.path], runtime: secondRuntime)
+        var blocked = false
+        runtime.onQuit = {
+            do { try second.rename(id: a.id, name: "concurrent edit") }
+            catch is WorkBuddyError { blocked = true }
+        }
+        _ = try first.saveCurrent(name: "updated A")
+        try expect(blocked, "a second controller must not mutate credentials during an active operation")
+        try expect(secondRuntime.events.isEmpty, "competing operations must fail before touching the client")
+        try second.rename(id: a.id, name: "after unlock")
+        try expect(try first.accounts().first?.name == "after unlock", "the credential lock must release after success")
+        runtime.onQuit = { throw TestError.failure("quit failed") }
+        do { _ = try first.saveCurrent(name: "A"); throw TestError.failure("quit failure must surface") }
+        catch TestError.failure(let message) where message == "quit failed" { }
+        try second.rename(id: a.id, name: "after failure")
+        try expect(try first.accounts().first?.name == "after failure", "the credential lock must also release on failure")
+    }
+
+    private static func testWorkBuddyRollbackPreservesTarget() throws {
+        let home = try temporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let runtime = WorkBuddyFakeRuntime()
+        let controller = try workbuddyFixture(home, runtime)
+        let original = try workbuddyLogin("A")
+        try original.write(to: controller.authURL)
+        let a = try controller.saveCurrent(name: "A")
+        try workbuddyLogin("B").write(to: controller.authURL)
+        let b = try controller.saveCurrent(name: "B")
+        _ = try controller.apply(id: a.id)
+        let rotated = try workbuddyLogin("B", token: "rotated-before-launch-error")
+        var failLaunch = true
+        runtime.onLaunch = {
+            if failLaunch {
+                failLaunch = false
+                runtime.isRunning = true
+                try rotated.write(to: controller.authURL)
+                throw TestError.failure("launch status failed")
+            }
+        }
+        do { _ = try controller.apply(id: b.id); throw TestError.failure("launch error must surface") }
+        catch TestError.failure(let message) where message == "launch status failed" { }
+        try expect(try Data(contentsOf: controller.authURL) == original, "rollback must restore the original account")
+        try expect(try controller.accounts().first(where: { $0.id == b.id })?.snapshot == rotated, "rollback must not discard the target's newly rotated refresh token")
+        runtime.onLaunch = nil
+        _ = try controller.apply(id: b.id)
+        try expect(try Data(contentsOf: controller.authURL) == rotated, "the target must remain switchable after recovery")
+    }
+
+    private static func testWorkBuddyDistinctRequests() throws {
+        let home = try temporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let scanner = WorkBuddyUsageScanner(environment: ["HOME": home.path])
+        let timestamp: Int = 1_790_000_000_123
+        let usage = ["input_tokens": 100, "output_tokens": 10]
+        let root = home.appendingPathComponent(".workbuddy-ai/projects")
+        let one: [String: Any] = ["id": "event-one", "timestamp": timestamp, "providerData": ["messageId": "request-one", "stepSeq": 1, "model": "unknown"], "usage": usage]
+        let two: [String: Any] = ["id": "event-two", "timestamp": timestamp, "providerData": ["messageId": "request-two", "stepSeq": 1, "model": "unknown"], "usage": usage]
+        try writeWorkBuddyLogs([one], to: root.appendingPathComponent("one.jsonl"))
+        try writeWorkBuddyLogs([two], to: root.appendingPathComponent("two.jsonl"))
+        var copied = one
+        copied["id"] = "rewritten-copy-id"
+        try writeWorkBuddyLogs([copied], to: root.appendingPathComponent("copy.jsonl"))
+        let report = try scanner.loadReport()
+        try expect(report.totalTokens == 220, "different stable request IDs must count separately even when timestamps and token counts match")
+    }
+
+    private static func testUsageSourceFailureIsolation() throws {
+        let now = Date()
+        let row = MoaUsageDetailRow(source: .codex, dayKey: MoaUsageReport.dayKey(from: now), model: "fixture",
+            input: 100, cachedInput: 0, cacheReadInput: 0, cacheCreationInput: 0, output: 10,
+            costUSD: 0.1, pricingModel: "fixture", usesFallbackPricing: false)
+        let codex = MoaUsageReport(rows: [row], generatedAt: now)
+        let result = MoaUsageReportBatch.load(now: now, sources: [
+            (.workbuddy, { throw TestError.failure("unreadable log") }),
+            (.codex, { codex })
+        ])
+        try expect(result.report?.totalTokens == 110, "a WorkBuddy read failure must not suppress other clients' usage")
+        try expect(result.failures.count == 1 && result.failures[0].hasPrefix("WorkBuddy AI:"), "partial reports must identify the failed source")
+        let failed = MoaUsageReportBatch.load(now: now, sources: [(.workbuddy, { throw TestError.failure("unreadable log") })])
+        try expect(failed.report == nil && !failed.failures.isEmpty, "complete failure must keep the previous report instead of publishing an empty replacement")
+    }
+
+    private static func testSub2APIPricingParser() throws {
+        var entries: [String: Any] = [:]
+        for index in 0..<5 {
+            entries["gpt-fixture-\(index)"] = ["litellm_provider": "openai", "mode": "responses", "input_cost_per_token": 2e-6, "output_cost_per_token": 10e-6]
+        }
+        for index in 0..<3 {
+            entries["claude-fixture-\(index)"] = ["litellm_provider": "anthropic", "input_cost_per_token": 2e-6, "output_cost_per_token": 10e-6]
+        }
+        entries["glm-fixture"] = ["litellm_provider": "zhipu", "input_cost_per_token": 1.4e-6, "output_cost_per_token": 4.4e-6]
+        entries["gpt-tiered"] = [
+            "litellm_provider": "openai", "input_cost_per_token": 2e-6, "output_cost_per_token": 10e-6,
+            "cache_read_input_token_cost": 0.1e-6, "cache_creation_input_token_cost": 2.5e-6,
+            "input_cost_per_token_priority": 4e-6, "output_cost_per_token_priority": 20e-6,
+            "cache_read_input_token_cost_priority": 0.2e-6, "cache_creation_input_token_cost_priority": 5e-6,
+            "long_context_input_token_threshold": 272000, "long_context_input_cost_multiplier": 2,
+            "long_context_output_cost_multiplier": 1.5,
+            "cache_read_input_token_cost_above_272k_tokens": 0.2e-6
+        ]
+        entries["gpt-invalid"] = ["litellm_provider": "openai", "input_cost_per_token": true, "output_cost_per_token": -1]
+        entries["cloud-reseller"] = ["litellm_provider": "bedrock", "input_cost_per_token": 99, "output_cost_per_token": 99]
+        let snapshot = try MoaUsagePricingRemoteParser.parse(data: JSONSerialization.data(withJSONObject: entries),
+            sourceURL: MoaUsagePricingUpdater.defaultSourceURL, fetchedAt: Date())
+        let price = snapshot.models["codex"]?["gpt-tiered"]
+        try expectClose(price?.inputUSDPerMillion ?? -1, 2, "Sub2API USD/token must convert to USD/MTok exactly once")
+        try expectClose(price?.cacheCreationUSDPerMillion ?? -1, 2.5, "cache-write price must retain its independent rate")
+        try expectClose(price?.priorityOutputUSDPerMillion ?? -1, 20, "Fast output must not be confused with the standard rate")
+        try expect(price?.thresholdTokens == 272000, "explicit request threshold must survive parsing")
+        try expectClose(price?.outputUSDPerMillionAboveThreshold ?? -1, 15, "long-context multipliers should fill missing absolute prices")
+        try expectClose(price?.priorityCacheCreationUSDPerMillionAboveThreshold ?? -1, 10, "Fast cache writes should retain the context multiplier")
+        try expect(snapshot.models["workbuddy"]?["gpt-tiered"] == price, "clients must use the same underlying API price")
+        try expect(snapshot.models.values.allSatisfy { $0["gpt-invalid"] == nil && $0["cloud-reseller"] == nil }, "invalid values and cloud-reseller SKUs must not become direct API prices")
+        let legacyJSON = Data(#"{"inputUSDPerMillion":2,"outputUSDPerMillion":10}"#.utf8)
+        let legacy = try JSONDecoder().decode(MoaUsageRemotePricing.self, from: legacyJSON)
+        try expect(legacy.priorityInputUSDPerMillion == nil, "existing local catalogs must decode without the new optional Fast fields")
+    }
+
+    private static func testWorkBuddyOriginalAPIPrices() throws {
+        let home = try temporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let environment = ["HOME": home.path]
+        let scanner = WorkBuddyUsageScanner(environment: environment)
+        let expected: [(String, Double, String)] = [
+            ("deepseek-v4.1-flash", 0.0003318, "deepseek-flash"),
+            ("deepseek-v4.1-flash-sg", 0.0003318, "deepseek-flash"),
+            ("hy4-preview-f", 0.0008465, "hy4-preview"),
+            ("step-5-preview", 0.001, "step-5-preview"),
+            ("gpt-6-luna", 0.000123, "gpt-6-luna"),
+            ("glm-5.3", 0.001498, "glm-5.3"),
+            ("kimi-k2.8-preview", 0.001175, "kimi-k2.8-preview")
+        ]
+        var values = expected.enumerated().map { index, entry -> [String: Any] in
+            ["id": "original-\(index)", "timestamp": 1_790_000_000_000 + index, "model": entry.0,
+             "providerData": ["credit": 0, "discount": 0],
+             "usage": ["input_tokens": 1000, "cache_read_input_tokens": 300, "output_tokens": 100]]
+        }
+        values.append(["id": "unresolved", "timestamp": 1_790_000_001_000, "model": "default-model", "usage": ["input_tokens": 1000, "output_tokens": 100]])
+        try writeWorkBuddyLogs(values, to: home.appendingPathComponent(".workbuddy-ai/projects/prices.jsonl"))
+        let report = try scanner.loadReport()
+        for (model, cost, canonical) in expected {
+            guard let row = report.rows.first(where: { $0.model == model }) else { throw TestError.failure("missing \(model)") }
+            try expectClose(row.costUSD, cost, "\(model) must use original API token prices despite zero WorkBuddy credits")
+            try expect(!row.usesFallbackPricing && row.pricingModel == canonical, "\(model) should expose its verified price mapping")
+        }
+        try expect(report.rows.first(where: { $0.model == "default-model" })?.pricingModel == "unpriced", "unresolved routing aliases must not be assigned an invented model price")
+        let overrides = MoaUsagePricingOverrideController(environment: environment)
+        try overrides.upsert(source: .workbuddy, model: "hy4-preview-f", inputUSDPerMillion: 1, outputUSDPerMillion: 2, cacheReadUSDPerMillion: 0.5, cacheCreationUSDPerMillion: nil)
+        let custom = try scanner.loadReport().rows.first { $0.model == "hy4-preview-f" }
+        try expectClose(custom?.costUSD ?? -1, 0.00105, "explicit user prices must remain above official alias corrections")
+        let grok: [[String: Any]] = [
+            ["id": "short-grok", "timestamp": 1_790_000_002_000, "model": "grok-4.7", "usage": ["input_tokens": 199999, "output_tokens": 0]],
+            ["id": "long-grok", "timestamp": 1_790_000_003_000, "model": "grok-4.7", "usage": ["input_tokens": 200000, "output_tokens": 0]]
+        ]
+        try writeWorkBuddyLogs(grok, to: home.appendingPathComponent(".workbuddy-ai/projects/grok.jsonl"))
+        let grokCost = try scanner.loadReport().rows.first { $0.model == "grok-4.7" }?.costUSD
+        try expectClose(grokCost ?? -1, 1.199998, "Grok's long-context price starts at exactly 200K tokens")
+    }
+
+    private static func testCurrentGPT6Prices() throws {
+        let home = try temporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        MoaUsagePricing.useRemoteCatalogStoreForTesting(MoaUsagePricingCatalogStore(environment: ["HOME": home.path]))
+        defer { MoaUsagePricing.resetRemoteCatalogStoreForTesting() }
+        let sol = MoaUsagePricing.codexCostUSD(model: "gpt-6.1-sol", inputTokens: 1000, cachedInputTokens: 500, outputTokens: 1000)
+        try expectClose(sol ?? -1, 0.01105, "GPT-6.1 Sol must use its 5% cache-read rate")
+        try expectClose(MoaUsagePricing.codexCostUSD(model: "gpt-6-sol", inputTokens: 1000, cachedInputTokens: 500, outputTokens: 1000) ?? -1, 0.0111, "GPT-6 Sol retains its separate 10% cache-read rate")
+        try expectClose(MoaUsagePricing.codexCostUSD(model: "gpt-6-luna", inputTokens: 1_000_000, cachedInputTokens: 0, outputTokens: 1_000_000) ?? -1, 0.95, "Luna long context must use its own standard API prices")
+        try expectClose(MoaUsagePricing.codexPriorityCostUSD(model: "gpt-6.1-sol", inputTokens: 300000, cachedInputTokens: 100000, outputTokens: 100000) ?? -1, 4.64, "Fast and long-context prices must both apply")
+    }
+
+    private static func testCurrentClaudePrices() throws {
+        let home = try temporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        MoaUsagePricing.useRemoteCatalogStoreForTesting(MoaUsagePricingCatalogStore(environment: ["HOME": home.path]))
+        defer { MoaUsagePricing.resetRemoteCatalogStoreForTesting() }
+        let sonnet = MoaUsagePricing.claudeCostEstimate(model: "claude-sonnet-4-6", inputTokens: 300000, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, outputTokens: 100000)
+        try expectClose(sonnet?.costUSD ?? -1, 2.4, "Sonnet 4.6 no longer has a long-context premium")
+        let latest = MoaUsagePricing.claudeCostEstimate(model: "claude-sonnet-5-5", inputTokens: 10000, cacheReadInputTokens: 30000, cacheCreationInputTokens: 10000, outputTokens: 10000)
+        try expectClose(latest?.costUSD ?? -1, 0.148, "Sonnet 5.5 must use its current cache-hit price")
+        let short = MoaUsagePricing.claudeCostEstimate(model: "claude-haiku-5-5", inputTokens: 100000, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, outputTokens: 0)
+        let long = MoaUsagePricing.claudeCostEstimate(model: "claude-haiku-5-5", inputTokens: 100001, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, outputTokens: 0)
+        try expectClose(short?.costUSD ?? -1, 0.01, "Haiku 5.5 should retain its inclusive 100K boundary")
+        try expectClose(long?.costUSD ?? -1, 0.0500005, "Haiku 5.5 higher prices should apply above 100K")
+    }
+
+    private static func testPricingCorrectionsAndPreview() throws {
+        let home = try temporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let store = MoaUsagePricingCatalogStore(environment: ["HOME": home.path])
+        let wrong = MoaUsageRemotePricing(inputUSDPerMillion: 99, outputUSDPerMillion: 99)
+        _ = try store.merge(MoaUsagePricingCatalogSnapshot(sourceURL: "https://models.dev/api.json", fetchedAt: Date(timeIntervalSince1970: 1_900_000_000), models: ["workbuddy": ["step-5-preview": wrong, "hy3": wrong], "codex": ["gpt-5.6-sol": wrong]]))
+        try expectClose(MoaUsagePricing.catalogPricing(source: .workbuddy, model: "step-5-preview", store: store)?.inputUSDPerMillion ?? -1, 1, "a currency-converted catalog must not override verified USD list prices")
+        try expectClose(MoaUsagePricing.catalogPricing(source: .workbuddy, model: "hy3", store: store)?.inputUSDPerMillion ?? -1, 0.132, "free plan promotions must not replace Hy3's original API list price")
+        try expectClose(MoaUsagePricing.catalogPricing(source: .codex, model: "gpt-5.6-sol", store: store)?.inputUSDPerMillion ?? -1, 4, "the current official Sol price must take precedence over the mirror")
+        let preview = MoaUsagePricing.codexCostEstimate(model: "gpt-5.3-codex-spark", inputTokens: 1000, cachedInputTokens: 0, outputTokens: 100)
+        try expect(preview?.pricingModel == "unpriced" && preview?.usesFallbackPricing == true, "a preview without a public API rate must not be labeled free")
+    }
+
+    private static func testZCodeRequestPricingTiers() throws {
+        let home = try temporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let environment = ["HOME": home.path]
+        let store = MoaUsagePricingCatalogStore(environment: environment)
+        let price = MoaUsageRemotePricing(inputUSDPerMillion: 2, outputUSDPerMillion: 10, cacheReadUSDPerMillion: 0.5, cacheCreationUSDPerMillion: 3, thresholdTokens: 1500, inputUSDPerMillionAboveThreshold: 4, outputUSDPerMillionAboveThreshold: 20, cacheReadUSDPerMillionAboveThreshold: 1, cacheCreationUSDPerMillionAboveThreshold: 6)
+        _ = try store.merge(MoaUsagePricingCatalogSnapshot(sourceURL: "https://example.com/prices", fetchedAt: Date(), models: ["zcode": ["glm-tier-fixture": price]]))
+        MoaUsagePricing.useRemoteCatalogStoreForTesting(store)
+        defer { MoaUsagePricing.resetRemoteCatalogStoreForTesting() }
+        let db = home.appendingPathComponent(".zcode/cli/db/db.sqlite")
+        try FileManager.default.createDirectory(at: db.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try runSQLite(db: db, sql: """
+        create table model_usage (status text, started_at integer, model_id text, input_tokens integer, cache_read_input_tokens integer, cache_creation_input_tokens integer, output_tokens integer);
+        insert into model_usage values ('completed',1790000000000,'glm-tier-fixture',1000,300,100,100);
+        insert into model_usage values ('completed',1790000001000,'glm-tier-fixture',1000,300,100,100);
+        """)
+        let report = try ZCodeUsageScanner(environment: environment).loadReport()
+        try expectClose(report.totalCostUSD, 0.0053, "ZCode must price each 1K request before combining them into a 2K day")
+        try expectClose(MoaUsagePricing.zcodeCacheReadUSDPerMillion(model: "glm-tier-fixture", promptTokens: 1501) ?? -1, 1, "cache-price helpers must honor the same context boundary")
+    }
+
+    private static func testWorkBuddyEditionPaths() throws {
+        let home = try temporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let ai = try workbuddyFixture(home, WorkBuddyFakeRuntime())
+        let cn = try workbuddyFixture(home, WorkBuddyFakeRuntime(), edition: .china)
+        try expect(ai.authURL.lastPathComponent == "workbuddy-desktop-ai.info", "the AI credential path must remain backward compatible")
+        try expect(cn.authURL.lastPathComponent == "workbuddy-desktop.info", "China must address its own auth file")
+        try expect(ai.keyURL.path.hasSuffix("/.workbuddy-ai/keyblob") && cn.keyURL.path.hasSuffix("/.workbuddy/keyblob"), "each client must use its own keyblob")
+        try expect(ai.storageURL.path.hasSuffix("/workbuddy-accounts/accounts.json") && cn.storageURL.path.hasSuffix("/workbuddy-cn-accounts/accounts.json"), "saved accounts and lock directories must be isolated without moving old AI data")
+        try expect(WorkBuddyAppManager(edition: .china).bundleID == "com.tencent.workbuddy.mac", "China app actions must select the domestic bundle")
+        try expect(WorkBuddyAppManager().bundleID == "com.workbuddy.workbuddy-ai", "default app actions must continue targeting AI")
+        try expect(MoaUsageSource.workbuddy.rawValue == "workbuddy" && DailyUsageAlertKind.workbuddy.rawValue == "workbuddy", "existing AI pricing and alert keys must not change")
+        try expect(MoaUsageSource.workbuddyCN.rawValue == "workbuddy-cn" && DailyUsageAlertKind.workbuddyCN.rawValue == "workbuddy-cn", "China needs a separate persistent usage namespace")
+        try expect(WorkBuddyEdition.china.acceptsAuthDomain("https://www.workbuddy.cn"), "China should accept its own product domain")
+        try expect(!WorkBuddyEdition.china.acceptsAuthDomain("www.workbuddy.ai"), "China must reject known international login domains")
+        try expect(!WorkBuddyEdition.international.acceptsAuthDomain("www.codebuddy.cn"), "AI must reject known domestic login domains")
+    }
+
+    private static func testWorkBuddyChinaSwitchIsolation() throws {
+        let home = try temporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let aiRuntime = WorkBuddyFakeRuntime()
+        let cnRuntime = WorkBuddyFakeRuntime()
+        let ai = try workbuddyFixture(home, aiRuntime)
+        let cn = try workbuddyFixture(home, cnRuntime, edition: .china)
+        let aiAuth = try workbuddyLogin("same-uid", token: "ai-only")
+        try aiAuth.write(to: ai.authURL)
+        let aiAccount = try ai.saveCurrent(name: "AI account")
+        let aiDatabase = try Data(contentsOf: ai.storageURL)
+        let aiEvents = aiRuntime.events
+        let cnAuth = try workbuddyLogin("same-uid", token: "cn-only")
+        try cnAuth.write(to: cn.authURL)
+        let cnAccount = try cn.saveCurrent(name: "CN account")
+        try expect(cnAccount.id != aiAccount.id && cnAccount.keyFingerprint != aiAccount.keyFingerprint, "same UID in different clients must produce separate saved accounts and key bindings")
+        try workbuddyLogin("cn-B").write(to: cn.authURL)
+        let b = try cn.saveCurrent(name: "CN B")
+        let rotatedB = try workbuddyLogin("cn-B", token: "rotated-cn-B")
+        cnRuntime.onQuit = { try rotatedB.write(to: cn.authURL) }
+        _ = try cn.apply(id: cnAccount.id)
+        cnRuntime.onQuit = nil
+        try expect(try Data(contentsOf: cn.authURL) == cnAuth, "China switching must restore its own account snapshot")
+        try expect(try cn.accounts().first(where: { $0.id == b.id })?.snapshot == rotatedB, "China must capture its own rotated outgoing token")
+        var failures = 1
+        cnRuntime.onLaunch = { if failures > 0 { failures -= 1; throw TestError.failure("domestic launch failed") } }
+        do { _ = try cn.apply(id: b.id); throw TestError.failure("China launch failure must surface") }
+        catch TestError.failure(let message) where message == "domestic launch failed" { }
+        try expect(try Data(contentsOf: cn.authURL) == cnAuth, "China launch recovery must restore the domestic login")
+        cnRuntime.onLaunch = { try expect(!FileManager.default.fileExists(atPath: cn.authURL.path), "China enrollment should start with a fresh domestic login") }
+        try cn.prepareNewLogin()
+        cnRuntime.onLaunch = nil
+        _ = try cn.apply(id: cnAccount.id)
+        try cn.rename(id: cnAccount.id, name: "CN Personal")
+        try cn.delete(id: b.id)
+        try expect(try cn.accounts().count == 1, "China account management must remain within its own database")
+        try expect(try Data(contentsOf: ai.authURL) == aiAuth && (try Data(contentsOf: ai.storageURL)) == aiDatabase, "every China operation must leave international auth and saved accounts byte-for-byte intact")
+        try expect(aiRuntime.events == aiEvents, "China actions must never quit or launch WorkBuddy AI")
+    }
+
+    private static func testWorkBuddyEditionGuardsAndLegacy() throws {
+        let home = try temporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let ai = try workbuddyFixture(home, WorkBuddyFakeRuntime())
+        let cnRuntime = WorkBuddyFakeRuntime()
+        let cn = try workbuddyFixture(home, cnRuntime, edition: .china)
+        try workbuddyLogin("A").write(to: ai.authURL)
+        let aiAccount = try ai.saveCurrent(name: "legacy AI")
+        try workbuddyLogin("A", token: "domestic").write(to: cn.authURL)
+        _ = try cn.saveCurrent(name: "CN A")
+        let cnDatabase = try Data(contentsOf: cn.storageURL)
+        let originalEvents = cnRuntime.events
+        do { _ = try cn.apply(id: aiAccount.id); throw TestError.failure("cross-client account IDs must be rejected") }
+        catch is WorkBuddyError { }
+        try Data(contentsOf: ai.storageURL).write(to: cn.storageURL)
+        do { _ = try cn.accounts(); throw TestError.failure("a copied AI database must be rejected by China") }
+        catch is WorkBuddyError { }
+        var legacy = try JSONSerialization.jsonObject(with: Data(contentsOf: ai.storageURL)) as! [String: Any]
+        var entries = legacy["accounts"] as! [[String: Any]]
+        entries[0].removeValue(forKey: "edition")
+        legacy["accounts"] = entries
+        let legacyData = try JSONSerialization.data(withJSONObject: legacy)
+        try legacyData.write(to: ai.storageURL)
+        try expect(try ai.accounts().first?.id == aiAccount.id, "AI accounts created before edition tags must still load")
+        try legacyData.write(to: cn.storageURL)
+        do { _ = try cn.accounts(); throw TestError.failure("untagged legacy AI data must not be adopted by China") }
+        catch is WorkBuddyError { }
+        try cnDatabase.write(to: cn.storageURL)
+        var wrongLogin = try JSONSerialization.jsonObject(with: workbuddyLogin("A")) as! [String: Any]
+        var auth = wrongLogin["auth"] as! [String: Any]
+        auth["domain"] = "www.workbuddy.ai"
+        wrongLogin["auth"] = auth
+        try JSONSerialization.data(withJSONObject: wrongLogin).write(to: cn.authURL)
+        do { _ = try cn.currentUID(); throw TestError.failure("known AI auth domains must be rejected in the domestic path") }
+        catch is WorkBuddyError { }
+        try expect(cnRuntime.events == originalEvents, "cross-client validation must fail before changing any client process")
+        _ = try ai.apply(id: aiAccount.id)
+        try expect(try ai.accounts().first?.edition == .international, "re-saving old AI data should add the correct edition without changing its identity")
+    }
+
+    private static func testWorkBuddyChinaUsageIsolation() throws {
+        let home = try temporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let environment = ["HOME": home.path]
+        let ai = WorkBuddyUsageScanner(environment: environment)
+        let cn = WorkBuddyUsageScanner(environment: environment, edition: .china)
+        let values: [[String: Any]] = [["id": "identical-event", "timestamp": 1_790_000_000_000,
+            "providerData": ["messageId": "same-message", "stepSeq": 1, "model": "gpt-6-luna"],
+            "usage": ["input_tokens": 1000, "cache_read_input_tokens": 300, "output_tokens": 100]]]
+        try writeWorkBuddyLogs(values, to: home.appendingPathComponent(".workbuddy-ai/projects/session.jsonl"))
+        try writeWorkBuddyLogs(values, to: home.appendingPathComponent(".workbuddy/projects/session.jsonl"))
+        let aiReport = try ai.loadReport()
+        let cnReport = try cn.loadReport()
+        try expect(aiReport.totalTokens == 1100 && cnReport.totalTokens == 1100, "each scanner must read only its own data root")
+        try expect(aiReport.rows[0].source == .workbuddy && cnReport.rows[0].source == .workbuddyCN, "each row must keep an edition-specific source ID")
+        try expect(aiReport.rows[0].id != cnReport.rows[0].id, "matching request and model IDs must never collide across clients")
+        let now = Date(timeIntervalSince1970: 1_790_000_000)
+        let combined = MoaUsageReport(rows: aiReport.rows + cnReport.rows, generatedAt: now)
+        try expect(combined.filtered(source: .workbuddyCN, recentDays: 1, now: now).rows.map(\.source) == [.workbuddyCN], "the China tab must exclude AI rows")
+        try expect(combined.filtered(source: .workbuddy, recentDays: 1, now: now).rows.map(\.source) == [.workbuddy], "the AI tab must exclude China rows")
+        let prices = MoaUsagePricingOverrideController(environment: environment)
+        try prices.upsert(source: .workbuddyCN, model: "gpt-6-luna", inputUSDPerMillion: 1, outputUSDPerMillion: 2, cacheReadUSDPerMillion: 0.5, cacheCreationUSDPerMillion: nil)
+        try expectClose(try cn.loadReport().totalCostUSD, 0.00105, "China must use its own custom price")
+        try expectClose(try ai.loadReport().totalCostUSD, 0.000123, "China custom prices must not leak into AI")
+        try prices.upsert(source: .workbuddy, model: "gpt-6-luna", inputUSDPerMillion: 10, outputUSDPerMillion: 20, cacheReadUSDPerMillion: 5, cacheCreationUSDPerMillion: nil)
+        try expectClose(try ai.loadReport().totalCostUSD, 0.0105, "AI must keep its original pricing namespace")
+        try expectClose(try cn.loadReport().totalCostUSD, 0.00105, "AI custom prices must not leak into China")
+        let csv = MoaUsageReportExporter.csv(report: cnReport)
+        let markdown = MoaUsageReportExporter.markdown(report: cnReport)
+        try expect(csv.contains(MoaUsageSource.workbuddyCN.title) && !csv.contains("WorkBuddy AI"), "China CSV exports must contain only the domestic source")
+        try expect(!markdown.contains("WorkBuddy AI"), "a domestic-only Markdown report must not be labeled international")
+    }
+
+    private static func testWorkBuddyEditionAlertIsolation() throws {
+        let suite = "Moa.Tests.WorkBuddyEditions.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        DailyUsageAlertController.setThreshold(50, for: .workbuddy, defaults: defaults)
+        DailyUsageAlertController.setThreshold(10, for: .workbuddyCN, defaults: defaults)
+        try expect(DailyUsageAlertController.threshold(for: .workbuddy, defaults: defaults) == 50 && DailyUsageAlertController.threshold(for: .workbuddyCN, defaults: defaults) == 10, "each client must have its own alert threshold")
+        let summary = CodexUsageSummary(todayCostUSD: 20, totalCostUSD: 20, todayTokens: 1, totalTokens: 1,
+            cacheHitPercent: 0, topModelName: nil, topModelTokens: 0, topModelPercent: 0, updatedAt: Date())
+        try expect(DailyUsageAlertController.shouldAlert(kind: .workbuddyCN, summary: summary, defaults: defaults), "the domestic threshold should trigger")
+        try expect(!DailyUsageAlertController.shouldAlert(kind: .workbuddy, summary: summary, defaults: defaults), "the international threshold should remain untriggered")
+        DailyUsageAlertController.setThreshold(10, for: .workbuddy, defaults: defaults)
+        try expect(DailyUsageAlertController.shouldAlert(kind: .workbuddy, summary: summary, defaults: defaults), "China's delivered alert must not suppress the AI alert")
+        DailyUsageAlertController.setThreshold(nil, for: .workbuddyCN, defaults: defaults)
+        try expect(DailyUsageAlertController.threshold(for: .workbuddy, defaults: defaults) == 10, "turning off China alerts must preserve AI settings")
+        try expect(!DailyUsageAlertController.shouldAlert(kind: .workbuddy, summary: summary, defaults: defaults), "clearing China alert state must not clear AI's delivered-alert marker")
+    }
+
+    private static func testWorkBuddyEditionLockIsolation() throws {
+        let home = try temporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let aiRuntime = WorkBuddyFakeRuntime()
+        let cnRuntime = WorkBuddyFakeRuntime()
+        let ai = try workbuddyFixture(home, aiRuntime)
+        let cn = try workbuddyFixture(home, cnRuntime, edition: .china)
+        try workbuddyLogin("A").write(to: ai.authURL)
+        try workbuddyLogin("A", token: "cn-only").write(to: cn.authURL)
+        _ = try ai.saveCurrent(name: "AI")
+        let cnAccount = try cn.saveCurrent(name: "CN")
+        let events = cnRuntime.events
+        aiRuntime.onQuit = { try cn.rename(id: cnAccount.id, name: "CN independent edit") }
+        _ = try ai.saveCurrent(name: "AI updated")
+        try expect(try cn.accounts().first?.name == "CN independent edit", "an AI operation must not hold China's operation lock")
+        try expect(cnRuntime.events == events, "an international operation must not control domestic client processes")
     }
 
     private static func testDataRootPaths() throws {
@@ -1272,7 +1972,8 @@ private enum MoaCoreTests {
         guard case .updated(let firstAdded, let firstChanged) = firstUpdate else {
             throw TestError.failure("first remote catalog should create a local snapshot")
         }
-        try expect(firstAdded == 9, "first remote catalog should add every valid fixture model")
+        try expect(firstAdded == 18, "first remote catalog should add each fixture model to its source and WorkBuddy")
+        try expect(snapshot.models["workbuddy"]?["gpt-5.7"] != nil, "WorkBuddy should share recognized API prices")
         try expect(firstChanged == 0, "first remote catalog should not report changed models")
         let identicalUpdate = try store.merge(snapshot)
         try expect(identicalUpdate == .unchanged, "identical remote catalogs should not rewrite the local snapshot")

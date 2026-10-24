@@ -1,6 +1,6 @@
 # Moa
 
-Moa 是一个专注于 ChatGPT（原 Codex Desktop）、Claude Desktop 和本地 Provider Bridge 工作流的 macOS 菜单栏应用。
+Moa 是一个支持 ChatGPT（原 Codex Desktop）、Claude Desktop、ZCode、WorkBuddy、WorkBuddy AI 国际版和本地 Provider Bridge 工作流的 macOS 菜单栏应用。
 
 它不包含原 Moa 的 Companion 相关功能：没有桌面宠物、AI 快捷动作、提醒事项、日记、番茄钟、MCP helper、Workflow Runner、资产上传、Dashboard、皮肤和声音资源包。
 
@@ -9,7 +9,8 @@ Moa 是一个专注于 ChatGPT（原 Codex Desktop）、Claude Desktop 和本地
 - ChatGPT / Codex 控制：Fast Mode、远程连接设置入口、官方账号切换、provider profile 导入导出、重新打开客户端。
 - Provider Bridge：本地 loopback Responses bridge，用于把 Codex 请求转发到 Chat Completions 上游，内置 DeepSeek 和常见网关 preset。
 - Claude Desktop profile：写入 Claude Desktop 3P gateway profile，并复制 Claude Code 环境变量片段。
-- 用量统计：基于本地 Codex / Claude session 日志估算用量，并支持每日提醒阈值。
+- WorkBuddy / WorkBuddy AI 国际版：各有独立菜单和用量 Tab，分别保存本机登录态、添加和切换账号、重命名或删除已保存账号，并正常退出和重启对应客户端。
+- 用量统计：基于本地 Codex / Claude / ZCode / WorkBuddy AI 日志估算用量，提供模型明细、CSV / Markdown 导出、自定义价格和每日提醒阈值。
 - Moa 数据：导出/导入完整数据包、导出脱敏诊断包，并可把数据根切换到 iCloud Drive。
 - 更新检查：可从主菜单检查 GitHub Releases，下载、校验并安装匹配当前 Mac 的 DMG。
 
@@ -21,7 +22,35 @@ Moa 是一个专注于 ChatGPT（原 Codex Desktop）、Claude Desktop 和本地
 
 远程连接由 ChatGPT 自己管理；菜单打开 `codex://settings/connections`，不再通过旧 feature flags 开关。旧无界面命令 `MoaApplyRemoteConnections` 会返回迁移提示；使用 `MoaOpenRemoteConnections=1` 可打开设置页。
 
-用量读取兼容 `token_usage_record` 和旧 `token_count`，避免双重计数，分别保留缓存读取、缓存写入和每次请求的用量。费用按单次请求判断长上下文档位；GPT-6 Astra 与 GPT-5.6 内置价格参考 2026-09-07 的 [OpenAI 官方价格](https://developers.openai.com/api/docs/pricing)。这些是本地 Codex 任务的 API 标准价格估算，不是 ChatGPT 订阅账单。
+用量读取兼容 `token_usage_record` 和旧 `token_count`，避免双重计数，分别保留缓存读取、缓存写入和每次请求的用量。费用按单次请求判断长上下文档位；1.3.0 使用 2026-10-24 核对的 API 价格快照，覆盖 OpenAI、Claude、GLM 及 WorkBuddy 模型，并保留缓存与 Fast 参数；详见[完整模型价格与来源](MODEL_PRICING.md)。这些是本地 Codex 任务的 API 标准价格估算，不是 ChatGPT 订阅账单。
+
+## WorkBuddy
+
+菜单中的「WorkBuddy」和用量洞察中的同名 Tab 专门管理 `com.tencent.workbuddy.mac`。登录文件为 `~/Library/Application Support/CodeBuddyExtension/Data/Public/auth/workbuddy-desktop.info`，数据与密钥来自 `~/.workbuddy`。首次添加多个账号的流程与下方国际版一致，按钮会显示 WorkBuddy 名称；保存、切换、添加新登录及失败回滚都只操作国内版客户端。
+
+国内版账号快照保存在 `~/Library/Application Support/Moa/workbuddy-cn-accounts/accounts.json`，与国际版的 `workbuddy-accounts` 分开；两边的操作锁、加密密钥指纹、账号列表、请求去重、统计缓存、自定义价格和每日提醒也分别管理。保存的快照带有客户端标记，跨版账号库或已知另一版本的登录域会被拒绝。现有未带标记的国际版账号库仍然兼容。
+
+国内版只扫描 `~/.workbuddy/projects/**/*.jsonl` 与该目录下的 `sessions/**/*.jsonl`，国际版继续读取 `~/.workbuddy-ai`。各自 Tab 和导出只包含对应来源；「全部来源」汇总时仍保留两个独立来源，不合并同名模型的两版明细。两边共用公开的美元 API 参考价格目录，但不会继承对方的自定义价格，也不按 WorkBuddy 积分或免费倍率折算。这里不是人民币账单估算。
+
+国内版快照同样使用 `700` / `600` 权限，不随 Moa 数据根搬入 iCloud，也不进入数据包或诊断包。切换国内版不会退出或重写 WorkBuddy AI。
+
+## WorkBuddy AI 国际版
+
+菜单中的 `WorkBuddy AI` 对应国际版 `com.workbuddy.workbuddy-ai`。该国际版入口只操作 `~/Library/Application Support/CodeBuddyExtension/Data/Public/auth/workbuddy-desktop-ai.info`，不修改国内版 `workbuddy-desktop.info`。
+
+首次添加两个账号：
+
+1. 在 WorkBuddy AI 登录账号 A，结束正在运行的任务，在 Moa 选择「保存当前 WorkBuddy AI 账号」，填写便于识别的名称。
+2. 选择「添加另一个 WorkBuddy AI 账号」。Moa 正常退出客户端，保存当前登录态，移除当前登录文件后打开新的登录页；这不会调用退出登录或撤销凭证。
+3. 登录账号 B，再选择「保存当前 WorkBuddy AI 账号」。之后点击菜单中的账号即可切换。
+
+保存和切换都在客户端退出后读取最新凭证，保留 Refresh Token 和整个加密信封。跨 Moa 实例的文件锁会阻止多个副本同时修改账号。切换时会先保存实际使用中的账号；尚未命名的账号会自动保存，避免丢失。客户端未能正常退出时停止操作，启动失败时先保留目标账号可能已刷新的凭证，再恢复原登录文件。删除已保存账号只删除 Moa 的副本，保留客户端的当前登录态。不要在客户端中使用「退出登录」，否则此前保存的凭证可能失效。
+
+快照保存在 `~/Library/Application Support/Moa/workbuddy-accounts/accounts.json`，目录权限 `700`、文件权限 `600`。该目录固定保留在本机，不随 Moa 数据根切换至 iCloud，不进入完整数据包或诊断包。Moa 不复制或解密 `~/.workbuddy-ai/keyblob`，并检查其指纹；更换 keyblob 后需重新登录和保存账号。请勿手动把快照同步到网盘。
+
+用量只读扫描 `~/.workbuddy-ai/projects/**/*.jsonl` 和 `sessions/**/*.jsonl`，汇总本机所有账号已记录的调用，排除重复副本和 `subagents` 中重放的上下文。它不修改会话数据库，也不共享不同账号的会话。今日/累计 Token、缓存命中率和模型明细采用与 Codex 相同的展示口径；费用使用已知模型的 API 参考价格或自定义价格，**不是 WorkBuddy 积分、套餐余额或官方账单**。未定价模型仅计入 Token，会在明细中标出，并排除其费用；因此费用与每日金额提醒可能低于完整用量。日志未记录的调用无法统计。
+
+某个客户端的日志读取失败时，用量窗口会显示对应错误并继续展示其他客户端的数据。WorkBuddy 日志优先按上游请求 ID 或事件 ID 去重，避免时间和 Token 数恰好相同的独立调用被合并；没有 ID 时才使用时间、模型和 Token 数作为去重依据。
 
 ## App 身份
 
@@ -56,7 +85,7 @@ Moa 的本地数据存放在：
 - `~/.moa/backups`
 - `~/Library/Application Support/Moa/usage-pricing-update-state.json`
 
-Moa 每天按本地时间在 `00:20:01` 检查 `https://models.dev/api.json`；如果当时没有运行，会在该时间之后的下一次启动时补查。通过校验的新增模型和价格字段变化会合并进本地目录；自定义价格始终优先，网络或远程目录不可用时继续使用内置价格表。
+Moa 每天按本地时间在 `00:20:01` 检查 Sub2API 同源的 [model-price-repo 价格目录](https://github.com/Wei-Shaw/model-price-repo)；如果当时没有运行，会在该时间之后的下一次启动时补查。价源切换后会立即检查一次。通过校验的新增模型和价格字段变化会合并进本地目录；自定义价格始终优先，官网修正项单独保留，旧缓存与网络故障不会覆盖内置的已核价快照。
 
 开启 iCloud 存储后，Moa 会直接读写 `iCloud Drive/Moa`，不再读写 `~/.moa`。
 

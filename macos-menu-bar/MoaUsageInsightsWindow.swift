@@ -2,6 +2,26 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
+struct MoaUsageReportBatch {
+    var report: MoaUsageReport?
+    var failures: [String]
+
+    static func load(now: Date, sources: [(MoaUsageSource, () throws -> MoaUsageReport)]) -> Self {
+        var rows: [MoaUsageDetailRow] = []
+        var failures: [String] = []
+        var successes = 0
+        for (source, read) in sources {
+            do {
+                rows += try read().rows
+                successes += 1
+            } catch {
+                failures.append("\(source.title): \(error.localizedDescription)")
+            }
+        }
+        return Self(report: successes > 0 ? MoaUsageReport(rows: rows, generatedAt: now) : nil, failures: failures)
+    }
+}
+
 final class MoaUsageInsightsWindowController {
     typealias UsageAlertThresholdProvider = (DailyUsageAlertKind) -> Double?
     typealias UsageAlertSettingsAction = (DailyUsageAlertKind) -> Void
@@ -9,6 +29,8 @@ final class MoaUsageInsightsWindowController {
     private let codexScanner: CodexUsageScanner
     private let claudeScanner: ClaudeUsageScanner
     private let zcodeScanner: ZCodeUsageScanner
+    private let workbuddyScanner: WorkBuddyUsageScanner
+    private let workbuddyCNScanner: WorkBuddyUsageScanner
     private let pricingOverrides: MoaUsagePricingOverrideController
     private let usageAlertThresholdProvider: UsageAlertThresholdProvider
     private let usageAlertSettingsAction: UsageAlertSettingsAction
@@ -19,6 +41,8 @@ final class MoaUsageInsightsWindowController {
         codexScanner: CodexUsageScanner,
         claudeScanner: ClaudeUsageScanner,
         zcodeScanner: ZCodeUsageScanner,
+        workbuddyScanner: WorkBuddyUsageScanner = WorkBuddyUsageScanner(),
+        workbuddyCNScanner: WorkBuddyUsageScanner = WorkBuddyUsageScanner(edition: .china),
         pricingOverrides: MoaUsagePricingOverrideController = MoaUsagePricingOverrideController(),
         usageAlertThresholdProvider: @escaping UsageAlertThresholdProvider = { _ in nil },
         usageAlertSettingsAction: @escaping UsageAlertSettingsAction = { _ in }
@@ -26,6 +50,8 @@ final class MoaUsageInsightsWindowController {
         self.codexScanner = codexScanner
         self.claudeScanner = claudeScanner
         self.zcodeScanner = zcodeScanner
+        self.workbuddyScanner = workbuddyScanner
+        self.workbuddyCNScanner = workbuddyCNScanner
         self.pricingOverrides = pricingOverrides
         self.usageAlertThresholdProvider = usageAlertThresholdProvider
         self.usageAlertSettingsAction = usageAlertSettingsAction
@@ -53,6 +79,8 @@ final class MoaUsageInsightsWindowController {
             codexScanner: codexScanner,
             claudeScanner: claudeScanner,
             zcodeScanner: zcodeScanner,
+            workbuddyScanner: workbuddyScanner,
+            workbuddyCNScanner: workbuddyCNScanner,
             pricingOverrides: pricingOverrides,
             usageAlertThresholdProvider: usageAlertThresholdProvider,
             usageAlertSettingsAction: usageAlertSettingsAction,
@@ -60,13 +88,13 @@ final class MoaUsageInsightsWindowController {
         )
         self.model = model
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 980, height: 700),
+            contentRect: NSRect(x: 0, y: 0, width: 1120, height: 700),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
         window.title = MoaL10n.text("Usage Insights")
-        window.minSize = NSSize(width: 820, height: 600)
+        window.minSize = NSSize(width: 1100, height: 600)
         window.isReleasedWhenClosed = false
         window.isMovableByWindowBackground = true
         let hostingView = MoaInteractiveHostingView(rootView: MoaUsageInsightsView(model: model))
@@ -91,6 +119,8 @@ private final class MoaUsageInsightsViewModel: ObservableObject {
     private let codexScanner: CodexUsageScanner
     private let claudeScanner: ClaudeUsageScanner
     private let zcodeScanner: ZCodeUsageScanner
+    private let workbuddyScanner: WorkBuddyUsageScanner
+    private let workbuddyCNScanner: WorkBuddyUsageScanner
     private let pricingOverrides: MoaUsagePricingOverrideController
     private let usageAlertThresholdProvider: MoaUsageInsightsWindowController.UsageAlertThresholdProvider
     private let usageAlertSettingsAction: MoaUsageInsightsWindowController.UsageAlertSettingsAction
@@ -99,6 +129,8 @@ private final class MoaUsageInsightsViewModel: ObservableObject {
         codexScanner: CodexUsageScanner,
         claudeScanner: ClaudeUsageScanner,
         zcodeScanner: ZCodeUsageScanner,
+        workbuddyScanner: WorkBuddyUsageScanner,
+        workbuddyCNScanner: WorkBuddyUsageScanner,
         pricingOverrides: MoaUsagePricingOverrideController,
         usageAlertThresholdProvider: @escaping MoaUsageInsightsWindowController.UsageAlertThresholdProvider,
         usageAlertSettingsAction: @escaping MoaUsageInsightsWindowController.UsageAlertSettingsAction,
@@ -107,6 +139,8 @@ private final class MoaUsageInsightsViewModel: ObservableObject {
         self.codexScanner = codexScanner
         self.claudeScanner = claudeScanner
         self.zcodeScanner = zcodeScanner
+        self.workbuddyScanner = workbuddyScanner
+        self.workbuddyCNScanner = workbuddyCNScanner
         self.pricingOverrides = pricingOverrides
         self.usageAlertThresholdProvider = usageAlertThresholdProvider
         self.usageAlertSettingsAction = usageAlertSettingsAction
@@ -138,9 +172,20 @@ private final class MoaUsageInsightsViewModel: ObservableObject {
             return .claude
         case .some(.zcode):
             return .zcode
+        case .some(.workbuddy):
+            return .workbuddy
+        case .some(.workbuddyCN):
+            return .workbuddyCN
         case .none:
             return nil
         }
+    }
+
+    var workBuddyScopeNote: String {
+        if let edition = selectedSource?.workBuddyEdition {
+            return edition.localized("WorkBuddy AI: all local accounts. API price estimates are not credits or subscription bills. Unpriced models contribute tokens only; set a custom price to include their cost.")
+        }
+        return MoaL10n.text("WorkBuddy and WorkBuddy AI are separate sources. Reports use USD API reference prices, not credits. Unpriced models contribute tokens only.")
     }
 
     var usageAlertThreshold: Double? {
@@ -156,7 +201,7 @@ private final class MoaUsageInsightsViewModel: ObservableObject {
 
     var alertStatusText: String {
         guard let kind = selectedAlertKind else {
-            return MoaL10n.text("Choose Codex, Claude Desktop, or ZCode to view its daily usage alert threshold.")
+            return MoaL10n.text("Choose a source to view its daily usage alert threshold.")
         }
         guard let threshold = usageAlertThreshold else {
             return String(format: MoaL10n.text("%@ daily usage alert is off."), kind.displayName)
@@ -185,22 +230,19 @@ private final class MoaUsageInsightsViewModel: ObservableObject {
         errorMessage = nil
 
         DispatchQueue.global(qos: .utility).async {
-            let result = Result<MoaUsageReport, Error> {
-                let now = Date()
-                let codex = try self.codexScanner.loadReport(forceRefresh: forceRefresh, now: now)
-                let claude = try self.claudeScanner.loadReport(forceRefresh: forceRefresh, now: now)
-                let zcode = try self.zcodeScanner.loadReport(forceRefresh: forceRefresh, now: now)
-                return MoaUsageReport(rows: codex.rows + claude.rows + zcode.rows, generatedAt: now)
-            }
+            let now = Date()
+            let result = MoaUsageReportBatch.load(now: now, sources: [
+                (.codex, { try self.codexScanner.loadReport(forceRefresh: forceRefresh, now: now) }),
+                (.claude, { try self.claudeScanner.loadReport(forceRefresh: forceRefresh, now: now) }),
+                (.zcode, { try self.zcodeScanner.loadReport(forceRefresh: forceRefresh, now: now) }),
+                (.workbuddy, { try self.workbuddyScanner.loadReport(forceRefresh: forceRefresh, now: now) }),
+                (.workbuddyCN, { try self.workbuddyCNScanner.loadReport(forceRefresh: forceRefresh, now: now) })
+            ])
 
             DispatchQueue.main.async {
                 self.isLoading = false
-                switch result {
-                case .success(let report):
-                    self.report = report
-                case .failure(let error):
-                    self.errorMessage = error.localizedDescription
-                }
+                if let report = result.report { self.report = report }
+                self.errorMessage = result.failures.isEmpty ? nil : result.failures.joined(separator: "\n")
             }
         }
     }
@@ -306,11 +348,11 @@ private struct MoaUsageInsightsView: View {
             )) {
                 Text(MoaL10n.text("All Sources")).tag("all")
                 ForEach(MoaUsageSource.allCases, id: \.rawValue) { source in
-                    Text(source.title).tag(source.rawValue)
+                    Text(source.tabTitle).tag(source.rawValue)
                 }
             }
             .pickerStyle(.segmented)
-            .frame(width: 330)
+            .frame(width: 560)
 
             Picker("", selection: $model.recentDays) {
                 Text("7d").tag(7)
@@ -351,6 +393,11 @@ private struct MoaUsageInsightsView: View {
     private var content: some View {
         VStack(alignment: .leading, spacing: 14) {
             summary
+            if model.selectedSource == nil || model.selectedSource?.workBuddyEdition != nil {
+                Text(model.workBuddyScopeNote)
+                    .font(.system(size: 12)).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             alertPanel
             if let error = model.errorMessage {
                 Text(error)
@@ -370,7 +417,7 @@ private struct MoaUsageInsightsView: View {
                 .help(Self.exactTokens(model.filteredReport.totalTokens))
             metric(title: MoaL10n.text("Cache Hit"), value: Self.percent(model.filteredReport.cacheHitPercent))
             metric(title: MoaL10n.text("Rows"), value: "\(model.filteredRows.count)")
-            metric(title: MoaL10n.text("Fallback Models"), value: "\(model.fallbackRows.count)")
+            metric(title: MoaL10n.text("Fallback / Unpriced"), value: "\(model.fallbackRows.count)")
         }
     }
 
@@ -431,14 +478,19 @@ private struct MoaUsageInsightsView: View {
                     .help(Self.exactTokens(row.totalTokens))
             }
             TableColumn(MoaL10n.text("Cost")) { row in
-                Text(MoaUsageReportExporter.currency(row.costUSD))
+                Text(row.pricingModel == "unpriced" ? "—" : MoaUsageReportExporter.currency(row.costUSD))
                     .monospacedDigit()
             }
             TableColumn(MoaL10n.text("Pricing")) { row in
                 HStack(spacing: 6) {
-                    Text(row.pricingModel)
-                    if row.usesFallbackPricing {
-                        MoaStatusTag(title: MoaL10n.text("Fallback"), tint: MoaTheme.amber)
+                    if row.pricingModel == "unpriced" {
+                        MoaStatusTag(title: MoaL10n.text("Unpriced"), tint: MoaTheme.amber)
+                            .fixedSize()
+                    } else {
+                        Text(row.pricingModel)
+                        if row.usesFallbackPricing {
+                            MoaStatusTag(title: MoaL10n.text("Fallback"), tint: MoaTheme.amber)
+                        }
                     }
                 }
             }
@@ -450,7 +502,7 @@ private struct MoaUsageInsightsView: View {
     private var fallbackPanel: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text(MoaL10n.text("Fallback Pricing Models"))
+                Text(MoaL10n.text("Fallback / Unpriced Models"))
                     .font(.system(size: 15, weight: .semibold))
                 Spacer()
             }
@@ -468,7 +520,7 @@ private struct MoaUsageInsightsView: View {
                             .font(.system(size: 12))
                             .textSelection(.enabled)
                         Spacer()
-                        Text(MoaL10n.format("priced as %@", row.pricingModel))
+                        Text(row.pricingModel == "unpriced" ? MoaL10n.text("Tokens only; cost excluded") : MoaL10n.format("priced as %@", row.pricingModel))
                             .font(.system(size: 12))
                             .foregroundStyle(.secondary)
                         Button(MoaL10n.text("Set Price")) {

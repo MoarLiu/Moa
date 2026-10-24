@@ -10,6 +10,20 @@ struct MoaUsageRemotePricing: Codable, Equatable, Sendable {
     var outputUSDPerMillionAboveThreshold: Double?
     var cacheReadUSDPerMillionAboveThreshold: Double?
     var cacheCreationUSDPerMillionAboveThreshold: Double?
+    var priorityInputUSDPerMillion: Double? = nil
+    var priorityOutputUSDPerMillion: Double? = nil
+    var priorityCacheReadUSDPerMillion: Double? = nil
+    var priorityCacheCreationUSDPerMillion: Double? = nil
+    var priorityInputUSDPerMillionAboveThreshold: Double? = nil
+    var priorityOutputUSDPerMillionAboveThreshold: Double? = nil
+    var priorityCacheReadUSDPerMillionAboveThreshold: Double? = nil
+    var priorityCacheCreationUSDPerMillionAboveThreshold: Double? = nil
+    var thresholdInclusive: Bool? = nil
+
+    func usesLongContext(promptTokens: Int) -> Bool {
+        guard let thresholdTokens else { return false }
+        return thresholdInclusive == true ? promptTokens >= thresholdTokens : promptTokens > thresholdTokens
+    }
 
     func mergingMissingFields(from existing: Self) -> Self {
         Self(
@@ -21,7 +35,16 @@ struct MoaUsageRemotePricing: Codable, Equatable, Sendable {
             inputUSDPerMillionAboveThreshold: inputUSDPerMillionAboveThreshold ?? existing.inputUSDPerMillionAboveThreshold,
             outputUSDPerMillionAboveThreshold: outputUSDPerMillionAboveThreshold ?? existing.outputUSDPerMillionAboveThreshold,
             cacheReadUSDPerMillionAboveThreshold: cacheReadUSDPerMillionAboveThreshold ?? existing.cacheReadUSDPerMillionAboveThreshold,
-            cacheCreationUSDPerMillionAboveThreshold: cacheCreationUSDPerMillionAboveThreshold ?? existing.cacheCreationUSDPerMillionAboveThreshold
+            cacheCreationUSDPerMillionAboveThreshold: cacheCreationUSDPerMillionAboveThreshold ?? existing.cacheCreationUSDPerMillionAboveThreshold,
+            priorityInputUSDPerMillion: priorityInputUSDPerMillion ?? existing.priorityInputUSDPerMillion,
+            priorityOutputUSDPerMillion: priorityOutputUSDPerMillion ?? existing.priorityOutputUSDPerMillion,
+            priorityCacheReadUSDPerMillion: priorityCacheReadUSDPerMillion ?? existing.priorityCacheReadUSDPerMillion,
+            priorityCacheCreationUSDPerMillion: priorityCacheCreationUSDPerMillion ?? existing.priorityCacheCreationUSDPerMillion,
+            priorityInputUSDPerMillionAboveThreshold: priorityInputUSDPerMillionAboveThreshold ?? existing.priorityInputUSDPerMillionAboveThreshold,
+            priorityOutputUSDPerMillionAboveThreshold: priorityOutputUSDPerMillionAboveThreshold ?? existing.priorityOutputUSDPerMillionAboveThreshold,
+            priorityCacheReadUSDPerMillionAboveThreshold: priorityCacheReadUSDPerMillionAboveThreshold ?? existing.priorityCacheReadUSDPerMillionAboveThreshold,
+            priorityCacheCreationUSDPerMillionAboveThreshold: priorityCacheCreationUSDPerMillionAboveThreshold ?? existing.priorityCacheCreationUSDPerMillionAboveThreshold,
+            thresholdInclusive: thresholdInclusive ?? existing.thresholdInclusive
         )
     }
 }
@@ -301,11 +324,22 @@ enum MoaUsagePricingRemoteParser {
     }
 
     static func parse(data: Data, sourceURL: URL, fetchedAt: Date) throws -> MoaUsagePricingCatalogSnapshot {
+        if let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+           object.values.contains(where: { ($0 as? [String: Any])?["input_cost_per_token"] != nil }) {
+            return try MoaSub2APIPricingParser.parse(object, sourceURL: sourceURL, fetchedAt: fetchedAt)
+        }
         let providers = try JSONDecoder().decode([String: Provider].self, from: data)
         let mappings: [(provider: String, source: MoaUsageSource)] = [
             ("openai", .codex),
             ("anthropic", .claude),
-            ("zai", .zcode)
+            ("zai", .zcode),
+            ("openai", .workbuddy),
+            ("anthropic", .workbuddy),
+            ("deepseek", .workbuddy),
+            ("zai", .workbuddy),
+            ("moonshotai", .workbuddy),
+            ("minimax", .workbuddy),
+            ("google", .workbuddy)
         ]
         var result: [String: [String: MoaUsageRemotePricing]] = [:]
 
@@ -342,7 +376,7 @@ enum MoaUsagePricingRemoteParser {
                 )
             }
             if !prices.isEmpty {
-                result[mapping.source.rawValue] = prices
+                result[mapping.source.rawValue, default: [:]].merge(prices) { existing, _ in existing }
             }
         }
 
@@ -381,7 +415,7 @@ final class MoaUsagePricingUpdater: Sendable {
         }
     }
 
-    static let defaultSourceURL = URL(string: "https://models.dev/api.json")!
+    static let defaultSourceURL = URL(string: "https://raw.githubusercontent.com/Wei-Shaw/model-price-repo/main/model_prices_and_context_window.json")!
     private static let maximumPayloadBytes = 8 * 1024 * 1024
 
     let store: MoaUsagePricingCatalogStore
@@ -513,6 +547,10 @@ final class MoaUsagePricingUpdateCoordinator {
     }
 
     private func refreshIfNeeded(now: Date) {
+        if let snapshot = updater.store.snapshot(), snapshot.sourceURL != updater.sourceURL.absoluteString {
+            refresh()
+            return
+        }
         let lastSuccessfulCheck = updater.store.snapshot() == nil
             ? nil
             : updater.store.lastSuccessfulCheck()

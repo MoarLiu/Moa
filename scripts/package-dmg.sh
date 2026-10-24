@@ -50,6 +50,12 @@ find "$DMG_ROOT" -name ".DS_Store" -delete
 SENSITIVE_MATCH="$(find "$DMG_ROOT" \( \
   -name ".moa" -o \
   -name ".codex" -o \
+  -name ".workbuddy" -o \
+  -name ".workbuddy-ai" -o \
+  -name "workbuddy-accounts" -o \
+  -name "workbuddy-cn-accounts" -o \
+  -name "workbuddy-desktop*.info" -o \
+  -name "keyblob" -o \
   -name ".env" -o \
   -name ".env.*" -o \
   -name "auth.json" -o \
@@ -66,6 +72,12 @@ if [[ -n "$SENSITIVE_MATCH" ]]; then
   find "$DMG_ROOT" \( \
     -name ".moa" -o \
     -name ".codex" -o \
+    -name ".workbuddy" -o \
+    -name ".workbuddy-ai" -o \
+    -name "workbuddy-accounts" -o \
+    -name "workbuddy-cn-accounts" -o \
+    -name "workbuddy-desktop*.info" -o \
+    -name "keyblob" -o \
     -name ".env" -o \
     -name ".env.*" -o \
     -name "auth.json" -o \

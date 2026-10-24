@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.3.0 - 2026-10-24
+
+- Added independent WorkBuddy and WorkBuddy AI account menus and usage tabs, including account enrollment, switching, rename/forget actions, and client launch helpers.
+- Isolated credential files, encryption-key bindings, operation locks, usage caches, custom prices, exports, and daily alerts between the two clients; retained compatibility with older international account snapshots.
+- Preserved refreshed credentials before account changes and during failed-launch recovery, with atomic writes and protection against competing Moa instances.
+- Kept device-bound account snapshots outside iCloud data moves, data exports, diagnostic packages, and release artifacts.
+- Refreshed 208 API price records on 2026-10-24, added Sub2API-compatible pricing updates and WorkBuddy model aliases, and documented prices and sources in MODEL_PRICING.md.
+- Added GPT-6.1 Sol / GPT-6 Luna and current Claude pricing, retained Fast/cache/context parameters, and priced ZCode context tiers per request.
+- Kept independent usage requests distinct during deduplication and isolated source-read failures so other clients' reports remain available.
+- Expanded regression coverage to 68 checks for account recovery, cross-client isolation, pricing, exports, and alerts.
+
 ## 1.2.0 - 2026-09-08
 
 - Added compatibility with the renamed ChatGPT desktop app while retaining Codex data paths and legacy app discovery.

@@ -1,0 +1,263 @@
+import Foundation
+
+/// USD per million tokens, checked 2026-10-24. No WorkBuddy credits or plan multipliers.
+/// Sources, source hashes, aliases, exceptions and price tables: MODEL_PRICING.md.
+enum MoaUsagePricingSeed {
+    static let checkedAt = ISO8601DateFormatter().date(from: "2026-10-24T00:00:00Z")!
+    static let unpricedModels: Set<String> = ["gpt-5.3-codex-spark", "default-model", "auto", "space-bunny"]
+    private static let aliases = [
+        "hy4-preview-f": "hy4-preview", "deepseek-v4.1-flash": "deepseek-flash",
+        "deepseek-v4.1-flash-sg": "deepseek-flash", "deepseek-v4.1-flash-1017": "deepseek-flash",
+        "deepseek-v4-flash": "deepseek-flash", "deepseek-v4-flash-vision-exp": "deepseek-flash"
+    ]
+    static func canonicalModel(_ raw: String) -> String {
+        var model = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        for prefix in ["openai/", "anthropic/", "zhipu/", "zai/", "deepseek/", "stepfun/", "tencent/", "xai/", "google/", "moonshotai/", "minimax/"] where model.hasPrefix(prefix) {
+            model = String(model.dropFirst(prefix.count)); break
+        }
+        return aliases[model] ?? model
+    }
+    static func price(source: MoaUsageSource, model: String) -> MoaUsageRemotePricing? {
+        let key = canonicalModel(model)
+        if unpricedModels.contains(key) { return nil }
+        if let exact = tables[source.rawValue]?[key] { return exact }
+        if source == .workbuddy {
+            for group in ["codex", "claude", "zcode"] {
+                if let price = tables[group]?[key] { return price }
+            }
+        }
+        return nil
+    }
+    static func usesOfficialCorrection(source: MoaUsageSource, model: String) -> Bool {
+        let key = canonicalModel(model)
+        // These mirror entries use a different region/currency, a stale cache rate,
+        // or a free plan promotion instead of the supplier's USD API list price.
+        return ["gpt-5.6-sol", "hy3", "hy3-preview", "hy4-preview", "step-5-preview", "step-3.7-flash", "step-3.5-flash", "step-3.5-flash-2603", "claude-sonnet-4-6", "claude-sonnet-5-5", "gpt-5.4-pro", "gpt-5.5-pro", "kimi-k2.8-preview", "kimi-k3", "kimi-k2.6", "kimi-k2.7-code"].contains(key)
+            || ((source == .zcode || source == .workbuddy) && tables["zcode"]?[key] != nil)
+    }
+    private static let tables: [String: [String: MoaUsageRemotePricing]] = {
+        // Generated from public pricing facts; not a copy of Sub2API service code.
+        let data = Data(payload.utf8)
+        return try! JSONDecoder().decode([String: [String: MoaUsageRemotePricing]].self, from: data)
+    }()
+    private static let payload = #"""
+{
+    "codex": {
+        "codex-auto-review": {"inputUSDPerMillion":0.2,"outputUSDPerMillion":1.2,"cacheReadUSDPerMillion":0.02,"cacheCreationUSDPerMillion":0.25,"thresholdTokens":272000,"inputUSDPerMillionAboveThreshold":0.4,"priorityInputUSDPerMillion":0.4,"priorityInputUSDPerMillionAboveThreshold":0.8,"outputUSDPerMillionAboveThreshold":1.8,"priorityOutputUSDPerMillion":2.4,"priorityOutputUSDPerMillionAboveThreshold":3.6,"cacheReadUSDPerMillionAboveThreshold":0.04,"priorityCacheReadUSDPerMillion":0.04,"priorityCacheReadUSDPerMillionAboveThreshold":0.08,"cacheCreationUSDPerMillionAboveThreshold":0.5,"priorityCacheCreationUSDPerMillion":0.5,"priorityCacheCreationUSDPerMillionAboveThreshold":1.0},
+        "gpt-3.5-turbo": {"inputUSDPerMillion":0.5,"outputUSDPerMillion":1.5},
+        "gpt-3.5-turbo-0125": {"inputUSDPerMillion":0.5,"outputUSDPerMillion":1.5},
+        "gpt-3.5-turbo-1106": {"inputUSDPerMillion":1.0,"outputUSDPerMillion":2.0},
+        "gpt-3.5-turbo-16k": {"inputUSDPerMillion":3.0,"outputUSDPerMillion":4.0},
+        "gpt-4": {"inputUSDPerMillion":30.0,"outputUSDPerMillion":60.0},
+        "gpt-4-0125-preview": {"inputUSDPerMillion":10.0,"outputUSDPerMillion":30.0},
+        "gpt-4-0314": {"inputUSDPerMillion":30.0,"outputUSDPerMillion":60.0},
+        "gpt-4-0613": {"inputUSDPerMillion":30.0,"outputUSDPerMillion":60.0},
+        "gpt-4-1106-preview": {"inputUSDPerMillion":10.0,"outputUSDPerMillion":30.0},
+        "gpt-4-turbo": {"inputUSDPerMillion":10.0,"outputUSDPerMillion":30.0},
+        "gpt-4-turbo-2024-04-09": {"inputUSDPerMillion":10.0,"outputUSDPerMillion":30.0},
+        "gpt-4-turbo-preview": {"inputUSDPerMillion":10.0,"outputUSDPerMillion":30.0},
+        "gpt-4.1": {"inputUSDPerMillion":2.0,"outputUSDPerMillion":8.0,"cacheReadUSDPerMillion":0.5,"priorityInputUSDPerMillion":3.5,"priorityOutputUSDPerMillion":14.0,"priorityCacheReadUSDPerMillion":0.875},
+        "gpt-4.1-2025-04-14": {"inputUSDPerMillion":2.0,"outputUSDPerMillion":8.0,"cacheReadUSDPerMillion":0.5,"priorityInputUSDPerMillion":3.5,"priorityOutputUSDPerMillion":14.0,"priorityCacheReadUSDPerMillion":0.875},
+        "gpt-4.1-mini": {"inputUSDPerMillion":0.4,"outputUSDPerMillion":1.6,"cacheReadUSDPerMillion":0.1,"priorityInputUSDPerMillion":0.7,"priorityOutputUSDPerMillion":2.8,"priorityCacheReadUSDPerMillion":0.175},
+        "gpt-4.1-mini-2025-04-14": {"inputUSDPerMillion":0.4,"outputUSDPerMillion":1.6,"cacheReadUSDPerMillion":0.1,"priorityInputUSDPerMillion":0.7,"priorityOutputUSDPerMillion":2.8,"priorityCacheReadUSDPerMillion":0.175},
+        "gpt-4.1-nano": {"inputUSDPerMillion":0.1,"outputUSDPerMillion":0.4,"cacheReadUSDPerMillion":0.025,"priorityInputUSDPerMillion":0.2,"priorityOutputUSDPerMillion":0.8,"priorityCacheReadUSDPerMillion":0.05},
+        "gpt-4.1-nano-2025-04-14": {"inputUSDPerMillion":0.1,"outputUSDPerMillion":0.4,"cacheReadUSDPerMillion":0.025,"priorityInputUSDPerMillion":0.2,"priorityOutputUSDPerMillion":0.8,"priorityCacheReadUSDPerMillion":0.05},
+        "gpt-4o": {"inputUSDPerMillion":2.5,"outputUSDPerMillion":10.0,"cacheReadUSDPerMillion":1.25,"priorityInputUSDPerMillion":4.25,"priorityOutputUSDPerMillion":17.0,"priorityCacheReadUSDPerMillion":2.125},
+        "gpt-4o-2024-05-13": {"inputUSDPerMillion":5.0,"outputUSDPerMillion":15.0,"priorityInputUSDPerMillion":8.75,"priorityOutputUSDPerMillion":26.25},
+        "gpt-4o-2024-08-06": {"inputUSDPerMillion":2.5,"outputUSDPerMillion":10.0,"cacheReadUSDPerMillion":1.25,"priorityInputUSDPerMillion":4.25,"priorityOutputUSDPerMillion":17.0,"priorityCacheReadUSDPerMillion":2.125},
+        "gpt-4o-2024-11-20": {"inputUSDPerMillion":2.5,"outputUSDPerMillion":10.0,"cacheReadUSDPerMillion":1.25,"priorityInputUSDPerMillion":4.25,"priorityOutputUSDPerMillion":17.0,"priorityCacheReadUSDPerMillion":2.125},
+        "gpt-4o-mini": {"inputUSDPerMillion":0.15,"outputUSDPerMillion":0.6,"cacheReadUSDPerMillion":0.075,"priorityInputUSDPerMillion":0.25,"priorityOutputUSDPerMillion":1.0,"priorityCacheReadUSDPerMillion":0.125},
+        "gpt-4o-mini-2024-07-18": {"inputUSDPerMillion":0.15,"outputUSDPerMillion":0.6,"cacheReadUSDPerMillion":0.075,"priorityInputUSDPerMillion":0.25,"priorityOutputUSDPerMillion":1.0,"priorityCacheReadUSDPerMillion":0.125},
+        "gpt-4o-mini-search-preview": {"inputUSDPerMillion":0.15,"outputUSDPerMillion":0.6,"cacheReadUSDPerMillion":0.075},
+        "gpt-4o-mini-search-preview-2025-03-11": {"inputUSDPerMillion":0.15,"outputUSDPerMillion":0.6,"cacheReadUSDPerMillion":0.075},
+        "gpt-4o-search-preview": {"inputUSDPerMillion":2.5,"outputUSDPerMillion":10.0,"cacheReadUSDPerMillion":1.25},
+        "gpt-4o-search-preview-2025-03-11": {"inputUSDPerMillion":2.5,"outputUSDPerMillion":10.0,"cacheReadUSDPerMillion":1.25},
+        "gpt-5": {"inputUSDPerMillion":1.25,"outputUSDPerMillion":10.0,"cacheReadUSDPerMillion":0.125,"priorityInputUSDPerMillion":2.5,"priorityOutputUSDPerMillion":20.0,"priorityCacheReadUSDPerMillion":0.25},
+        "gpt-5-2025-08-07": {"inputUSDPerMillion":1.25,"outputUSDPerMillion":10.0,"cacheReadUSDPerMillion":0.125,"priorityInputUSDPerMillion":2.5,"priorityOutputUSDPerMillion":20.0,"priorityCacheReadUSDPerMillion":0.25},
+        "gpt-5-chat": {"inputUSDPerMillion":1.25,"outputUSDPerMillion":10.0,"cacheReadUSDPerMillion":0.125},
+        "gpt-5-chat-latest": {"inputUSDPerMillion":1.25,"outputUSDPerMillion":10.0,"cacheReadUSDPerMillion":0.125},
+        "gpt-5-codex": {"inputUSDPerMillion":1.25,"outputUSDPerMillion":10.0,"cacheReadUSDPerMillion":0.125},
+        "gpt-5-mini": {"inputUSDPerMillion":0.25,"outputUSDPerMillion":2.0,"cacheReadUSDPerMillion":0.025,"priorityInputUSDPerMillion":0.45,"priorityOutputUSDPerMillion":3.6,"priorityCacheReadUSDPerMillion":0.045},
+        "gpt-5-mini-2025-08-07": {"inputUSDPerMillion":0.25,"outputUSDPerMillion":2.0,"cacheReadUSDPerMillion":0.025,"priorityInputUSDPerMillion":0.45,"priorityOutputUSDPerMillion":3.6,"priorityCacheReadUSDPerMillion":0.045},
+        "gpt-5-nano": {"inputUSDPerMillion":0.05,"outputUSDPerMillion":0.4,"cacheReadUSDPerMillion":0.005,"priorityInputUSDPerMillion":2.5},
+        "gpt-5-nano-2025-08-07": {"inputUSDPerMillion":0.05,"outputUSDPerMillion":0.4,"cacheReadUSDPerMillion":0.005,"priorityInputUSDPerMillion":2.5},
+        "gpt-5-pro": {"inputUSDPerMillion":15.0,"outputUSDPerMillion":120.0},
+        "gpt-5-pro-2025-10-06": {"inputUSDPerMillion":15.0,"outputUSDPerMillion":120.0},
+        "gpt-5-search-api": {"inputUSDPerMillion":1.25,"outputUSDPerMillion":10.0,"cacheReadUSDPerMillion":0.125},
+        "gpt-5-search-api-2025-10-14": {"inputUSDPerMillion":1.25,"outputUSDPerMillion":10.0,"cacheReadUSDPerMillion":0.125},
+        "gpt-5.1": {"inputUSDPerMillion":1.25,"outputUSDPerMillion":10.0,"cacheReadUSDPerMillion":0.125,"priorityInputUSDPerMillion":2.5,"priorityOutputUSDPerMillion":20.0,"priorityCacheReadUSDPerMillion":0.25},
+        "gpt-5.1-2025-11-13": {"inputUSDPerMillion":1.25,"outputUSDPerMillion":10.0,"cacheReadUSDPerMillion":0.125,"priorityInputUSDPerMillion":2.5,"priorityOutputUSDPerMillion":20.0,"priorityCacheReadUSDPerMillion":0.25},
+        "gpt-5.1-chat-latest": {"inputUSDPerMillion":1.25,"outputUSDPerMillion":10.0,"cacheReadUSDPerMillion":0.125,"priorityInputUSDPerMillion":2.5,"priorityOutputUSDPerMillion":20.0,"priorityCacheReadUSDPerMillion":0.25},
+        "gpt-5.1-codex": {"inputUSDPerMillion":1.25,"outputUSDPerMillion":10.0,"cacheReadUSDPerMillion":0.125,"priorityInputUSDPerMillion":2.5,"priorityOutputUSDPerMillion":20.0,"priorityCacheReadUSDPerMillion":0.25},
+        "gpt-5.1-codex-max": {"inputUSDPerMillion":1.25,"outputUSDPerMillion":10.0,"cacheReadUSDPerMillion":0.125},
+        "gpt-5.1-codex-mini": {"inputUSDPerMillion":0.25,"outputUSDPerMillion":2.0,"cacheReadUSDPerMillion":0.025,"priorityInputUSDPerMillion":0.45,"priorityOutputUSDPerMillion":3.6,"priorityCacheReadUSDPerMillion":0.045},
+        "gpt-5.2": {"inputUSDPerMillion":1.75,"outputUSDPerMillion":14.0,"cacheReadUSDPerMillion":0.175,"priorityInputUSDPerMillion":3.5,"priorityOutputUSDPerMillion":28.0,"priorityCacheReadUSDPerMillion":0.35},
+        "gpt-5.2-2025-12-11": {"inputUSDPerMillion":1.75,"outputUSDPerMillion":14.0,"cacheReadUSDPerMillion":0.175,"priorityInputUSDPerMillion":3.5,"priorityOutputUSDPerMillion":28.0,"priorityCacheReadUSDPerMillion":0.35},
+        "gpt-5.2-chat-latest": {"inputUSDPerMillion":1.75,"outputUSDPerMillion":14.0,"cacheReadUSDPerMillion":0.175,"priorityInputUSDPerMillion":3.5,"priorityOutputUSDPerMillion":28.0,"priorityCacheReadUSDPerMillion":0.35},
+        "gpt-5.2-codex": {"inputUSDPerMillion":1.75,"outputUSDPerMillion":14.0,"cacheReadUSDPerMillion":0.175,"priorityInputUSDPerMillion":3.5,"priorityOutputUSDPerMillion":28.0,"priorityCacheReadUSDPerMillion":0.35},
+        "gpt-5.2-pro": {"inputUSDPerMillion":21.0,"outputUSDPerMillion":168.0},
+        "gpt-5.2-pro-2025-12-11": {"inputUSDPerMillion":21.0,"outputUSDPerMillion":168.0},
+        "gpt-5.3-chat-latest": {"inputUSDPerMillion":1.75,"outputUSDPerMillion":14.0,"cacheReadUSDPerMillion":0.175,"priorityInputUSDPerMillion":3.5,"priorityOutputUSDPerMillion":28.0,"priorityCacheReadUSDPerMillion":0.35},
+        "gpt-5.3-codex": {"inputUSDPerMillion":1.75,"outputUSDPerMillion":14.0,"cacheReadUSDPerMillion":0.175,"priorityInputUSDPerMillion":3.5,"priorityOutputUSDPerMillion":28.0,"priorityCacheReadUSDPerMillion":0.35},
+        "gpt-5.4": {"inputUSDPerMillion":2.5,"outputUSDPerMillion":15.0,"cacheReadUSDPerMillion":0.25,"thresholdTokens":272000,"inputUSDPerMillionAboveThreshold":5.0,"priorityInputUSDPerMillion":5.0,"outputUSDPerMillionAboveThreshold":22.5,"priorityOutputUSDPerMillion":30.0,"cacheReadUSDPerMillionAboveThreshold":0.5,"priorityCacheReadUSDPerMillion":0.5},
+        "gpt-5.4-2026-03-05": {"inputUSDPerMillion":2.5,"outputUSDPerMillion":15.0,"cacheReadUSDPerMillion":0.25,"thresholdTokens":272000,"inputUSDPerMillionAboveThreshold":5.0,"priorityInputUSDPerMillion":5.0,"outputUSDPerMillionAboveThreshold":22.5,"priorityOutputUSDPerMillion":30.0,"cacheReadUSDPerMillionAboveThreshold":0.5,"priorityCacheReadUSDPerMillion":0.5},
+        "gpt-5.4-mini": {"inputUSDPerMillion":0.75,"outputUSDPerMillion":4.5,"cacheReadUSDPerMillion":0.075,"priorityInputUSDPerMillion":1.5,"priorityOutputUSDPerMillion":9.0,"priorityCacheReadUSDPerMillion":0.15},
+        "gpt-5.4-mini-2026-03-17": {"inputUSDPerMillion":0.75,"outputUSDPerMillion":4.5,"cacheReadUSDPerMillion":0.075,"priorityInputUSDPerMillion":1.5,"priorityOutputUSDPerMillion":9.0,"priorityCacheReadUSDPerMillion":0.15},
+        "gpt-5.4-nano": {"inputUSDPerMillion":0.2,"outputUSDPerMillion":1.25,"cacheReadUSDPerMillion":0.02},
+        "gpt-5.4-nano-2026-03-17": {"inputUSDPerMillion":0.2,"outputUSDPerMillion":1.25,"cacheReadUSDPerMillion":0.02},
+        "gpt-5.4-pro": {"inputUSDPerMillion":30,"outputUSDPerMillion":180,"thresholdTokens":272000,"inputUSDPerMillionAboveThreshold":60,"outputUSDPerMillionAboveThreshold":270},
+        "gpt-5.4-pro-2026-03-05": {"inputUSDPerMillion":30.0,"outputUSDPerMillion":180.0,"cacheReadUSDPerMillion":3.0,"thresholdTokens":272000,"inputUSDPerMillionAboveThreshold":60.0,"outputUSDPerMillionAboveThreshold":270.0,"cacheReadUSDPerMillionAboveThreshold":6.0},
+        "gpt-5.5": {"inputUSDPerMillion":5.0,"outputUSDPerMillion":30.0,"cacheReadUSDPerMillion":0.5,"thresholdTokens":272000,"inputUSDPerMillionAboveThreshold":10.0,"priorityInputUSDPerMillion":10.0,"outputUSDPerMillionAboveThreshold":45.0,"priorityOutputUSDPerMillion":60.0,"cacheReadUSDPerMillionAboveThreshold":1.0,"priorityCacheReadUSDPerMillion":1.0},
+        "gpt-5.5-2026-04-23": {"inputUSDPerMillion":5.0,"outputUSDPerMillion":30.0,"cacheReadUSDPerMillion":0.5,"thresholdTokens":272000,"inputUSDPerMillionAboveThreshold":10.0,"priorityInputUSDPerMillion":10.0,"outputUSDPerMillionAboveThreshold":45.0,"priorityOutputUSDPerMillion":60.0,"cacheReadUSDPerMillionAboveThreshold":1.0,"priorityCacheReadUSDPerMillion":1.0},
+        "gpt-5.5-cyber": {"inputUSDPerMillion":12.5,"outputUSDPerMillion":75.0,"cacheReadUSDPerMillion":1.25},
+        "gpt-5.5-cyber-preview": {"inputUSDPerMillion":12.5,"outputUSDPerMillion":75.0,"cacheReadUSDPerMillion":1.25},
+        "gpt-5.5-pro": {"inputUSDPerMillion":30,"outputUSDPerMillion":180,"thresholdTokens":272000,"inputUSDPerMillionAboveThreshold":60,"outputUSDPerMillionAboveThreshold":270},
+        "gpt-5.5-pro-2026-04-23": {"inputUSDPerMillion":30.0,"outputUSDPerMillion":180.0,"cacheReadUSDPerMillion":3.0,"thresholdTokens":272000,"inputUSDPerMillionAboveThreshold":60.0,"outputUSDPerMillionAboveThreshold":270.0,"cacheReadUSDPerMillionAboveThreshold":6.0},
+        "gpt-5.6": {"inputUSDPerMillion":4,"outputUSDPerMillion":20,"cacheReadUSDPerMillion":0.4,"cacheCreationUSDPerMillion":5.0,"thresholdTokens":272000,"inputUSDPerMillionAboveThreshold":8,"outputUSDPerMillionAboveThreshold":30.0,"cacheReadUSDPerMillionAboveThreshold":0.8,"cacheCreationUSDPerMillionAboveThreshold":10.0,"priorityInputUSDPerMillion":8,"priorityOutputUSDPerMillion":40,"priorityCacheReadUSDPerMillion":0.8,"priorityCacheCreationUSDPerMillion":10.0,"priorityInputUSDPerMillionAboveThreshold":16,"priorityOutputUSDPerMillionAboveThreshold":60,"priorityCacheReadUSDPerMillionAboveThreshold":1.6,"priorityCacheCreationUSDPerMillionAboveThreshold":20},
+        "gpt-5.6-cyber": {"inputUSDPerMillion":12.5,"outputUSDPerMillion":75.0,"cacheReadUSDPerMillion":1.25,"cacheCreationUSDPerMillion":15.625,"thresholdTokens":272000,"inputUSDPerMillionAboveThreshold":25.0,"outputUSDPerMillionAboveThreshold":112.5,"cacheReadUSDPerMillionAboveThreshold":2.5,"cacheCreationUSDPerMillionAboveThreshold":31.25},
+        "gpt-5.6-luna": {"inputUSDPerMillion":0.2,"outputUSDPerMillion":1.2,"cacheReadUSDPerMillion":0.02,"cacheCreationUSDPerMillion":0.25,"thresholdTokens":272000,"inputUSDPerMillionAboveThreshold":0.4,"outputUSDPerMillionAboveThreshold":1.8,"cacheReadUSDPerMillionAboveThreshold":0.04,"cacheCreationUSDPerMillionAboveThreshold":0.5,"priorityInputUSDPerMillion":0.4,"priorityOutputUSDPerMillion":2.4,"priorityCacheReadUSDPerMillion":0.04,"priorityCacheCreationUSDPerMillion":0.5,"priorityInputUSDPerMillionAboveThreshold":0.8,"priorityOutputUSDPerMillionAboveThreshold":3.6,"priorityCacheReadUSDPerMillionAboveThreshold":0.08,"priorityCacheCreationUSDPerMillionAboveThreshold":1.0},
+        "gpt-5.6-sol": {"inputUSDPerMillion":4,"outputUSDPerMillion":20,"cacheReadUSDPerMillion":0.4,"cacheCreationUSDPerMillion":5.0,"thresholdTokens":272000,"inputUSDPerMillionAboveThreshold":8,"outputUSDPerMillionAboveThreshold":30.0,"cacheReadUSDPerMillionAboveThreshold":0.8,"cacheCreationUSDPerMillionAboveThreshold":10.0,"priorityInputUSDPerMillion":8,"priorityOutputUSDPerMillion":40,"priorityCacheReadUSDPerMillion":0.8,"priorityCacheCreationUSDPerMillion":10.0,"priorityInputUSDPerMillionAboveThreshold":16,"priorityOutputUSDPerMillionAboveThreshold":60,"priorityCacheReadUSDPerMillionAboveThreshold":1.6,"priorityCacheCreationUSDPerMillionAboveThreshold":20},
+        "gpt-5.6-terra": {"inputUSDPerMillion":2,"outputUSDPerMillion":12,"cacheReadUSDPerMillion":0.2,"cacheCreationUSDPerMillion":2.5,"thresholdTokens":272000,"inputUSDPerMillionAboveThreshold":4,"outputUSDPerMillionAboveThreshold":18.0,"cacheReadUSDPerMillionAboveThreshold":0.4,"cacheCreationUSDPerMillionAboveThreshold":5.0,"priorityInputUSDPerMillion":4,"priorityOutputUSDPerMillion":24,"priorityCacheReadUSDPerMillion":0.4,"priorityCacheCreationUSDPerMillion":5.0,"priorityInputUSDPerMillionAboveThreshold":8,"priorityOutputUSDPerMillionAboveThreshold":36,"priorityCacheReadUSDPerMillionAboveThreshold":0.8,"priorityCacheCreationUSDPerMillionAboveThreshold":10},
+        "gpt-6-astra": {"inputUSDPerMillion":10,"outputUSDPerMillion":50,"cacheReadUSDPerMillion":1,"cacheCreationUSDPerMillion":12.5,"thresholdTokens":272000,"inputUSDPerMillionAboveThreshold":20,"outputUSDPerMillionAboveThreshold":75.0,"cacheReadUSDPerMillionAboveThreshold":2,"cacheCreationUSDPerMillionAboveThreshold":25.0,"priorityInputUSDPerMillion":20,"priorityOutputUSDPerMillion":100,"priorityCacheReadUSDPerMillion":2,"priorityCacheCreationUSDPerMillion":25.0,"priorityInputUSDPerMillionAboveThreshold":40,"priorityOutputUSDPerMillionAboveThreshold":150,"priorityCacheReadUSDPerMillionAboveThreshold":4,"priorityCacheCreationUSDPerMillionAboveThreshold":50},
+        "gpt-6-luna": {"inputUSDPerMillion":0.1,"outputUSDPerMillion":0.5,"cacheReadUSDPerMillion":0.01,"cacheCreationUSDPerMillion":0.125,"thresholdTokens":272000,"inputUSDPerMillionAboveThreshold":0.2,"outputUSDPerMillionAboveThreshold":0.75,"cacheReadUSDPerMillionAboveThreshold":0.02,"cacheCreationUSDPerMillionAboveThreshold":0.25,"priorityInputUSDPerMillion":0.2,"priorityOutputUSDPerMillion":1.0,"priorityCacheReadUSDPerMillion":0.02,"priorityCacheCreationUSDPerMillion":0.25,"priorityInputUSDPerMillionAboveThreshold":0.4,"priorityOutputUSDPerMillionAboveThreshold":1.5,"priorityCacheReadUSDPerMillionAboveThreshold":0.04,"priorityCacheCreationUSDPerMillionAboveThreshold":0.5},
+        "gpt-6-sol": {"inputUSDPerMillion":2,"outputUSDPerMillion":10,"cacheReadUSDPerMillion":0.2,"cacheCreationUSDPerMillion":2.5,"thresholdTokens":272000,"inputUSDPerMillionAboveThreshold":4,"outputUSDPerMillionAboveThreshold":15.0,"cacheReadUSDPerMillionAboveThreshold":0.4,"cacheCreationUSDPerMillionAboveThreshold":5.0,"priorityInputUSDPerMillion":4,"priorityOutputUSDPerMillion":20,"priorityCacheReadUSDPerMillion":0.4,"priorityCacheCreationUSDPerMillion":5.0,"priorityInputUSDPerMillionAboveThreshold":8,"priorityOutputUSDPerMillionAboveThreshold":30,"priorityCacheReadUSDPerMillionAboveThreshold":0.8,"priorityCacheCreationUSDPerMillionAboveThreshold":10},
+        "gpt-6.1-sol": {"inputUSDPerMillion":2,"outputUSDPerMillion":10,"cacheReadUSDPerMillion":0.1,"cacheCreationUSDPerMillion":2.5,"thresholdTokens":272000,"inputUSDPerMillionAboveThreshold":4,"outputUSDPerMillionAboveThreshold":15.0,"cacheReadUSDPerMillionAboveThreshold":0.2,"cacheCreationUSDPerMillionAboveThreshold":5.0,"priorityInputUSDPerMillion":4,"priorityOutputUSDPerMillion":20,"priorityCacheReadUSDPerMillion":0.2,"priorityCacheCreationUSDPerMillion":5.0,"priorityInputUSDPerMillionAboveThreshold":8,"priorityOutputUSDPerMillionAboveThreshold":30,"priorityCacheReadUSDPerMillionAboveThreshold":0.4,"priorityCacheCreationUSDPerMillionAboveThreshold":10},
+        "gpt-daybreak-blue-latest": {"inputUSDPerMillion":4.0,"outputUSDPerMillion":20.0,"cacheReadUSDPerMillion":0.4,"cacheCreationUSDPerMillion":5.0,"thresholdTokens":272000,"inputUSDPerMillionAboveThreshold":8.0,"outputUSDPerMillionAboveThreshold":30.0,"cacheReadUSDPerMillionAboveThreshold":0.8,"cacheCreationUSDPerMillionAboveThreshold":10.0},
+        "gpt-daybreak-red-latest": {"inputUSDPerMillion":12.5,"outputUSDPerMillion":75.0,"cacheReadUSDPerMillion":1.25,"cacheCreationUSDPerMillion":15.625,"thresholdTokens":272000,"inputUSDPerMillionAboveThreshold":25.0,"outputUSDPerMillionAboveThreshold":112.5,"cacheReadUSDPerMillionAboveThreshold":2.5,"cacheCreationUSDPerMillionAboveThreshold":31.25},
+        "gpt-rosalind-discovery": {"inputUSDPerMillion":5.0,"outputUSDPerMillion":25.0,"cacheReadUSDPerMillion":0.5},
+        "gpt-rosalind-research": {"inputUSDPerMillion":5.0,"outputUSDPerMillion":25.0,"cacheReadUSDPerMillion":0.5},
+        "o1": {"inputUSDPerMillion":15,"outputUSDPerMillion":60,"cacheReadUSDPerMillion":7.5},
+        "o1-2024-12-17": {"inputUSDPerMillion":15.0,"outputUSDPerMillion":60.0,"cacheReadUSDPerMillion":7.5},
+        "o1-pro": {"inputUSDPerMillion":150.0,"outputUSDPerMillion":600.0},
+        "o1-pro-2025-03-19": {"inputUSDPerMillion":150.0,"outputUSDPerMillion":600.0},
+        "o3": {"inputUSDPerMillion":2.0,"outputUSDPerMillion":8.0,"cacheReadUSDPerMillion":0.5,"priorityInputUSDPerMillion":3.5,"priorityOutputUSDPerMillion":14.0,"priorityCacheReadUSDPerMillion":0.875},
+        "o3-2025-04-16": {"inputUSDPerMillion":2.0,"outputUSDPerMillion":8.0,"cacheReadUSDPerMillion":0.5,"priorityInputUSDPerMillion":3.5,"priorityOutputUSDPerMillion":14.0,"priorityCacheReadUSDPerMillion":0.875},
+        "o3-deep-research": {"inputUSDPerMillion":10.0,"outputUSDPerMillion":40.0,"cacheReadUSDPerMillion":2.5},
+        "o3-deep-research-2025-06-26": {"inputUSDPerMillion":10.0,"outputUSDPerMillion":40.0,"cacheReadUSDPerMillion":2.5},
+        "o3-mini": {"inputUSDPerMillion":1.1,"outputUSDPerMillion":4.4,"cacheReadUSDPerMillion":0.55},
+        "o3-mini-2025-01-31": {"inputUSDPerMillion":1.1,"outputUSDPerMillion":4.4,"cacheReadUSDPerMillion":0.55},
+        "o3-pro": {"inputUSDPerMillion":20.0,"outputUSDPerMillion":80.0},
+        "o3-pro-2025-06-10": {"inputUSDPerMillion":20.0,"outputUSDPerMillion":80.0},
+        "o4-mini": {"inputUSDPerMillion":1.1,"outputUSDPerMillion":4.4,"cacheReadUSDPerMillion":0.275,"priorityInputUSDPerMillion":2.0,"priorityOutputUSDPerMillion":8.0,"priorityCacheReadUSDPerMillion":0.5},
+        "o4-mini-2025-04-16": {"inputUSDPerMillion":1.1,"outputUSDPerMillion":4.4,"cacheReadUSDPerMillion":0.275,"priorityInputUSDPerMillion":2.0,"priorityOutputUSDPerMillion":8.0,"priorityCacheReadUSDPerMillion":0.5},
+        "o4-mini-deep-research": {"inputUSDPerMillion":2.0,"outputUSDPerMillion":8.0,"cacheReadUSDPerMillion":0.5},
+        "o4-mini-deep-research-2025-06-26": {"inputUSDPerMillion":2.0,"outputUSDPerMillion":8.0,"cacheReadUSDPerMillion":0.5}
+    },
+    "claude": {
+        "claude-3-7-sonnet-20250219": {"inputUSDPerMillion":3.0,"outputUSDPerMillion":15.0,"cacheReadUSDPerMillion":0.3,"cacheCreationUSDPerMillion":3.75},
+        "claude-3-haiku-20240307": {"inputUSDPerMillion":0.25,"outputUSDPerMillion":1.25,"cacheReadUSDPerMillion":0.03,"cacheCreationUSDPerMillion":0.3},
+        "claude-3-opus-20240229": {"inputUSDPerMillion":15.0,"outputUSDPerMillion":75.0,"cacheReadUSDPerMillion":1.5,"cacheCreationUSDPerMillion":18.75},
+        "claude-4-opus-20250514": {"inputUSDPerMillion":15.0,"outputUSDPerMillion":75.0,"cacheReadUSDPerMillion":1.5,"cacheCreationUSDPerMillion":18.75},
+        "claude-4-sonnet-20250514": {"inputUSDPerMillion":3,"outputUSDPerMillion":15,"cacheReadUSDPerMillion":0.3,"cacheCreationUSDPerMillion":3.75,"thresholdTokens":200000,"inputUSDPerMillionAboveThreshold":6,"outputUSDPerMillionAboveThreshold":22.5,"cacheReadUSDPerMillionAboveThreshold":0.6,"cacheCreationUSDPerMillionAboveThreshold":7.5},
+        "claude-fable-5": {"inputUSDPerMillion":10.0,"outputUSDPerMillion":50.0,"cacheReadUSDPerMillion":1.0,"cacheCreationUSDPerMillion":12.5},
+        "claude-fable-5-1": {"inputUSDPerMillion":10,"outputUSDPerMillion":50,"cacheReadUSDPerMillion":0.25,"cacheCreationUSDPerMillion":12.5},
+        "claude-haiku-4-5": {"inputUSDPerMillion":1.0,"outputUSDPerMillion":5.0,"cacheReadUSDPerMillion":0.1,"cacheCreationUSDPerMillion":1.25},
+        "claude-haiku-4-5-20251001": {"inputUSDPerMillion":1.0,"outputUSDPerMillion":5.0,"cacheReadUSDPerMillion":0.1,"cacheCreationUSDPerMillion":1.25},
+        "claude-haiku-5-5": {"inputUSDPerMillion":0.1,"outputUSDPerMillion":0.5,"cacheReadUSDPerMillion":0.01,"cacheCreationUSDPerMillion":0.125,"thresholdTokens":100000,"inputUSDPerMillionAboveThreshold":0.5,"outputUSDPerMillionAboveThreshold":2.5,"cacheReadUSDPerMillionAboveThreshold":0.05,"cacheCreationUSDPerMillionAboveThreshold":0.625},
+        "claude-mythos-5": {"inputUSDPerMillion":10.0,"outputUSDPerMillion":50.0,"cacheReadUSDPerMillion":1.0,"cacheCreationUSDPerMillion":12.5},
+        "claude-mythos-5-1": {"inputUSDPerMillion":10,"outputUSDPerMillion":50,"cacheReadUSDPerMillion":0.25,"cacheCreationUSDPerMillion":12.5},
+        "claude-mythos-preview": {"inputUSDPerMillion":10.0,"outputUSDPerMillion":50.0,"cacheReadUSDPerMillion":1.0,"cacheCreationUSDPerMillion":12.5},
+        "claude-opus-4-1": {"inputUSDPerMillion":15.0,"outputUSDPerMillion":75.0,"cacheReadUSDPerMillion":1.5,"cacheCreationUSDPerMillion":18.75},
+        "claude-opus-4-1-20250805": {"inputUSDPerMillion":15.0,"outputUSDPerMillion":75.0,"cacheReadUSDPerMillion":1.5,"cacheCreationUSDPerMillion":18.75},
+        "claude-opus-4-20250514": {"inputUSDPerMillion":15.0,"outputUSDPerMillion":75.0,"cacheReadUSDPerMillion":1.5,"cacheCreationUSDPerMillion":18.75},
+        "claude-opus-4-5": {"inputUSDPerMillion":5.0,"outputUSDPerMillion":25.0,"cacheReadUSDPerMillion":0.5,"cacheCreationUSDPerMillion":6.25},
+        "claude-opus-4-5-20251101": {"inputUSDPerMillion":5.0,"outputUSDPerMillion":25.0,"cacheReadUSDPerMillion":0.5,"cacheCreationUSDPerMillion":6.25},
+        "claude-opus-4-6": {"inputUSDPerMillion":5.0,"outputUSDPerMillion":25.0,"cacheReadUSDPerMillion":0.5,"cacheCreationUSDPerMillion":6.25},
+        "claude-opus-4-6-20260205": {"inputUSDPerMillion":5.0,"outputUSDPerMillion":25.0,"cacheReadUSDPerMillion":0.5,"cacheCreationUSDPerMillion":6.25},
+        "claude-opus-4-6-thinking": {"inputUSDPerMillion":5.0,"outputUSDPerMillion":25.0,"cacheReadUSDPerMillion":0.5,"cacheCreationUSDPerMillion":6.25},
+        "claude-opus-4-7": {"inputUSDPerMillion":5.0,"outputUSDPerMillion":25.0,"cacheReadUSDPerMillion":0.5,"cacheCreationUSDPerMillion":6.25},
+        "claude-opus-4-7-20260416": {"inputUSDPerMillion":5.0,"outputUSDPerMillion":25.0,"cacheReadUSDPerMillion":0.5,"cacheCreationUSDPerMillion":6.25},
+        "claude-opus-4-8": {"inputUSDPerMillion":5.0,"outputUSDPerMillion":25.0,"cacheReadUSDPerMillion":0.5,"cacheCreationUSDPerMillion":6.25},
+        "claude-opus-5": {"inputUSDPerMillion":5.0,"outputUSDPerMillion":25.0,"cacheReadUSDPerMillion":0.5,"cacheCreationUSDPerMillion":6.25},
+        "claude-opus-5-5": {"inputUSDPerMillion":4,"outputUSDPerMillion":20,"cacheReadUSDPerMillion":0.2,"cacheCreationUSDPerMillion":5},
+        "claude-sonnet-4-20250514": {"inputUSDPerMillion":3,"outputUSDPerMillion":15,"cacheReadUSDPerMillion":0.3,"cacheCreationUSDPerMillion":3.75,"thresholdTokens":200000,"inputUSDPerMillionAboveThreshold":6,"outputUSDPerMillionAboveThreshold":22.5,"cacheReadUSDPerMillionAboveThreshold":0.6,"cacheCreationUSDPerMillionAboveThreshold":7.5},
+        "claude-sonnet-4-5": {"inputUSDPerMillion":3,"outputUSDPerMillion":15,"cacheReadUSDPerMillion":0.3,"cacheCreationUSDPerMillion":3.75,"thresholdTokens":200000,"inputUSDPerMillionAboveThreshold":6,"outputUSDPerMillionAboveThreshold":22.5,"cacheReadUSDPerMillionAboveThreshold":0.6,"cacheCreationUSDPerMillionAboveThreshold":7.5},
+        "claude-sonnet-4-5-20250929": {"inputUSDPerMillion":3,"outputUSDPerMillion":15,"cacheReadUSDPerMillion":0.3,"cacheCreationUSDPerMillion":3.75,"thresholdTokens":200000,"inputUSDPerMillionAboveThreshold":6,"outputUSDPerMillionAboveThreshold":22.5,"cacheReadUSDPerMillionAboveThreshold":0.6,"cacheCreationUSDPerMillionAboveThreshold":7.5},
+        "claude-sonnet-4-6": {"inputUSDPerMillion":3,"outputUSDPerMillion":15,"cacheReadUSDPerMillion":0.3,"cacheCreationUSDPerMillion":3.75},
+        "claude-sonnet-5": {"inputUSDPerMillion":2.0,"outputUSDPerMillion":10.0,"cacheReadUSDPerMillion":0.2,"cacheCreationUSDPerMillion":2.5},
+        "claude-sonnet-5-5": {"inputUSDPerMillion":2,"outputUSDPerMillion":10,"cacheReadUSDPerMillion":0.1,"cacheCreationUSDPerMillion":2.5}
+    },
+    "zcode": {
+        "glm-4.5": {"inputUSDPerMillion":0.6,"outputUSDPerMillion":2.2,"cacheReadUSDPerMillion":0.11,"cacheCreationUSDPerMillion":0},
+        "glm-4.5-air": {"inputUSDPerMillion":0.2,"outputUSDPerMillion":1.1,"cacheReadUSDPerMillion":0.03,"cacheCreationUSDPerMillion":0},
+        "glm-4.5-flash": {"inputUSDPerMillion":0,"outputUSDPerMillion":0,"cacheReadUSDPerMillion":0,"cacheCreationUSDPerMillion":0},
+        "glm-4.5v": {"inputUSDPerMillion":0.6,"outputUSDPerMillion":1.8,"cacheReadUSDPerMillion":0.11,"cacheCreationUSDPerMillion":0},
+        "glm-4.6": {"inputUSDPerMillion":0.6,"outputUSDPerMillion":2.2,"cacheReadUSDPerMillion":0.11,"cacheCreationUSDPerMillion":0},
+        "glm-4.6v": {"inputUSDPerMillion":0.3,"outputUSDPerMillion":0.9,"cacheReadUSDPerMillion":0.05,"cacheCreationUSDPerMillion":0},
+        "glm-4.6v-flash": {"inputUSDPerMillion":0,"outputUSDPerMillion":0,"cacheReadUSDPerMillion":0,"cacheCreationUSDPerMillion":0},
+        "glm-4.7": {"inputUSDPerMillion":0.6,"outputUSDPerMillion":2.2,"cacheReadUSDPerMillion":0.11,"cacheCreationUSDPerMillion":0},
+        "glm-4.7-flash": {"inputUSDPerMillion":0,"outputUSDPerMillion":0,"cacheReadUSDPerMillion":0,"cacheCreationUSDPerMillion":0},
+        "glm-4.7-flashx": {"inputUSDPerMillion":0.07,"outputUSDPerMillion":0.4,"cacheReadUSDPerMillion":0.01,"cacheCreationUSDPerMillion":0},
+        "glm-5": {"inputUSDPerMillion":1,"outputUSDPerMillion":3.2,"cacheReadUSDPerMillion":0.2,"cacheCreationUSDPerMillion":0},
+        "glm-5-turbo": {"inputUSDPerMillion":1.2,"outputUSDPerMillion":4,"cacheReadUSDPerMillion":0.24,"cacheCreationUSDPerMillion":0},
+        "glm-5.1": {"inputUSDPerMillion":1.4,"outputUSDPerMillion":4.4,"cacheReadUSDPerMillion":0.26,"cacheCreationUSDPerMillion":0},
+        "glm-5.2": {"inputUSDPerMillion":1.4,"outputUSDPerMillion":4.4,"cacheReadUSDPerMillion":0.26,"cacheCreationUSDPerMillion":0},
+        "glm-5.3": {"inputUSDPerMillion":1.4,"outputUSDPerMillion":4.4,"cacheReadUSDPerMillion":0.26,"cacheCreationUSDPerMillion":0},
+        "glm-5.3-flash": {"inputUSDPerMillion":0.15,"outputUSDPerMillion":0.5,"cacheReadUSDPerMillion":0.03,"cacheCreationUSDPerMillion":0},
+        "glm-5.3-flashx": {"inputUSDPerMillion":0.37,"outputUSDPerMillion":1.25,"cacheReadUSDPerMillion":0.075,"cacheCreationUSDPerMillion":0},
+        "glm-5v-turbo": {"inputUSDPerMillion":1.2,"outputUSDPerMillion":4,"cacheReadUSDPerMillion":0.24,"cacheCreationUSDPerMillion":0}
+    },
+    "workbuddy": {
+        "deepseek-chat": {"inputUSDPerMillion":0.28,"outputUSDPerMillion":0.42,"cacheReadUSDPerMillion":0.028},
+        "deepseek-flash": {"inputUSDPerMillion":0.3,"outputUSDPerMillion":1.2,"cacheReadUSDPerMillion":0.006},
+        "deepseek-reasoner": {"inputUSDPerMillion":0.28,"outputUSDPerMillion":0.42,"cacheReadUSDPerMillion":0.028},
+        "deepseek-v4-flash": {"inputUSDPerMillion":0.44,"outputUSDPerMillion":1.32,"cacheReadUSDPerMillion":0.014,"cacheCreationUSDPerMillion":0.0},
+        "deepseek-v4-flash-vision-exp": {"inputUSDPerMillion":0.44,"outputUSDPerMillion":1.32,"cacheReadUSDPerMillion":0.014,"cacheCreationUSDPerMillion":0.0},
+        "deepseek-v4-pro": {"inputUSDPerMillion":1.32,"outputUSDPerMillion":3.96,"cacheReadUSDPerMillion":0.044},
+        "gemini-2.5-computer-use-preview-10-2025": {"inputUSDPerMillion":1.25,"outputUSDPerMillion":10,"thresholdTokens":200000,"inputUSDPerMillionAboveThreshold":2.5,"outputUSDPerMillionAboveThreshold":15},
+        "gemini-2.5-flash": {"inputUSDPerMillion":0.3,"outputUSDPerMillion":2.5,"cacheReadUSDPerMillion":0.03},
+        "gemini-2.5-flash-lite": {"inputUSDPerMillion":0.1,"outputUSDPerMillion":0.4,"cacheReadUSDPerMillion":0.01},
+        "gemini-2.5-pro": {"inputUSDPerMillion":1.25,"outputUSDPerMillion":10,"cacheReadUSDPerMillion":0.125,"thresholdTokens":200000,"inputUSDPerMillionAboveThreshold":2.5,"outputUSDPerMillionAboveThreshold":15,"cacheReadUSDPerMillionAboveThreshold":0.25},
+        "gemini-3-flash-preview": {"inputUSDPerMillion":0.5,"outputUSDPerMillion":3,"cacheReadUSDPerMillion":0.05},
+        "gemini-3.1-flash-lite": {"inputUSDPerMillion":0.25,"outputUSDPerMillion":1.5,"cacheReadUSDPerMillion":0.025},
+        "gemini-3.1-flash-lite-preview": {"inputUSDPerMillion":0.25,"outputUSDPerMillion":1.5,"cacheReadUSDPerMillion":0.025},
+        "gemini-3.1-flash-live-preview": {"inputUSDPerMillion":0.75,"outputUSDPerMillion":4.5},
+        "gemini-3.1-pro-preview": {"inputUSDPerMillion":2,"outputUSDPerMillion":12,"cacheReadUSDPerMillion":0.2,"thresholdTokens":200000,"inputUSDPerMillionAboveThreshold":4,"outputUSDPerMillionAboveThreshold":18,"cacheReadUSDPerMillionAboveThreshold":0.4},
+        "gemini-3.1-pro-preview-customtools": {"inputUSDPerMillion":2,"outputUSDPerMillion":12,"cacheReadUSDPerMillion":0.2,"thresholdTokens":200000,"inputUSDPerMillionAboveThreshold":4,"outputUSDPerMillionAboveThreshold":18,"cacheReadUSDPerMillionAboveThreshold":0.4},
+        "gemini-3.5-flash": {"inputUSDPerMillion":1.5,"outputUSDPerMillion":9,"cacheReadUSDPerMillion":0.15},
+        "gemini-3.5-flash-lite": {"inputUSDPerMillion":0.3,"outputUSDPerMillion":2.5,"cacheReadUSDPerMillion":0.03},
+        "gemini-3.5-live-translate-preview": {"inputUSDPerMillion":3.5,"outputUSDPerMillion":21},
+        "gemini-3.6-flash": {"inputUSDPerMillion":0.75,"outputUSDPerMillion":3.75,"cacheReadUSDPerMillion":0.075},
+        "gemini-3.7-flash": {"inputUSDPerMillion":0.75,"outputUSDPerMillion":3.75,"cacheReadUSDPerMillion":0.075},
+        "gemini-3.8-flash": {"inputUSDPerMillion":0.75,"outputUSDPerMillion":3.75,"cacheReadUSDPerMillion":0.075},
+        "gemini-4-argon": {"inputUSDPerMillion":2,"outputUSDPerMillion":10,"cacheReadUSDPerMillion":0.1},
+        "gemini-exp-1206": {"inputUSDPerMillion":0.3,"outputUSDPerMillion":2.5,"cacheReadUSDPerMillion":0.03},
+        "gemini-flash-latest": {"inputUSDPerMillion":0.3,"outputUSDPerMillion":2.5,"cacheReadUSDPerMillion":0.03,"priorityInputUSDPerMillion":1.35,"priorityOutputUSDPerMillion":6.75,"priorityCacheReadUSDPerMillion":0.135},
+        "gemini-flash-lite-latest": {"inputUSDPerMillion":0.1,"outputUSDPerMillion":0.4,"cacheReadUSDPerMillion":0.01,"priorityInputUSDPerMillion":0.54,"priorityOutputUSDPerMillion":4.5,"priorityCacheReadUSDPerMillion":0.05},
+        "gemini-omni-flash-preview": {"inputUSDPerMillion":1.5,"outputUSDPerMillion":17.5},
+        "gemini-pro-latest": {"inputUSDPerMillion":1.25,"outputUSDPerMillion":10.0,"cacheReadUSDPerMillion":0.125,"thresholdTokens":200000,"inputUSDPerMillionAboveThreshold":2.5,"priorityInputUSDPerMillion":3.6,"priorityInputUSDPerMillionAboveThreshold":7.2,"outputUSDPerMillionAboveThreshold":15.0,"priorityOutputUSDPerMillion":21.6,"priorityOutputUSDPerMillionAboveThreshold":32.4,"cacheReadUSDPerMillionAboveThreshold":0.25,"priorityCacheReadUSDPerMillion":0.36,"priorityCacheReadUSDPerMillionAboveThreshold":0.72},
+        "grok-4.20-0309-non-reasoning": {"inputUSDPerMillion":1.25,"outputUSDPerMillion":2.5,"cacheReadUSDPerMillion":0.2,"thresholdTokens":200000,"inputUSDPerMillionAboveThreshold":2.5,"outputUSDPerMillionAboveThreshold":5.0,"cacheReadUSDPerMillionAboveThreshold":0.4,"thresholdInclusive":true},
+        "grok-4.20-0309-reasoning": {"inputUSDPerMillion":1.25,"outputUSDPerMillion":2.5,"cacheReadUSDPerMillion":0.2,"thresholdTokens":200000,"inputUSDPerMillionAboveThreshold":2.5,"outputUSDPerMillionAboveThreshold":5.0,"cacheReadUSDPerMillionAboveThreshold":0.4,"thresholdInclusive":true},
+        "grok-4.20-multi-agent-0309": {"inputUSDPerMillion":1.25,"outputUSDPerMillion":2.5,"cacheReadUSDPerMillion":0.2,"thresholdTokens":200000,"inputUSDPerMillionAboveThreshold":2.5,"outputUSDPerMillionAboveThreshold":5.0,"cacheReadUSDPerMillionAboveThreshold":0.4,"thresholdInclusive":true},
+        "grok-4.3": {"inputUSDPerMillion":1.25,"outputUSDPerMillion":2.5,"cacheReadUSDPerMillion":0.2,"thresholdTokens":200000,"inputUSDPerMillionAboveThreshold":2.5,"outputUSDPerMillionAboveThreshold":5.0,"cacheReadUSDPerMillionAboveThreshold":0.4,"thresholdInclusive":true},
+        "grok-4.5": {"inputUSDPerMillion":2.0,"outputUSDPerMillion":6.0,"cacheReadUSDPerMillion":0.3,"thresholdTokens":200000,"inputUSDPerMillionAboveThreshold":4.0,"outputUSDPerMillionAboveThreshold":12.0,"cacheReadUSDPerMillionAboveThreshold":0.6,"thresholdInclusive":true},
+        "grok-4.6": {"inputUSDPerMillion":2.0,"outputUSDPerMillion":6.0,"cacheReadUSDPerMillion":0.5,"thresholdTokens":200000,"inputUSDPerMillionAboveThreshold":4.0,"outputUSDPerMillionAboveThreshold":12.0,"cacheReadUSDPerMillionAboveThreshold":1.0,"thresholdInclusive":true},
+        "grok-4.7": {"inputUSDPerMillion":2,"outputUSDPerMillion":6,"cacheReadUSDPerMillion":0.5,"thresholdTokens":200000,"inputUSDPerMillionAboveThreshold":4,"outputUSDPerMillionAboveThreshold":12,"cacheReadUSDPerMillionAboveThreshold":1,"thresholdInclusive":true},
+        "grok-build-0.1": {"inputUSDPerMillion":1.0,"outputUSDPerMillion":2.0,"cacheReadUSDPerMillion":0.2,"thresholdTokens":200000,"inputUSDPerMillionAboveThreshold":2.0,"outputUSDPerMillionAboveThreshold":4.0,"cacheReadUSDPerMillionAboveThreshold":0.4,"thresholdInclusive":true},
+        "hy3": {"inputUSDPerMillion":0.132,"outputUSDPerMillion":0.528,"cacheReadUSDPerMillion":0.033},
+        "hy3-preview": {"inputUSDPerMillion":0.132,"outputUSDPerMillion":0.528,"cacheReadUSDPerMillion":0.033},
+        "hy4-preview": {"inputUSDPerMillion":0.834,"outputUSDPerMillion":2.501,"cacheReadUSDPerMillion":0.042},
+        "kimi-k2.5": {"inputUSDPerMillion":0.6,"outputUSDPerMillion":2.25,"cacheReadUSDPerMillion":0.1,"cacheCreationUSDPerMillion":0.6},
+        "kimi-k2.6": {"inputUSDPerMillion":0.95,"outputUSDPerMillion":4,"cacheReadUSDPerMillion":0.16},
+        "kimi-k2.7-code": {"inputUSDPerMillion":0.95,"outputUSDPerMillion":4,"cacheReadUSDPerMillion":0.19},
+        "kimi-k2.7-code-highspeed": {"inputUSDPerMillion":1.9,"outputUSDPerMillion":8,"cacheReadUSDPerMillion":0.38},
+        "kimi-k2.8-preview": {"inputUSDPerMillion":1,"outputUSDPerMillion":4,"cacheReadUSDPerMillion":0.25},
+        "kimi-k3": {"inputUSDPerMillion":3,"outputUSDPerMillion":15,"cacheReadUSDPerMillion":0.3,"cacheCreationUSDPerMillion":3},
+        "kimi-k3.1-pro": {"inputUSDPerMillion":2,"outputUSDPerMillion":10,"cacheReadUSDPerMillion":0.2,"cacheCreationUSDPerMillion":2},
+        "kimi-k3.1-pro-highspeed": {"inputUSDPerMillion":4,"outputUSDPerMillion":20,"cacheReadUSDPerMillion":0.2,"cacheCreationUSDPerMillion":4},
+        "minimax-m2": {"inputUSDPerMillion":0.3,"outputUSDPerMillion":1.2},
+        "minimax-m2.1": {"inputUSDPerMillion":0.3,"outputUSDPerMillion":1.2,"cacheReadUSDPerMillion":0.03,"cacheCreationUSDPerMillion":0.375},
+        "minimax-m2.5": {"inputUSDPerMillion":0.3,"outputUSDPerMillion":1.2,"cacheReadUSDPerMillion":0.03,"cacheCreationUSDPerMillion":0.375},
+        "minimax-m2.5-highspeed": {"inputUSDPerMillion":0.6,"outputUSDPerMillion":2.4,"cacheReadUSDPerMillion":0.03,"cacheCreationUSDPerMillion":0.375},
+        "minimax-m2.7": {"inputUSDPerMillion":0.3,"outputUSDPerMillion":1.2,"cacheReadUSDPerMillion":0.06,"cacheCreationUSDPerMillion":0.375},
+        "minimax-m2.7-highspeed": {"inputUSDPerMillion":0.6,"outputUSDPerMillion":2.4,"cacheReadUSDPerMillion":0.06,"cacheCreationUSDPerMillion":0.375},
+        "minimax-m3": {"inputUSDPerMillion":0.3,"outputUSDPerMillion":1.2,"cacheReadUSDPerMillion":0.06,"thresholdTokens":512000,"inputUSDPerMillionAboveThreshold":0.6,"outputUSDPerMillionAboveThreshold":2.4,"cacheReadUSDPerMillionAboveThreshold":0.12},
+        "minimax-m3.1-flash": {"inputUSDPerMillion":0.15,"outputUSDPerMillion":0.6,"cacheReadUSDPerMillion":0.015},
+        "step-3.5-flash": {"inputUSDPerMillion":0.1,"outputUSDPerMillion":0.3,"cacheReadUSDPerMillion":0.02},
+        "step-3.5-flash-2603": {"inputUSDPerMillion":0.1,"outputUSDPerMillion":0.3,"cacheReadUSDPerMillion":0.02},
+        "step-3.7-flash": {"inputUSDPerMillion":0.2,"outputUSDPerMillion":1.15,"cacheReadUSDPerMillion":0.04},
+        "step-5-preview": {"inputUSDPerMillion":1,"outputUSDPerMillion":2.7,"cacheReadUSDPerMillion":0.1}
+    }
+}
+"""#
+}

@@ -5,6 +5,8 @@ enum DailyUsageAlertKind: String {
     case codex
     case claude
     case zcode
+    case workbuddy
+    case workbuddyCN = "workbuddy-cn"
 
     var displayName: String {
         switch self {
@@ -14,6 +16,10 @@ enum DailyUsageAlertKind: String {
             return MoaL10n.text("Claude Desktop")
         case .zcode:
             return MoaL10n.text("ZCode")
+        case .workbuddy:
+            return "WorkBuddy AI"
+        case .workbuddyCN:
+            return WorkBuddyEdition.china.title
         }
     }
 }
@@ -108,18 +114,18 @@ enum DailyUsageAlertController {
     private static let thresholdPrefix = "Moa.dailyUsageAlert.threshold."
     private static let alertPrefix = "Moa.dailyUsageAlert.lastAlert."
 
-    static func threshold(for kind: DailyUsageAlertKind) -> Double? {
-        let value = UserDefaults.standard.double(forKey: thresholdPrefix + kind.rawValue)
+    static func threshold(for kind: DailyUsageAlertKind, defaults: UserDefaults = .standard) -> Double? {
+        let value = defaults.double(forKey: thresholdPrefix + kind.rawValue)
         return value > 0 ? value : nil
     }
 
-    static func setThreshold(_ threshold: Double?, for kind: DailyUsageAlertKind) {
+    static func setThreshold(_ threshold: Double?, for kind: DailyUsageAlertKind, defaults: UserDefaults = .standard) {
         let key = thresholdPrefix + kind.rawValue
         if let threshold, threshold > 0 {
-            UserDefaults.standard.set(threshold, forKey: key)
+            defaults.set(threshold, forKey: key)
         } else {
-            UserDefaults.standard.removeObject(forKey: key)
-            UserDefaults.standard.removeObject(forKey: alertPrefix + kind.rawValue)
+            defaults.removeObject(forKey: key)
+            defaults.removeObject(forKey: alertPrefix + kind.rawValue)
         }
     }
 
@@ -130,19 +136,19 @@ enum DailyUsageAlertController {
         return "\(MoaL10n.text("Daily Usage Alert")) · \(currency(threshold))"
     }
 
-    static func shouldAlert(kind: DailyUsageAlertKind, summary: CodexUsageSummary) -> Bool {
-        guard let threshold = threshold(for: kind), summary.todayCostUSD >= threshold else {
-            UserDefaults.standard.removeObject(forKey: alertPrefix + kind.rawValue)
+    static func shouldAlert(kind: DailyUsageAlertKind, summary: CodexUsageSummary, defaults: UserDefaults = .standard) -> Bool {
+        guard let threshold = threshold(for: kind, defaults: defaults), summary.todayCostUSD >= threshold else {
+            defaults.removeObject(forKey: alertPrefix + kind.rawValue)
             return false
         }
 
         let signature = "\(dayKey(from: summary.updatedAt))|\(String(format: "%.2f", threshold))"
         let key = alertPrefix + kind.rawValue
-        guard UserDefaults.standard.string(forKey: key) != signature else {
+        guard defaults.string(forKey: key) != signature else {
             return false
         }
 
-        UserDefaults.standard.set(signature, forKey: key)
+        defaults.set(signature, forKey: key)
         return true
     }
 

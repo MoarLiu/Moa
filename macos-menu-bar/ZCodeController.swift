@@ -37,13 +37,12 @@ final class ZCodeUsageScanner {
         select
           date(started_at / 1000, 'unixepoch', 'localtime') as day_key,
           coalesce(nullif(model_id, ''), 'unknown') as model_id,
-          coalesce(sum(input_tokens), 0) as input_tokens,
-          coalesce(sum(cache_read_input_tokens), 0) as cache_read_input_tokens,
-          coalesce(sum(cache_creation_input_tokens), 0) as cache_creation_input_tokens,
-          coalesce(sum(output_tokens), 0) as output_tokens
+          coalesce(input_tokens, 0) as input_tokens,
+          coalesce(cache_read_input_tokens, 0) as cache_read_input_tokens,
+          coalesce(cache_creation_input_tokens, 0) as cache_creation_input_tokens,
+          coalesce(output_tokens, 0) as output_tokens
         from model_usage
         where status = 'completed'
-        group by day_key, model_id
         order by day_key, model_id;
         """)
 
