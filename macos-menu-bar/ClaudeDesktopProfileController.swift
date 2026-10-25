@@ -103,9 +103,9 @@ final class ClaudeDesktopProfileController {
     private let threePConfigURL: URL
     private let profileURL: URL
     private let metaURL: URL
-    private let stateLock = NSRecursiveLock()
+    private let stateLock: MoaDataStoreLock
 
-    #if MOA_TESTING
+    #if MOA_TESTING || MOA_TEST_SUPPORT
     static var testingDatabaseSaveFailuresRemaining = 0
     #endif
 
@@ -119,6 +119,7 @@ final class ClaudeDesktopProfileController {
 
     init(environment: [String: String] = ProcessInfo.processInfo.environment) {
         self.environment = environment
+        stateLock = MoaDataStoreLock(environment: environment)
         let home = environment["HOME"] ?? NSHomeDirectory()
         let appSupport = URL(fileURLWithPath: "\(home)/Library/Application Support").standardizedFileURL
 
@@ -404,6 +405,7 @@ final class ClaudeDesktopProfileController {
     private var cachedDatabase: ClaudeDesktopProviderDatabase?
     private var cachedDatabaseModified: Date?
     private var cachedDatabaseURLPath: String?
+    private var cachedDatabaseRevision: UInt64?
 
     private func loadDatabase() throws -> ClaudeDesktopProviderDatabase {
         try stateLock.withLock {
@@ -411,7 +413,8 @@ final class ClaudeDesktopProfileController {
             let modified = (try? fileManager.attributesOfItem(atPath: databaseURL.path))?[.modificationDate] as? Date
             if let cachedDatabase, let cachedDatabaseModified, let modified,
                cachedDatabaseModified == modified,
-               cachedDatabaseURLPath == databaseURL.standardizedFileURL.path {
+               cachedDatabaseURLPath == databaseURL.standardizedFileURL.path,
+               cachedDatabaseRevision == stateLock.revision {
                 return cachedDatabase
             }
             let data = try Data(contentsOf: databaseURL)
@@ -419,13 +422,14 @@ final class ClaudeDesktopProfileController {
             cachedDatabase = database
             cachedDatabaseModified = modified
             cachedDatabaseURLPath = databaseURL.standardizedFileURL.path
+            cachedDatabaseRevision = stateLock.revision
             return database
         }
     }
 
     private func saveDatabase(_ database: ClaudeDesktopProviderDatabase) throws {
         try stateLock.withLock {
-            #if MOA_TESTING
+            #if MOA_TESTING || MOA_TEST_SUPPORT
             if Self.testingDatabaseSaveFailuresRemaining > 0 {
                 Self.testingDatabaseSaveFailuresRemaining -= 1
                 throw NSError(
@@ -443,6 +447,7 @@ final class ClaudeDesktopProfileController {
             cachedDatabase = database
             cachedDatabaseModified = (try? fileManager.attributesOfItem(atPath: databaseURL.path))?[.modificationDate] as? Date
             cachedDatabaseURLPath = databaseURL.standardizedFileURL.path
+            cachedDatabaseRevision = stateLock.revision
         }
     }
 
@@ -655,19 +660,7 @@ final class ClaudeDesktopProfileController {
 
     @discardableResult
     private func run(_ executable: String, _ arguments: [String]) -> Int32 {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = arguments
-        process.standardOutput = Pipe()
-        process.standardError = Pipe()
-
-        do {
-            try process.run()
-            process.waitUntilExit()
-            return process.terminationStatus
-        } catch {
-            return 127
-        }
+        MoaProcessRunner.run(executable, arguments)
     }
 
     private func isClaudeDesktopRunning() -> Bool {

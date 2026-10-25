@@ -1,4 +1,5 @@
 import AppKit
+import Darwin
 import Foundation
 
 final class ZCodeUsageScanner {
@@ -7,6 +8,26 @@ final class ZCodeUsageScanner {
     private let databaseURL: URL
     private let sqliteURL: URL
     private let pricingOverrides: MoaUsagePricingOverrideController
+    private let cacheLock = NSLock()
+    private struct FileSignature: Equatable {
+        var path: String
+        var inode: UInt64
+        var size: Int64
+        var modifiedSeconds: Int
+        var modifiedNanoseconds: Int
+        var changedSeconds: Int
+        var changedNanoseconds: Int
+    }
+    private struct QuerySignature: Equatable {
+        var database: FileSignature
+        var wal: FileSignature?
+        var timeZone: String
+    }
+    private var cachedQuery: (signature: QuerySignature, output: String)?
+
+    #if MOA_TESTING || MOA_TEST_SUPPORT
+    private(set) var testingQueryCount = 0
+    #endif
 
     init(environment: [String: String] = ProcessInfo.processInfo.environment) {
         self.environment = environment
@@ -29,11 +50,22 @@ final class ZCodeUsageScanner {
         now: Date = Date(),
         persistCache: Bool = true
     ) throws -> MoaUsageReport {
+        cacheLock.lock()
+        defer { cacheLock.unlock() }
         guard fileManager.fileExists(atPath: databaseURL.path) else {
+            cachedQuery = nil
             return MoaUsageReport(rows: [], generatedAt: now)
         }
 
-        let output = try runSQLite("""
+        let signature = querySignature()
+        let output: String
+        if !forceRefresh, let cachedQuery, cachedQuery.signature == signature {
+            output = cachedQuery.output
+        } else {
+            #if MOA_TESTING || MOA_TEST_SUPPORT
+            testingQueryCount += 1
+            #endif
+            output = try runSQLite("""
         select
           date(started_at / 1000, 'unixepoch', 'localtime') as day_key,
           coalesce(nullif(model_id, ''), 'unknown') as model_id,
@@ -45,6 +77,14 @@ final class ZCodeUsageScanner {
         where status = 'completed'
         order by day_key, model_id;
         """)
+            // A writer can commit while sqlite3 is reading its snapshot. Only
+            // cache it if both database and WAL stayed unchanged across the query.
+            if persistCache, let signature, signature == querySignature() {
+                cachedQuery = (signature, output)
+            } else {
+                cachedQuery = nil
+            }
+        }
 
         let separator = "\u{1F}"
         var buckets: [String: MoaUsageDetailRow] = [:]
@@ -98,6 +138,22 @@ final class ZCodeUsageScanner {
         }
 
         return MoaUsageReport(rows: Array(buckets.values), generatedAt: now)
+    }
+
+    private func querySignature() -> QuerySignature? {
+        guard let database = fileSignature(databaseURL) else { return nil }
+        return QuerySignature(database: database,
+                              wal: fileSignature(URL(fileURLWithPath: databaseURL.path + "-wal")),
+                              timeZone: TimeZone.current.identifier + "|" + (ProcessInfo.processInfo.environment["TZ"] ?? ""))
+    }
+
+    private func fileSignature(_ url: URL) -> FileSignature? {
+        let resolved = url.resolvingSymlinksInPath().standardizedFileURL.path
+        var info = stat()
+        guard lstat(resolved, &info) == 0 else { return nil }
+        return FileSignature(path: resolved, inode: info.st_ino, size: info.st_size,
+                             modifiedSeconds: info.st_mtimespec.tv_sec, modifiedNanoseconds: info.st_mtimespec.tv_nsec,
+                             changedSeconds: info.st_ctimespec.tv_sec, changedNanoseconds: info.st_ctimespec.tv_nsec)
     }
 
     private func runSQLite(_ query: String) throws -> String {
@@ -300,18 +356,6 @@ final class ZCodeController {
 
     @discardableResult
     private func run(_ executable: String, _ arguments: [String]) -> Int32 {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = arguments
-        process.standardOutput = Pipe()
-        process.standardError = Pipe()
-
-        do {
-            try process.run()
-            process.waitUntilExit()
-            return process.terminationStatus
-        } catch {
-            return 127
-        }
+        MoaProcessRunner.run(executable, arguments)
     }
 }

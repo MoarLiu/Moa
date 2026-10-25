@@ -25,6 +25,12 @@ final class WorkBuddyUsageScanner {
     private var cache: [URL: CachedFile] = [:]
     private let overrides: MoaUsagePricingOverrideController
     private let catalog: MoaUsagePricingCatalogStore
+    private let isoDateParser = ISO8601DateFormatter()
+    private let fractionalDateParser: ISO8601DateFormatter = {
+        let parser = ISO8601DateFormatter()
+        parser.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return parser
+    }()
 
     init(environment: [String: String] = ProcessInfo.processInfo.environment, edition: WorkBuddyEdition = .international) {
         self.edition = edition
@@ -69,7 +75,8 @@ final class WorkBuddyUsageScanner {
             if let traversalError { throw traversalError }
         }
         cache = cache.filter { files.contains($0.key) }
-        var seen = Set<Request>()
+        var identified: [String: Request] = [:]
+        var anonymous = Set<Request>()
         var buckets: [String: MoaUsageDetailRow] = [:]
         for url in files.sorted(by: { $0.path < $1.path }) {
             let attributes = try fileManager.attributesOfItem(atPath: url.path)
@@ -82,20 +89,32 @@ final class WorkBuddyUsageScanner {
                 requests = try readRequests(url)
                 cache[url] = CachedFile(modified: modified, size: size, requests: requests)
             }
-            // Preserve request identity: separate calls may have exactly the same
-            // timestamp and usage. Only anonymous records use the usage payload alone.
-            for request in requests where seen.insert(request).inserted {
-                let estimate = price(request)
-                let row = MoaUsageDetailRow(
-                    source: edition.usageSource, dayKey: MoaUsageReport.dayKey(from: Date(timeIntervalSince1970: request.timestamp)),
-                    model: request.model, input: request.input - request.read - request.write,
-                    cachedInput: 0, cacheReadInput: request.read, cacheCreationInput: request.write,
-                    output: request.output, costUSD: estimate?.cost ?? 0,
-                    pricingModel: estimate?.model ?? "unpriced", usesFallbackPricing: estimate == nil
-                )
-                if var existing = buckets[row.id] { existing.merge(row); buckets[row.id] = existing }
-                else { buckets[row.id] = row }
+            for request in requests {
+                if let identity = request.identity {
+                    if let existing = identified[identity] {
+                        // Logs may replay or update a request. Prefer the most
+                        // complete usage, then the later record for equal totals.
+                        let oldTotal = existing.input + existing.output
+                        let newTotal = request.input + request.output
+                        if newTotal < oldTotal || (newTotal == oldTotal && request.timestamp < existing.timestamp) { continue }
+                    }
+                    identified[identity] = request
+                } else {
+                    anonymous.insert(request)
+                }
             }
+        }
+        for request in Array(identified.values) + Array(anonymous) {
+            let estimate = price(request)
+            let row = MoaUsageDetailRow(
+                source: edition.usageSource, dayKey: MoaUsageReport.dayKey(from: Date(timeIntervalSince1970: request.timestamp)),
+                model: request.model, input: request.input - request.read - request.write,
+                cachedInput: 0, cacheReadInput: request.read, cacheCreationInput: request.write,
+                output: request.output, costUSD: estimate?.cost ?? 0,
+                pricingModel: estimate?.model ?? "unpriced", usesFallbackPricing: estimate == nil
+            )
+            if var existing = buckets[row.id] { existing.merge(row); buckets[row.id] = existing }
+            else { buckets[row.id] = row }
         }
         return MoaUsageReport(rows: Array(buckets.values), generatedAt: now)
     }
@@ -168,7 +187,8 @@ final class WorkBuddyUsageScanner {
     }
 
     private func timestamp(_ value: Any?) -> Double? {
-        if let text = value as? String, let date = ISO8601DateFormatter().date(from: text) {
+        if let text = value as? String,
+           let date = fractionalDateParser.date(from: text) ?? isoDateParser.date(from: text) {
             return date.timeIntervalSince1970
         }
         let number = (value as? NSNumber)?.doubleValue ?? (value as? String).flatMap(Double.init)

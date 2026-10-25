@@ -1,5 +1,9 @@
 import Foundation
 
+#if !MOA_TESTING
+@testable import Moa
+#endif
+
 private enum TestError: Error, CustomStringConvertible {
     case failure(String)
 
@@ -49,10 +53,12 @@ private final class WorkBuddyFakeRuntime: WorkBuddyAppManaging {
     }
 }
 
+#if MOA_TESTING
 @main
-private enum MoaCoreTests {
-    static func main() {
-        let tests: [(String, () throws -> Void)] = [
+#endif
+enum MoaCoreTests {
+    static var tests: [(String, () throws -> Void)] {
+        [
             ("WorkBuddy saves exact encrypted login after quit", testWorkBuddySnapshot),
             ("WorkBuddy switching preserves refreshed outgoing accounts", testWorkBuddySwitch),
             ("WorkBuddy new-account login and launch rollback", testWorkBuddyNewLoginAndRollback),
@@ -121,8 +127,10 @@ private enum MoaCoreTests {
             ("Codex official account state rolls back together", testCodexOfficialAccountTransactionRollback),
             ("data packages round trip without temporary leaks", testDataPackageRoundTripAndCleanup),
             ("ZCode scanner drains large subprocess output", testZCodeUsageScannerLargeOutput)
-        ]
+        ] + MoaReviewRegressionTests.tests + MoaOptimizationTests.tests
+    }
 
+    static func main() {
         var failures: [String] = []
         for (name, test) in tests {
             do {
@@ -1161,7 +1169,7 @@ private enum MoaCoreTests {
 
         [model_providers.one]
         name = "one"
-        base_url = "https://one.novnc.cc"
+        base_url = "https://gateway.example.invalid"
         experimental_bearer_token = "sk-test"
         wire_api = "responses"
         requires_openai_auth = true
@@ -1180,7 +1188,7 @@ private enum MoaCoreTests {
         try expect(restored.contains(#"name = "one""#), "official restore should keep the selected provider name")
         try expect(restored.contains(#"wire_api = "responses""#), "official restore should keep non-secret provider metadata")
         try expect(restored.contains("requires_openai_auth = true"), "official restore should keep OpenAI auth mode metadata")
-        try expect(!restored.contains("https://one.novnc.cc"), "official restore should remove the selected provider base URL")
+        try expect(!restored.contains("https://gateway.example.invalid"), "official restore should remove the selected provider base URL")
         try expect(!restored.contains("sk-test"), "official restore should remove the selected provider token")
         try expect(restored.contains("https://backup.example.com"), "official restore should leave unselected custom providers alone")
         try expect(restored.contains("backup-token"), "official restore should not alter unselected custom provider tokens")
@@ -1442,7 +1450,7 @@ private enum MoaCoreTests {
         try expect(account == nil, "no-account mode should not create an account when Codex is not logged in")
         try expect(selectedProfileID != nil, "no-account mode should preserve selected direct profile state")
         try expect(selectedAccountID == nil, "no-account mode should select the no-account option")
-        try expect(config.contains(#"base_url = "https://one.novnc.cc""#), "no-account mode should preserve config.toml base_url")
+        try expect(config.contains(#"base_url = "https://gateway.example.invalid""#), "no-account mode should preserve config.toml base_url")
         try expect(config.contains(#"experimental_bearer_token = "sk-test""#), "no-account mode should preserve config.toml token")
         try expect(auth == noAccountAuthJSONText, "no-account mode should write Codex auth in API key mode")
     }
@@ -1484,7 +1492,7 @@ private enum MoaCoreTests {
         try expect(selectedProfileID != nil, "logged-in no-account click should preserve selected direct profile state")
         try expect(selectedAccountID == nil, "logged-in no-account click should select the no-account option")
         try expect(accountTitles.contains(email), "saved account should appear below the no-account option")
-        try expect(config.contains(#"base_url = "https://one.novnc.cc""#), "logged-in no-account mode should preserve config.toml base_url")
+        try expect(config.contains(#"base_url = "https://gateway.example.invalid""#), "logged-in no-account mode should preserve config.toml base_url")
         try expect(config.contains(#"experimental_bearer_token = "sk-test""#), "logged-in no-account mode should preserve config.toml token")
         try expect(auth == noAccountAuthJSONText, "logged-in no-account mode should write Codex auth in API key mode")
     }
@@ -1563,7 +1571,8 @@ private enum MoaCoreTests {
           "auth_mode": "chatgpt",
           "tokens": {
             "access_token": "access-token",
-            "refresh_token": "refresh-token"
+            "refresh_token": "refresh-token",
+            "account_id": "fixture-selected-account"
           },
           "last_refresh": "2026-06-26T00:00:00Z"
         }
@@ -1576,7 +1585,7 @@ private enum MoaCoreTests {
         _ = try controller.renameSelectedOfficialAccount(name: "K12")
 
         let email = "k12@example.com"
-        try authJSON(email: email, refreshToken: "refresh-token-new")
+        try authJSON(email: email, refreshToken: "refresh-token-new", accountID: "fixture-selected-account")
             .write(to: codexHome.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8)
 
         let accounts = try controller.officialAccounts()
@@ -1595,19 +1604,14 @@ private enum MoaCoreTests {
         return "header.\(payloadText).signature"
     }
 
-    private static func authJSON(email: String, refreshToken: String) throws -> String {
+    private static func authJSON(email: String, refreshToken: String, accountID: String? = nil) throws -> String {
         let idToken = try testJWT(email: email)
-        return """
-        {
-          "auth_mode": "chatgpt",
-          "tokens": {
-            "access_token": "access-token",
-            "id_token": "\(idToken)",
-            "refresh_token": "\(refreshToken)"
-          },
-          "last_refresh": "2026-06-26T00:00:00Z"
-        }
-        """
+        var tokens = ["access_token": "access-token", "id_token": idToken, "refresh_token": refreshToken]
+        tokens["account_id"] = accountID
+        let data = try JSONSerialization.data(withJSONObject: [
+            "auth_mode": "chatgpt", "tokens": tokens, "last_refresh": "2026-06-26T00:00:00Z"
+        ], options: [.prettyPrinted, .sortedKeys])
+        return String(decoding: data, as: UTF8.self)
     }
 
     private static func firstJSONLPayloadProvider(in fileURL: URL) throws -> String? {
@@ -1676,7 +1680,7 @@ private enum MoaCoreTests {
 
     [model_providers.one]
     name = "one"
-    base_url = "https://one.novnc.cc"
+    base_url = "https://gateway.example.invalid"
     experimental_bearer_token = "sk-test"
     wire_api = "responses"
     requires_openai_auth = true

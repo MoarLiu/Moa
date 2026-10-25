@@ -2,12 +2,8 @@ import AppKit
 import SwiftUI
 
 enum MoaNonBlockingAlert {
-    private static var activePanels: [NSPanel] = []
-
     static func present(messageText: String, informativeText: String, tone: MoaAlertTone = .info) {
-        #if MOA_TESTING
-        NSLog("Moa test suppressed alert: \(messageText) - \(informativeText)")
-        #else
+        guard !MoaRuntimeMode.suppressesUserInteraction else { return }
         DispatchQueue.main.async {
             let alert = NSAlert()
             alert.messageText = messageText
@@ -19,7 +15,6 @@ enum MoaNonBlockingAlert {
             NSApp.activate(ignoringOtherApps: true)
             alert.runModal()
         }
-        #endif
     }
 
     static func choose(
@@ -30,10 +25,7 @@ enum MoaNonBlockingAlert {
         cancelButtonTitle: String = MoaL10n.text("Cancel"),
         tone: MoaAlertTone = .info
     ) -> MoaAlertChoice {
-        #if MOA_TESTING
-        NSLog("Moa test suppressed choice alert: \(messageText) - \(informativeText)")
-        return .cancel
-        #else
+        guard !MoaRuntimeMode.suppressesUserInteraction else { return .cancel }
         let alert = NSAlert()
         alert.messageText = messageText
         alert.informativeText = informativeText
@@ -58,7 +50,6 @@ enum MoaNonBlockingAlert {
         default:
             return .cancel
         }
-        #endif
     }
 
     static func confirm(
@@ -86,10 +77,7 @@ enum MoaNonBlockingAlert {
         cancelButtonTitle: String = MoaL10n.text("Cancel"),
         tone: MoaAlertTone = .info
     ) -> String? {
-        #if MOA_TESTING
-        NSLog("Moa test suppressed text prompt: \(messageText) - \(informativeText)")
-        return nil
-        #else
+        guard !MoaRuntimeMode.suppressesUserInteraction else { return nil }
         let alert = NSAlert()
         alert.messageText = messageText
         alert.informativeText = informativeText
@@ -112,25 +100,9 @@ enum MoaNonBlockingAlert {
         }
         let value = input.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         return value.isEmpty ? nil : value
-        #endif
     }
 
-    private static func panelSize(messageText: String, informativeText: String) -> NSSize {
-        let width: CGFloat = 460
-        let estimatedLines = max(1, Int(ceil(Double(informativeText.count) / 56.0)))
-        let messageHeight = min(CGFloat(estimatedLines) * 18, 126)
-        let titleLines = max(1, Int(ceil(Double(messageText.count) / 24.0)))
-        let titleHeight = CGFloat(titleLines) * 26
-        return NSSize(width: width, height: max(178, 92 + titleHeight + messageHeight))
-    }
 
-    private static func installContent<Content: View>(_ rootView: Content, in panel: NSPanel, size: NSSize) {
-        let hostingView = MoaInteractiveHostingView(rootView: rootView)
-        hostingView.frame = NSRect(origin: .zero, size: size)
-        hostingView.autoresizingMask = [.width, .height]
-        panel.contentView = hostingView
-        panel.setContentSize(size)
-    }
 }
 
 enum MoaModalPanelStyle {
@@ -290,158 +262,6 @@ private final class MoaModalChromeView: NSView {
     }
 }
 
-private struct MoaFloatingTextInputAlertView: View {
-    let title: String
-    let message: String
-    let initialValue: String
-    let placeholder: String
-    let tone: MoaAlertTone
-    let primaryButtonTitle: String
-    let cancelButtonTitle: String
-    let submitAction: (String) -> Void
-    let cancelAction: () -> Void
-
-    @State private var text: String
-    @FocusState private var isFocused: Bool
-
-    init(
-        title: String,
-        message: String,
-        initialValue: String,
-        placeholder: String,
-        tone: MoaAlertTone,
-        primaryButtonTitle: String,
-        cancelButtonTitle: String,
-        submitAction: @escaping (String) -> Void,
-        cancelAction: @escaping () -> Void
-    ) {
-        self.title = title
-        self.message = message
-        self.initialValue = initialValue
-        self.placeholder = placeholder
-        self.tone = tone
-        self.primaryButtonTitle = primaryButtonTitle
-        self.cancelButtonTitle = cancelButtonTitle
-        self.submitAction = submitAction
-        self.cancelAction = cancelAction
-        _text = State(initialValue: initialValue)
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            HStack(alignment: .top, spacing: 14) {
-                ZStack {
-                    Circle()
-                        .fill(tone.accent.opacity(0.16))
-                    Image(systemName: tone.symbolName)
-                        .font(.system(size: 15, weight: .bold))
-                        .foregroundStyle(tone.accent)
-                }
-                .frame(width: 34, height: 34)
-
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(title)
-                        .font(.system(size: 19, weight: .semibold))
-                        .foregroundStyle(.primary)
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    Text(message)
-                        .font(.system(size: 13))
-                        .foregroundStyle(.secondary)
-                        .lineSpacing(3)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-
-            TextField(placeholder, text: $text)
-                .textFieldStyle(.plain)
-                .font(.system(size: 14))
-                .padding(.horizontal, 13)
-                .frame(height: 42)
-                .background(
-                    RoundedRectangle(cornerRadius: 13, style: .continuous)
-                        .fill(Color(nsColor: .textBackgroundColor).opacity(0.72))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 13, style: .continuous)
-                        .stroke(MoaTheme.subtleBorder, lineWidth: 1)
-                )
-                .focused($isFocused)
-                .onSubmit(submit)
-
-            HStack {
-                Spacer()
-                Button(cancelButtonTitle, action: cancelAction)
-                    .buttonStyle(MoaGlassButtonStyle(tone: .neutral, minWidth: 78, height: 34))
-                    .keyboardShortcut(.cancelAction)
-                Button(primaryButtonTitle, action: submit)
-                    .buttonStyle(MoaGlassButtonStyle(tone: tone.primaryButtonTone, minWidth: 88, height: 34))
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(trimmedText.isEmpty)
-                    .opacity(trimmedText.isEmpty ? 0.55 : 1)
-            }
-        }
-        .padding(.top, 24)
-        .padding(.horizontal, 24)
-        .padding(.bottom, 20)
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-        .moaGlassPanel(radius: 28, liquidOpacity: 0.20, shadowRadius: 28, shadowOpacity: 0.36)
-        .onAppear {
-            isFocused = true
-        }
-    }
-
-    private var trimmedText: String {
-        text.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private func submit() {
-        let value = trimmedText
-        guard !value.isEmpty else { return }
-        submitAction(value)
-    }
-}
-
-private final class MoaAlertPanel: NSPanel {
-    var onClose: (() -> Void)?
-    var onCancel: (() -> Void)?
-
-    override var canBecomeKey: Bool {
-        true
-    }
-
-    override var canBecomeMain: Bool {
-        true
-    }
-
-    override func close() {
-        onClose?()
-        onClose = nil
-        onCancel = nil
-        super.close()
-    }
-
-    override func cancelOperation(_ sender: Any?) {
-        if let onCancel {
-            onCancel()
-        } else {
-            close()
-        }
-    }
-
-    override func keyDown(with event: NSEvent) {
-        if event.keyCode == 53 {
-            cancelOperation(nil)
-            return
-        }
-        super.keyDown(with: event)
-    }
-
-    @objc func closeFromButton(_ sender: Any?) {
-        close()
-    }
-}
-
 enum MoaAlertChoice {
     case primary
     case secondary
@@ -511,90 +331,5 @@ enum MoaAlertTone {
         case .info, .success:
             return .primary
         }
-    }
-}
-
-private struct MoaFloatingAlertView: View {
-    let title: String
-    let message: String
-    let tone: MoaAlertTone
-    var closeAction: (() -> Void)?
-    var primaryButtonTitle: String?
-    var secondaryButtonTitle: String?
-    var cancelButtonTitle: String?
-    var chooseAction: ((MoaAlertChoice) -> Void)?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            HStack(alignment: .top, spacing: 14) {
-                ZStack {
-                    Circle()
-                        .fill(tone.accent.opacity(0.16))
-                    Image(systemName: tone.symbolName)
-                        .font(.system(size: 15, weight: .bold))
-                        .foregroundStyle(tone.accent)
-                }
-                .frame(width: 34, height: 34)
-
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(title)
-                        .font(.system(size: 19, weight: .semibold))
-                        .foregroundStyle(.primary)
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    if message.count > 260 {
-                        ScrollView(.vertical) {
-                            Text(message)
-                                .font(.system(size: 13, weight: .regular))
-                                .foregroundStyle(.secondary)
-                                .lineSpacing(3)
-                                .fixedSize(horizontal: false, vertical: true)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        .frame(maxHeight: 126, alignment: .top)
-                    } else {
-                        Text(message)
-                            .font(.system(size: 13, weight: .regular))
-                            .foregroundStyle(.secondary)
-                            .lineSpacing(3)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                }
-            }
-
-            HStack {
-                Spacer()
-                if let chooseAction {
-                    Button(cancelButtonTitle ?? MoaL10n.text("Cancel")) {
-                        chooseAction(.cancel)
-                    }
-                    .buttonStyle(MoaGlassButtonStyle(tone: .neutral, minWidth: 78, height: 34))
-                    .keyboardShortcut(.cancelAction)
-
-                    if let secondaryButtonTitle {
-                        Button(secondaryButtonTitle) {
-                            chooseAction(.secondary)
-                        }
-                        .buttonStyle(MoaGlassButtonStyle(tone: .neutral, minWidth: 112, height: 34))
-                    }
-
-                    Button(primaryButtonTitle ?? MoaL10n.text("OK")) {
-                        chooseAction(.primary)
-                    }
-                    .buttonStyle(MoaGlassButtonStyle(tone: tone.primaryButtonTone, minWidth: 88, height: 34))
-                    .keyboardShortcut(.defaultAction)
-                } else {
-                    Button(MoaL10n.text("OK"), action: closeAction ?? {})
-                        .buttonStyle(MoaGlassButtonStyle(tone: .primary, minWidth: 84, height: 34))
-                        .keyboardShortcut(.defaultAction)
-                }
-            }
-        }
-        .padding(.top, 24)
-        .padding(.horizontal, 24)
-        .padding(.bottom, 20)
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-        .moaGlassPanel(radius: 28, liquidOpacity: 0.20, shadowRadius: 28, shadowOpacity: 0.36)
     }
 }

@@ -1,6 +1,6 @@
 import Foundation
 
-#if MOA_TESTING
+#if MOA_TESTING || MOA_TEST_SUPPORT
 func moaTestingCodexOfficialAccounts(environment: [String: String]) throws -> [(id: String, name: String)] {
     try ConfigProfileController(environment: environment)
         .officialAccounts()

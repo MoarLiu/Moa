@@ -4,10 +4,10 @@ extension ConfigProfileController {
     func generateConfig(_ config: String, selecting profile: ConfigProfile) -> String {
         var output = config.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Self.defaultConfig : config
         let providerID = providerID(for: profile, in: output)
-        let providerTable = "model_providers.\(providerID)"
+        let providerTable = MoaTomlEditor.keyPath(["model_providers", providerID])
         let extraProviderLines = providerExtraLines(in: output, table: providerTable)
 
-        output = removeTomlTables(in: output) { $0 == providerTable }
+        output = removeTomlTables(in: output) { MoaTomlEditor.keyPathComponents($0) == ["model_providers", providerID] }
 
         output = upsertRootTomlStringValue(in: output, key: "model_provider", value: providerID)
         if let model = profile.resolvedModel {
@@ -110,7 +110,7 @@ extension ConfigProfileController {
 
         for context in MoaTomlEditor.lineContexts(in: text) {
             let line = context.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            if context.isStructural, parseTomlTableName(from: line) != nil {
+            if context.isStructural, MoaTomlEditor.tableHeader(from: line) != nil {
                 return context.contentRange.lowerBound
             }
             insertionIndex = context.nextLineStart
@@ -120,7 +120,7 @@ extension ConfigProfileController {
     }
 
     func tomlHasTable(_ table: String, in text: String) -> Bool {
-        tomlTableNames(in: text).contains(table)
+        tomlTableNames(in: text).contains { MoaTomlEditor.keyPathComponents($0) == MoaTomlEditor.keyPathComponents(table) }
     }
 
     func tomlTableInsertionIndex(for table: String, in text: String) -> String.Index? {
@@ -130,13 +130,14 @@ extension ConfigProfileController {
         for context in MoaTomlEditor.lineContexts(in: text) {
             let line = context.text.trimmingCharacters(in: .whitespacesAndNewlines)
 
-            if context.isStructural, let tableName = parseTomlTableName(from: line) {
+            if context.isStructural, let header = MoaTomlEditor.tableHeader(from: line) {
+                let tableName = header.contextName
                 if foundTable && tableName != currentTable {
                     return context.contentRange.lowerBound
                 }
 
                 currentTable = tableName
-                if tableName == table {
+                if !header.isArray, MoaTomlEditor.keyPathComponents(tableName) == MoaTomlEditor.keyPathComponents(table) {
                     foundTable = true
                     insertionIndex = context.nextLineStart
                 }
@@ -172,26 +173,13 @@ extension ConfigProfileController {
     }
 
     func tomlStringValue(in text: String, table: String, key: String) -> String? {
-        guard let entry = tomlEntries(in: text).first(where: { $0.table == table && $0.key == key }) else {
-            return nil
-        }
-
-        let value = entry.value
-        guard (value.hasPrefix("\"") && value.hasSuffix("\"")) || (value.hasPrefix("'") && value.hasSuffix("'")) else {
-            return nil
-        }
-
-        return unquoteTomlString(value)
+        MoaTomlEditor.stringValue(in: text, table: table, key: key)
     }
 
     func providerID(fromTable table: String) -> String? {
-        let prefix = "model_providers."
-        guard table.hasPrefix(prefix) else {
-            return nil
-        }
-
-        let id = String(table.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
-        return id.isEmpty ? nil : id
+        guard let components = MoaTomlEditor.keyPathComponents(table), components.count == 2,
+              components[0] == "model_providers", !components[1].isEmpty else { return nil }
+        return components[1]
     }
 
     func selectedProviderID(in config: String) -> String {
@@ -199,13 +187,9 @@ extension ConfigProfileController {
         let providerIDs = providerTableIDs(in: config)
 
         if let rootProvider, !rootProvider.isEmpty {
-            let sameNameTables = providerIDs.filter { $0.caseInsensitiveCompare(rootProvider) == .orderedSame }
-            if let lowerCaseTable = sameNameTables.first(where: { $0 == $0.lowercased() }) {
-                return lowerCaseTable
-            }
-            if let exactTable = sameNameTables.first(where: { $0 == rootProvider }) {
-                return exactTable
-            }
+            // TOML keys are case-sensitive, and a built-in provider may not
+            // have a user table. The live selector remains authoritative.
+            return rootProvider
         }
 
         if let lowerCaseTable = providerIDs.first(where: { $0 == $0.lowercased() && $0.caseInsensitiveCompare("codex") != .orderedSame }) {
@@ -251,9 +235,25 @@ extension ConfigProfileController {
 
     func providerExtraLines(in text: String, table: String) -> [String] {
         let managedKeys: Set<String> = ["name", "base_url", "experimental_bearer_token", "wire_api", "requires_openai_auth"]
-        return tomlEntries(in: text)
-            .filter { $0.table == table && !managedKeys.contains($0.key) }
-            .map(\.lineText)
+        var currentTable = ""
+        var skippingManagedValue = false
+        var lines: [String] = []
+        for context in MoaTomlEditor.lineContexts(in: text) {
+            let trimmed = context.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if context.isStructural, let header = MoaTomlEditor.tableHeader(from: trimmed) {
+                currentTable = header.contextName
+                skippingManagedValue = false
+                continue
+            }
+            guard MoaTomlEditor.keyPathComponents(currentTable) == MoaTomlEditor.keyPathComponents(table) else { continue }
+            if context.isStatementStart {
+                skippingManagedValue = parseTomlKeyValue(from: context.text).map {
+                    managedKeys.contains(MoaTomlEditor.unquotedKey($0.key))
+                } ?? false
+            }
+            if !skippingManagedValue { lines.append(context.text) }
+        }
+        return lines
     }
 
     func providerBlock(for profile: ConfigProfile, providerID: String, extraLines: [String]) -> String {
@@ -282,11 +282,8 @@ extension ConfigProfileController {
             let line = context.text
             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
             if context.isStructural {
-                if let tableName = parseTomlTableName(from: trimmed) {
-                    skipping = shouldRemove(tableName)
-                } else if trimmed.hasPrefix("[["), trimmed.hasSuffix("]]") {
-                    let tableName = String(trimmed.dropFirst(2).dropLast(2)).trimmingCharacters(in: .whitespacesAndNewlines)
-                    skipping = shouldRemove(tableName)
+                if let header = MoaTomlEditor.tableHeader(from: trimmed) {
+                    skipping = shouldRemove(header.name)
                 }
             }
 

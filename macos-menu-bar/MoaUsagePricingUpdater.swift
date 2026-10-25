@@ -90,6 +90,7 @@ final class MoaUsagePricingCatalogStore: @unchecked Sendable {
     }
 
     private let environment: [String: String]
+    private let dataAccess: MoaDataStoreLock
     private let fileManager: FileManager
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
@@ -98,6 +99,7 @@ final class MoaUsagePricingCatalogStore: @unchecked Sendable {
     private var cachedURL: URL?
     private var cachedModifiedAt: Date?
     private var lastFileCheckAt: Date?
+    private var cachedRevision: UInt64?
 
     private var catalogURL: URL {
         MoaDataRoot.currentURL(environment: environment)
@@ -116,6 +118,7 @@ final class MoaUsagePricingCatalogStore: @unchecked Sendable {
         fileManager: FileManager = .default
     ) {
         self.environment = environment
+        dataAccess = MoaDataStoreLock(environment: environment)
         self.fileManager = fileManager
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -142,6 +145,8 @@ final class MoaUsagePricingCatalogStore: @unchecked Sendable {
     }
 
     func merge(_ remote: MoaUsagePricingCatalogSnapshot) throws -> MoaUsagePricingCatalogUpdate {
+        try dataAccess.lock()
+        defer { dataAccess.unlock() }
         lock.lock()
         defer { lock.unlock() }
 
@@ -193,6 +198,7 @@ final class MoaUsagePricingCatalogStore: @unchecked Sendable {
         cachedURL = catalogURL
         cachedModifiedAt = modificationDate(of: catalogURL)
         lastFileCheckAt = Date()
+        cachedRevision = dataAccess.revision
         return added > 0 || changed > 0 ? .updated(added: added, changed: changed) : .unchanged
     }
 
@@ -208,12 +214,22 @@ final class MoaUsagePricingCatalogStore: @unchecked Sendable {
     }
 
     func recordSuccessfulCheck(at date: Date) throws {
+        try dataAccess.lock()
+        defer { dataAccess.unlock() }
         lock.lock()
         defer { lock.unlock() }
         try write(UpdateState(lastSuccessfulCheck: date), to: stateURL)
     }
 
     private func loadSnapshotIfNeeded(now: Date = Date()) -> MoaUsagePricingCatalogSnapshot? {
+        if dataAccess.isBusy { return cachedSnapshot }
+        if cachedRevision != dataAccess.revision {
+            cachedSnapshot = nil
+            cachedURL = nil
+            lastFileCheckAt = nil
+            cachedModifiedAt = nil
+            cachedRevision = dataAccess.revision
+        }
         let url = catalogURL
         if cachedURL == url,
            let lastFileCheckAt,

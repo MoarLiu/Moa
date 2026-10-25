@@ -7,7 +7,8 @@ extension ConfigProfileController {
             let modified = (try? fileManager.attributesOfItem(atPath: databaseURL.path))?[.modificationDate] as? Date
             if let cachedDatabase, let cachedDatabaseModified, let modified,
                cachedDatabaseModified == modified,
-               cachedDatabaseURLPath == databaseURL.standardizedFileURL.path {
+               cachedDatabaseURLPath == databaseURL.standardizedFileURL.path,
+               cachedDatabaseRevision == stateLock.revision {
                 return cachedDatabase
             }
             let data = try Data(contentsOf: databaseURL)
@@ -15,13 +16,14 @@ extension ConfigProfileController {
             cachedDatabase = database
             cachedDatabaseModified = modified
             cachedDatabaseURLPath = databaseURL.standardizedFileURL.path
+            cachedDatabaseRevision = stateLock.revision
             return database
         }
     }
 
     func saveDatabase(_ database: ProfileDatabase) throws {
         try stateLock.withLock {
-            #if MOA_TESTING
+            #if MOA_TESTING || MOA_TEST_SUPPORT
             if Self.testingProfileDatabaseSaveFailuresRemaining > 0 {
                 Self.testingProfileDatabaseSaveFailuresRemaining -= 1
                 throw NSError(
@@ -40,6 +42,7 @@ extension ConfigProfileController {
             cachedDatabase = database
             cachedDatabaseModified = (try? fileManager.attributesOfItem(atPath: databaseURL.path))?[.modificationDate] as? Date
             cachedDatabaseURLPath = databaseURL.standardizedFileURL.path
+            cachedDatabaseRevision = stateLock.revision
         }
     }
 
@@ -51,7 +54,8 @@ extension ConfigProfileController {
                let cachedOfficialAccountDatabaseModified,
                let modified,
                cachedOfficialAccountDatabaseModified == modified,
-               cachedOfficialAccountDatabaseURLPath == officialAccountsDatabaseURL.standardizedFileURL.path {
+               cachedOfficialAccountDatabaseURLPath == officialAccountsDatabaseURL.standardizedFileURL.path,
+               cachedOfficialAccountDatabaseRevision == stateLock.revision {
                 return cachedOfficialAccountDatabase
             }
             let data = try Data(contentsOf: officialAccountsDatabaseURL)
@@ -60,13 +64,14 @@ extension ConfigProfileController {
             cachedOfficialAccountDatabase = database
             cachedOfficialAccountDatabaseModified = modified
             cachedOfficialAccountDatabaseURLPath = officialAccountsDatabaseURL.standardizedFileURL.path
+            cachedOfficialAccountDatabaseRevision = stateLock.revision
             return database
         }
     }
 
     func saveOfficialAccountDatabase(_ database: CodexOfficialAccountDatabase) throws {
         try stateLock.withLock {
-            #if MOA_TESTING
+            #if MOA_TESTING || MOA_TEST_SUPPORT
             if Self.testingOfficialAccountDatabaseSaveFailuresRemaining > 0 {
                 Self.testingOfficialAccountDatabaseSaveFailuresRemaining -= 1
                 throw NSError(
@@ -86,6 +91,7 @@ extension ConfigProfileController {
             cachedOfficialAccountDatabase = database
             cachedOfficialAccountDatabaseModified = (try? fileManager.attributesOfItem(atPath: officialAccountsDatabaseURL.path))?[.modificationDate] as? Date
             cachedOfficialAccountDatabaseURLPath = officialAccountsDatabaseURL.standardizedFileURL.path
+            cachedOfficialAccountDatabaseRevision = stateLock.revision
         }
     }
 
@@ -164,6 +170,8 @@ extension ConfigProfileController {
 
     @discardableResult
     func syncMoaAuthSessionFromCodex(updateSelectedOfficialAccount: Bool = true) throws -> Bool {
+        try stateLock.lock()
+        defer { stateLock.unlock() }
         let existingMoaAuth = readAuthJSON(from: moaAuthURL)
         var moaAuth = normalizedMoaAuth(existingMoaAuth)
         var changed = !jsonValuesEqual(existingMoaAuth, moaAuth)
@@ -212,6 +220,8 @@ extension ConfigProfileController {
     }
 
     func syncSelectedOfficialAccountAuth(_ auth: [String: Any]) throws {
+        try stateLock.lock()
+        defer { stateLock.unlock() }
         guard fileManager.fileExists(atPath: officialAccountsDatabaseURL.path),
               hasOfficialAuthSession(auth)
         else {
@@ -219,16 +229,21 @@ extension ConfigProfileController {
         }
 
         var database = try loadOfficialAccountDatabase()
-        guard let selectedID = database.selectedAccountID,
-              let index = database.accounts.firstIndex(where: { $0.id == selectedID })
+        guard let matched = try matchingOfficialAccount(for: auth),
+              let index = database.accounts.firstIndex(where: { $0.id == matched.id })
         else {
             return
         }
 
-        database.accounts[index].email = officialAuthEmail(from: auth) ?? database.accounts[index].email
-        database.accounts[index].lastUsedAt = Self.isoTimestamp()
-        try writeAuthJSON(auth, to: try officialAuthURL(for: database.accounts[index]))
-        try saveOfficialAccountDatabase(database)
+        let email = officialAuthEmail(from: auth) ?? database.accounts[index].email
+        let authURL = try officialAuthURL(for: database.accounts[index])
+        if !jsonValuesEqual(readAuthJSON(from: authURL), auth) {
+            try writeAuthJSON(auth, to: authURL)
+        }
+        if email != database.accounts[index].email {
+            database.accounts[index].email = email
+            try saveOfficialAccountDatabase(database)
+        }
     }
 
     func normalizedMoaAuth(_ auth: [String: Any]) -> [String: Any] {
@@ -461,19 +476,7 @@ extension ConfigProfileController {
 
     @discardableResult
     func run(_ executable: String, _ arguments: [String]) -> Int32 {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = arguments
-        process.standardOutput = Pipe()
-        process.standardError = Pipe()
-
-        do {
-            try process.run()
-            process.waitUntilExit()
-            return process.terminationStatus
-        } catch {
-            return 127
-        }
+        MoaProcessRunner.run(executable, arguments)
     }
     static func displayName(from rawName: String) -> String {
         let trimmed = rawName.trimmingCharacters(in: .whitespacesAndNewlines)

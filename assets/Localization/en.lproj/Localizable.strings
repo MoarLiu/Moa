@@ -329,7 +329,6 @@
 "Delete Saved WorkBuddy AI Account?" = "Delete Saved WorkBuddy AI Account?";
 "Only Moa's saved copy is deleted. WorkBuddy AI stays signed in and its local sessions are kept." = "Only Moa's saved copy is deleted. WorkBuddy AI stays signed in and its local sessions are kept.";
 "WorkBuddy AI: all local accounts. API price estimates are not credits or subscription bills. Unpriced models contribute tokens only; set a custom price to include their cost." = "WorkBuddy AI: all local accounts. API price estimates are not credits or subscription bills. Unpriced models contribute tokens only; set a custom price to include their cost.";
-"All local accounts · API estimates, not credits. Unpriced models are excluded from cost." = "All local accounts · API estimates, not credits. Unpriced models are excluded from cost.";
 "Unpriced" = "Unpriced";
 "Tokens only; cost excluded" = "Tokens only; cost excluded";
 "Choose a source to view its daily usage alert threshold." = "Choose a source to view its daily usage alert threshold.";
@@ -344,3 +343,4 @@
 "WorkBuddy and WorkBuddy AI are separate sources. Reports use USD API reference prices, not credits. Unpriced models contribute tokens only." = "WorkBuddy and WorkBuddy AI are separate sources. Reports use USD API reference prices, not credits. Unpriced models contribute tokens only.";
 "Moa - Codex, Claude, ZCode, WorkBuddy, WorkBuddy AI, Provider Bridge" = "Moa - Codex, Claude, ZCode, WorkBuddy, WorkBuddy AI, Provider Bridge";
 "WorkBuddy" = "WorkBuddy";
+"Moa is processing data. Try again when it finishes." = "Moa is processing data. Try again when it finishes.";

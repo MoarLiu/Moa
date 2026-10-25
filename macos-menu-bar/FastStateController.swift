@@ -109,8 +109,12 @@ final class FastStateController: Sendable {
     }
 
     func applyFastMode(_ enabled: Bool) throws {
+        let store = MoaDataStoreLock(environment: environment)
+        guard !store.isBusy else { throw MoaDataAccessError.busy }
         guard quitCodexIfNeeded() else { throw FastModeError.clientStillRunning }
         defer { openCodexIfAvailable() }
+        try store.lock()
+        defer { store.unlock() }
         let legacy = usesLegacyServiceTierStorage
         var targets = legacy ? [stateURL, stateBackupURL] : [codexConfigURL]
         if !legacy, fileManager.fileExists(atPath: moaConfigURL.path) { targets.append(moaConfigURL) }
@@ -455,19 +459,7 @@ final class FastStateController: Sendable {
 
     @discardableResult
     private func run(_ executable: String, _ arguments: [String]) -> Int32 {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = arguments
-        process.standardOutput = Pipe()
-        process.standardError = Pipe()
-
-        do {
-            try process.run()
-            process.waitUntilExit()
-            return process.terminationStatus
-        } catch {
-            return 127
-        }
+        MoaProcessRunner.run(executable, arguments)
     }
 
     private static func timestamp() -> String {

@@ -21,6 +21,8 @@ fast-toggle-backups/
 !.codex/environments/
 !.codex/environments/environment.toml
 .moa/
+.workbuddy/
+.workbuddy-ai/
 auth.json
 profiles.json
 config.toml

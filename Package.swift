@@ -14,6 +14,7 @@ let package = Package(
         .executableTarget(
             name: "Moa",
             path: "macos-menu-bar",
+            swiftSettings: [.define("MOA_TEST_SUPPORT", .when(configuration: .debug))],
             linkerSettings: [
                 .linkedFramework("ApplicationServices"),
                 .linkedFramework("AppKit"),
@@ -24,6 +25,7 @@ let package = Package(
                 .linkedFramework("SwiftUI"),
                 .linkedFramework("UniformTypeIdentifiers")
             ]
-        )
+        ),
+        .testTarget(name: "MoaTests", dependencies: ["Moa"], path: "Tests")
     ]
 )

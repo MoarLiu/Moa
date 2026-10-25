@@ -1,63 +1,62 @@
 import AppKit
 import Foundation
 
+enum MoaUsageRefreshSchedule {
+    static func interval(needsFrequentRefresh: Bool) -> TimeInterval { needsFrequentRefresh ? 60 : 300 }
+}
+
 final class MoaUsageCoordinator {
     let codexScanner: CodexUsageScanner
     let claudeScanner: ClaudeUsageScanner
     let zcodeScanner: ZCodeUsageScanner
     let workbuddyScanner: WorkBuddyUsageScanner
     let workbuddyCNScanner: WorkBuddyUsageScanner
-    let codexSummaryItem = NSMenuItem()
-    let codexRefreshItem = NSMenuItem()
-    let claudeSummaryItem = NSMenuItem()
-    let claudeRefreshItem = NSMenuItem()
-    let zcodeSummaryItem = NSMenuItem()
-    let workbuddySummaryItem = NSMenuItem()
-    let workbuddyCNSummaryItem = NSMenuItem()
-    let zcodeRefreshItem = NSMenuItem()
-    let workbuddyRefreshItem = NSMenuItem()
-    let workbuddyCNRefreshItem = NSMenuItem()
 
     var onCodexSummaryLoaded: ((CodexUsageSummary) -> Void)?
     var onClaudeSummaryLoaded: ((CodexUsageSummary) -> Void)?
     var onZCodeSummaryLoaded: ((CodexUsageSummary) -> Void)?
     var onWorkBuddySummaryLoaded: ((CodexUsageSummary) -> Void)?
     var onWorkBuddyCNSummaryLoaded: ((CodexUsageSummary) -> Void)?
+    var needsFrequentRefresh: (MoaUsageSource) -> Bool = { _ in true }
 
-    private let codexSummaryView = CodexUsageSummaryMenuView()
-    private let codexRefreshView = CodexUsageRefreshMenuView()
-    private let claudeSummaryView = CodexUsageSummaryMenuView()
-    private let claudeRefreshView = CodexUsageRefreshMenuView()
-    private let zcodeSummaryView = CodexUsageSummaryMenuView()
-    private let workbuddySummaryView = CodexUsageSummaryMenuView()
-    private let workbuddyCNSummaryView = CodexUsageSummaryMenuView()
-    private let zcodeRefreshView = CodexUsageRefreshMenuView()
-    private let workbuddyRefreshView = CodexUsageRefreshMenuView()
-    private let workbuddyCNRefreshView = CodexUsageRefreshMenuView()
-    private let codexQueue = DispatchQueue(label: "com.moarliu.moa.codex-usage", qos: .utility)
-    private let claudeQueue = DispatchQueue(label: "com.moarliu.moa.claude-usage", qos: .utility)
-    private let zcodeQueue = DispatchQueue(label: "com.moarliu.moa.zcode-usage", qos: .utility)
-    private let workbuddyQueue = DispatchQueue(label: "com.moarliu.moa.workbuddy-usage", qos: .utility)
-    private let workbuddyCNQueue = DispatchQueue(label: "com.moarliu.moa.workbuddy-cn-usage", qos: .utility)
+    var codexSummaryItem: NSMenuItem { pipelines[.codex]!.summaryItem }
+    var codexRefreshItem: NSMenuItem { pipelines[.codex]!.refreshItem }
+    var claudeSummaryItem: NSMenuItem { pipelines[.claude]!.summaryItem }
+    var claudeRefreshItem: NSMenuItem { pipelines[.claude]!.refreshItem }
+    var zcodeSummaryItem: NSMenuItem { pipelines[.zcode]!.summaryItem }
+    var zcodeRefreshItem: NSMenuItem { pipelines[.zcode]!.refreshItem }
+    var workbuddySummaryItem: NSMenuItem { pipelines[.workbuddy]!.summaryItem }
+    var workbuddyRefreshItem: NSMenuItem { pipelines[.workbuddy]!.refreshItem }
+    var workbuddyCNSummaryItem: NSMenuItem { pipelines[.workbuddyCN]!.summaryItem }
+    var workbuddyCNRefreshItem: NSMenuItem { pipelines[.workbuddyCN]!.refreshItem }
+
+    private final class Pipeline {
+        let summaryItem = NSMenuItem()
+        let refreshItem = NSMenuItem()
+        let summaryView = CodexUsageSummaryMenuView()
+        let refreshView = CodexUsageRefreshMenuView()
+        let queue: DispatchQueue
+        var load: (Bool) throws -> CodexUsageSummary
+        var summary: CodexUsageSummary?
+        var inFlight = false
+        var pendingForceRefresh = false
+        var lastStartedAt = Date.distantPast
+
+        init(source: MoaUsageSource, load: @escaping (Bool) throws -> CodexUsageSummary) {
+            queue = DispatchQueue(label: "com.moarliu.moa.\(source.rawValue)-usage", qos: .utility)
+            self.load = load
+            summaryItem.view = summaryView
+            refreshItem.view = refreshView
+            summaryView.apply(.idle)
+        }
+    }
+
+    private var pipelines: [MoaUsageSource: Pipeline] = [:]
     private let pricingUpdateCoordinator: MoaUsagePricingUpdateCoordinator
-
-    private var codexTimer: Timer?
-    private var claudeTimer: Timer?
-    private var zcodeTimer: Timer?
-    private var workbuddyTimer: Timer?
-    private var workbuddyCNTimer: Timer?
-    private var codexSummary: CodexUsageSummary?
-    private var claudeSummary: CodexUsageSummary?
-    private var zcodeSummary: CodexUsageSummary?
-    private var workbuddySummary: CodexUsageSummary?
-    private var workbuddyCNSummary: CodexUsageSummary?
-    private var codexRefreshInFlight = false
-    private var claudeRefreshInFlight = false
-    private var zcodeRefreshInFlight = false
-    private var workbuddyRefreshInFlight = false
-    private var workbuddyCNRefreshInFlight = false
-
-    private static let refreshMinimumDisplayDuration: TimeInterval = 0.6
+    private var timer: Timer?
+    private var running = false
+    private var generation = UUID()
+    private var dataRootObserver: NSObjectProtocol?
 
     init(
         codexScanner: CodexUsageScanner = CodexUsageScanner(),
@@ -73,314 +72,135 @@ final class MoaUsageCoordinator {
         self.workbuddyScanner = workbuddyScanner
         self.workbuddyCNScanner = workbuddyCNScanner
         self.pricingUpdateCoordinator = pricingUpdateCoordinator ?? MoaUsagePricingUpdateCoordinator()
+        pipelines = [
+            .codex: Pipeline(source: .codex) { try codexScanner.loadSummary(forceRefresh: $0) },
+            .claude: Pipeline(source: .claude) { try claudeScanner.loadSummary(forceRefresh: $0) },
+            .zcode: Pipeline(source: .zcode) { try zcodeScanner.loadSummary(forceRefresh: $0) },
+            .workbuddy: Pipeline(source: .workbuddy) { try workbuddyScanner.loadSummary(forceRefresh: $0) },
+            .workbuddyCN: Pipeline(source: .workbuddyCN) { try workbuddyCNScanner.loadSummary(forceRefresh: $0) }
+        ]
+    }
+
+    deinit {
+        timer?.invalidate()
+        if let dataRootObserver { NotificationCenter.default.removeObserver(dataRootObserver) }
     }
 
     func start() {
-        pricingUpdateCoordinator.onCatalogUpdated = { [weak self] in
-            self?.refreshCodex(forceRefresh: true)
-            self?.refreshClaude(forceRefresh: true)
-            self?.refreshZCode(forceRefresh: true)
-            self?.refreshWorkBuddy(forceRefresh: true)
-            self?.refreshWorkBuddyCN(forceRefresh: true)
+        guard !running else { return }
+        running = true
+        for source in MoaUsageSource.allCases {
+            pipelines[source]?.refreshView.onRefresh = { [weak self] in self?.refresh(source, forceRefresh: true) }
+        }
+        pricingUpdateCoordinator.onCatalogUpdated = { [weak self] in self?.refreshAll(forceRefresh: true) }
+        dataRootObserver = NotificationCenter.default.addObserver(forName: MoaDataRoot.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.refreshAll(forceRefresh: true)
         }
         pricingUpdateCoordinator.start()
-        startCodex()
-        startClaude()
-        startZCode()
-        startWorkBuddy()
-        startWorkBuddyCN()
+        refreshAll(forceRefresh: false)
+        let timer = Timer(timeInterval: 60, repeats: true) { [weak self] _ in self?.refreshScheduled() }
+        timer.tolerance = 5
+        self.timer = timer
+        RunLoop.main.add(timer, forMode: .common)
     }
 
     func stop() {
+        running = false
+        generation = UUID()
+        timer?.invalidate()
+        timer = nil
         pricingUpdateCoordinator.stop()
-        codexTimer?.invalidate()
-        codexTimer = nil
-        claudeTimer?.invalidate()
-        claudeTimer = nil
-        zcodeTimer?.invalidate()
-        workbuddyTimer?.invalidate()
-        workbuddyCNTimer?.invalidate()
-        zcodeTimer = nil
-        workbuddyTimer = nil
-        workbuddyCNTimer = nil
-        codexRefreshView.onRefresh = nil
-        claudeRefreshView.onRefresh = nil
-        zcodeRefreshView.onRefresh = nil
-        workbuddyRefreshView.onRefresh = nil
-        workbuddyCNRefreshView.onRefresh = nil
+        if let dataRootObserver { NotificationCenter.default.removeObserver(dataRootObserver) }
+        dataRootObserver = nil
+        for pipeline in pipelines.values {
+            pipeline.refreshView.onRefresh = nil
+            pipeline.pendingForceRefresh = false
+            pipeline.refreshView.setRefreshing(false)
+        }
     }
 
-    func refreshCodex(forceRefresh: Bool) {
-        guard !codexRefreshInFlight else { return }
+    func refreshCodex(forceRefresh: Bool) { refresh(.codex, forceRefresh: forceRefresh) }
+    func refreshClaude(forceRefresh: Bool) { refresh(.claude, forceRefresh: forceRefresh) }
+    func refreshZCode(forceRefresh: Bool) { refresh(.zcode, forceRefresh: forceRefresh) }
+    func refreshWorkBuddy(forceRefresh: Bool) { refresh(.workbuddy, forceRefresh: forceRefresh) }
+    func refreshWorkBuddyCN(forceRefresh: Bool) { refresh(.workbuddyCN, forceRefresh: forceRefresh) }
+
+    func refreshForPresentation() {
+        refreshAll(forceRefresh: false, minimumInterval: 5)
+    }
+
+    func refreshScheduled(now: Date = Date()) {
+        guard running else { return }
+        for source in MoaUsageSource.allCases {
+            let interval = MoaUsageRefreshSchedule.interval(needsFrequentRefresh: needsFrequentRefresh(source))
+            if let pipeline = pipelines[source], now.timeIntervalSince(pipeline.lastStartedAt) >= interval {
+                refresh(source, forceRefresh: false, now: now)
+            }
+        }
+    }
+
+    private func refreshAll(forceRefresh: Bool, minimumInterval: TimeInterval = 0) {
+        for source in MoaUsageSource.allCases {
+            if let pipeline = pipelines[source], Date().timeIntervalSince(pipeline.lastStartedAt) >= minimumInterval || forceRefresh {
+                refresh(source, forceRefresh: forceRefresh)
+            }
+        }
+    }
+
+    private func refresh(_ source: MoaUsageSource, forceRefresh: Bool, now: Date = Date()) {
+        guard running, let pipeline = pipelines[source] else { return }
+        guard !pipeline.inFlight else {
+            pipeline.pendingForceRefresh = pipeline.pendingForceRefresh || forceRefresh
+            return
+        }
+        pipeline.inFlight = true
+        pipeline.lastStartedAt = now
+        pipeline.refreshView.setRefreshing(true)
+        pipeline.summaryView.apply(.loading(pipeline.summary))
         let startedAt = Date()
-        codexRefreshInFlight = true
-        codexRefreshView.setRefreshing(true)
-        codexSummaryView.apply(.loading(codexSummary))
-
-        codexQueue.async {
-            let result = Result {
-                try self.codexScanner.loadSummary(forceRefresh: forceRefresh)
-            }
-
-            DispatchQueue.main.async {
-                let completeRefresh = {
-                    self.codexRefreshInFlight = false
-                    self.codexRefreshView.setRefreshing(false)
-
-                    switch result {
-                    case .success(let summary):
-                        self.codexSummary = summary
-                        self.codexSummaryView.apply(.loaded(summary))
-                        self.onCodexSummaryLoaded?(summary)
-                    case .failure(let error):
-                        self.codexSummaryView.apply(.failed(self.codexSummary, error.localizedDescription))
-                    }
+        let refreshGeneration = generation
+        let load = pipeline.load
+        pipeline.queue.async { [weak self] in
+            let result = Result { try load(forceRefresh) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + max(0, (forceRefresh ? 0.6 : 0) - Date().timeIntervalSince(startedAt))) {
+                guard let self else { return }
+                pipeline.inFlight = false
+                guard self.running else { return }
+                guard self.generation == refreshGeneration else {
+                    self.refresh(source, forceRefresh: true)
+                    return
                 }
-                let minimumDuration = forceRefresh ? Self.refreshMinimumDisplayDuration : 0
-                let delay = max(0, minimumDuration - Date().timeIntervalSince(startedAt))
-                if delay > 0 {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                        completeRefresh()
-                    }
-                } else {
-                    completeRefresh()
+                pipeline.refreshView.setRefreshing(false)
+                switch result {
+                case .success(let summary):
+                    pipeline.summary = summary
+                    pipeline.summaryView.apply(.loaded(summary))
+                    self.summaryLoaded(summary, source: source)
+                case .failure(let error):
+                    pipeline.summaryView.apply(.failed(pipeline.summary, error.localizedDescription))
+                }
+                if pipeline.pendingForceRefresh {
+                    pipeline.pendingForceRefresh = false
+                    self.refresh(source, forceRefresh: true)
                 }
             }
         }
     }
 
-    func refreshClaude(forceRefresh: Bool) {
-        guard !claudeRefreshInFlight else { return }
-        let startedAt = Date()
-        claudeRefreshInFlight = true
-        claudeRefreshView.setRefreshing(true)
-        claudeSummaryView.apply(.loading(claudeSummary))
-
-        claudeQueue.async {
-            let result = Result {
-                try self.claudeScanner.loadSummary(forceRefresh: forceRefresh)
-            }
-
-            DispatchQueue.main.async {
-                let completeRefresh = {
-                    self.claudeRefreshInFlight = false
-                    self.claudeRefreshView.setRefreshing(false)
-
-                    switch result {
-                    case .success(let summary):
-                        self.claudeSummary = summary
-                        self.claudeSummaryView.apply(.loaded(summary))
-                        self.onClaudeSummaryLoaded?(summary)
-                    case .failure(let error):
-                        self.claudeSummaryView.apply(.failed(self.claudeSummary, error.localizedDescription))
-                    }
-                }
-                let minimumDuration = forceRefresh ? Self.refreshMinimumDisplayDuration : 0
-                let delay = max(0, minimumDuration - Date().timeIntervalSince(startedAt))
-                if delay > 0 {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                        completeRefresh()
-                    }
-                } else {
-                    completeRefresh()
-                }
-            }
+    private func summaryLoaded(_ summary: CodexUsageSummary, source: MoaUsageSource) {
+        switch source {
+        case .codex: onCodexSummaryLoaded?(summary)
+        case .claude: onClaudeSummaryLoaded?(summary)
+        case .zcode: onZCodeSummaryLoaded?(summary)
+        case .workbuddy: onWorkBuddySummaryLoaded?(summary)
+        case .workbuddyCN: onWorkBuddyCNSummaryLoaded?(summary)
         }
     }
 
-    func refreshZCode(forceRefresh: Bool) {
-        guard !zcodeRefreshInFlight else { return }
-        let startedAt = Date()
-        zcodeRefreshInFlight = true
-        zcodeRefreshView.setRefreshing(true)
-        zcodeSummaryView.apply(.loading(zcodeSummary))
-
-        zcodeQueue.async {
-            let result = Result {
-                try self.zcodeScanner.loadSummary(forceRefresh: forceRefresh)
-            }
-
-            DispatchQueue.main.async {
-                let completeRefresh = {
-                    self.zcodeRefreshInFlight = false
-                    self.zcodeRefreshView.setRefreshing(false)
-
-                    switch result {
-                    case .success(let summary):
-                        self.zcodeSummary = summary
-                        self.zcodeSummaryView.apply(.loaded(summary))
-                        self.onZCodeSummaryLoaded?(summary)
-                    case .failure(let error):
-                        self.zcodeSummaryView.apply(.failed(self.zcodeSummary, error.localizedDescription))
-                    }
-                }
-                let minimumDuration = forceRefresh ? Self.refreshMinimumDisplayDuration : 0
-                let delay = max(0, minimumDuration - Date().timeIntervalSince(startedAt))
-                if delay > 0 {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                        completeRefresh()
-                    }
-                } else {
-                    completeRefresh()
-                }
-            }
-        }
+    #if MOA_TESTING || MOA_TEST_SUPPORT
+    var testingInFlightCount: Int { pipelines.values.filter(\.inFlight).count }
+    func testingSetLoader(_ source: MoaUsageSource, load: @escaping (Bool) throws -> CodexUsageSummary) {
+        pipelines[source]?.load = load
     }
-
-    func refreshWorkBuddy(forceRefresh: Bool) {
-        guard !workbuddyRefreshInFlight else { return }
-        let startedAt = Date()
-        workbuddyRefreshInFlight = true
-        workbuddyRefreshView.setRefreshing(true)
-        workbuddySummaryView.apply(.loading(workbuddySummary))
-
-        workbuddyQueue.async {
-            let result = Result {
-                try self.workbuddyScanner.loadSummary(forceRefresh: forceRefresh)
-            }
-
-            DispatchQueue.main.async {
-                let completeRefresh = {
-                    self.workbuddyRefreshInFlight = false
-                    self.workbuddyRefreshView.setRefreshing(false)
-
-                    switch result {
-                    case .success(let summary):
-                        self.workbuddySummary = summary
-                        self.workbuddySummaryView.apply(.loaded(summary))
-                        self.onWorkBuddySummaryLoaded?(summary)
-                    case .failure(let error):
-                        self.workbuddySummaryView.apply(.failed(self.workbuddySummary, error.localizedDescription))
-                    }
-                }
-                let minimumDuration = forceRefresh ? Self.refreshMinimumDisplayDuration : 0
-                let delay = max(0, minimumDuration - Date().timeIntervalSince(startedAt))
-                if delay > 0 {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                        completeRefresh()
-                    }
-                } else {
-                    completeRefresh()
-                }
-            }
-        }
-    }
-
-    func refreshWorkBuddyCN(forceRefresh: Bool) {
-        guard !workbuddyCNRefreshInFlight else { return }
-        let startedAt = Date()
-        workbuddyCNRefreshInFlight = true
-        workbuddyCNRefreshView.setRefreshing(true)
-        workbuddyCNSummaryView.apply(.loading(workbuddyCNSummary))
-
-        workbuddyCNQueue.async {
-            let result = Result {
-                try self.workbuddyCNScanner.loadSummary(forceRefresh: forceRefresh)
-            }
-
-            DispatchQueue.main.async {
-                let completeRefresh = {
-                    self.workbuddyCNRefreshInFlight = false
-                    self.workbuddyCNRefreshView.setRefreshing(false)
-
-                    switch result {
-                    case .success(let summary):
-                        self.workbuddyCNSummary = summary
-                        self.workbuddyCNSummaryView.apply(.loaded(summary))
-                        self.onWorkBuddyCNSummaryLoaded?(summary)
-                    case .failure(let error):
-                        self.workbuddyCNSummaryView.apply(.failed(self.workbuddyCNSummary, error.localizedDescription))
-                    }
-                }
-                let minimumDuration = forceRefresh ? Self.refreshMinimumDisplayDuration : 0
-                let delay = max(0, minimumDuration - Date().timeIntervalSince(startedAt))
-                if delay > 0 {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                        completeRefresh()
-                    }
-                } else {
-                    completeRefresh()
-                }
-            }
-        }
-    }
-
-    private func startCodex() {
-        codexSummaryItem.view = codexSummaryView
-        codexRefreshItem.view = codexRefreshView
-        codexRefreshView.onRefresh = { [weak self] in
-            self?.refreshCodex(forceRefresh: true)
-        }
-        codexSummaryView.apply(.idle)
-        refreshCodex(forceRefresh: false)
-        codexTimer = Timer(timeInterval: 60, repeats: true) { [weak self] _ in
-            self?.refreshCodex(forceRefresh: false)
-        }
-        if let codexTimer {
-            RunLoop.main.add(codexTimer, forMode: .common)
-        }
-    }
-
-    private func startClaude() {
-        claudeSummaryItem.view = claudeSummaryView
-        claudeRefreshItem.view = claudeRefreshView
-        claudeRefreshView.onRefresh = { [weak self] in
-            self?.refreshClaude(forceRefresh: true)
-        }
-        claudeSummaryView.apply(.idle)
-        refreshClaude(forceRefresh: false)
-        claudeTimer = Timer(timeInterval: 60, repeats: true) { [weak self] _ in
-            self?.refreshClaude(forceRefresh: false)
-        }
-        if let claudeTimer {
-            RunLoop.main.add(claudeTimer, forMode: .common)
-        }
-    }
-
-    private func startZCode() {
-        zcodeSummaryItem.view = zcodeSummaryView
-        zcodeRefreshItem.view = zcodeRefreshView
-        zcodeRefreshView.onRefresh = { [weak self] in
-            self?.refreshZCode(forceRefresh: true)
-        }
-        zcodeSummaryView.apply(.idle)
-        refreshZCode(forceRefresh: false)
-        zcodeTimer = Timer(timeInterval: 60, repeats: true) { [weak self] _ in
-            self?.refreshZCode(forceRefresh: false)
-        }
-        if let zcodeTimer {
-            RunLoop.main.add(zcodeTimer, forMode: .common)
-        }
-    }
-
-    private func startWorkBuddy() {
-        workbuddySummaryItem.view = workbuddySummaryView
-        workbuddyRefreshItem.view = workbuddyRefreshView
-        workbuddyRefreshView.onRefresh = { [weak self] in
-            self?.refreshWorkBuddy(forceRefresh: true)
-        }
-        workbuddySummaryView.apply(.idle)
-        refreshWorkBuddy(forceRefresh: false)
-        workbuddyTimer = Timer(timeInterval: 60, repeats: true) { [weak self] _ in
-            self?.refreshWorkBuddy(forceRefresh: false)
-        }
-        if let workbuddyTimer {
-            RunLoop.main.add(workbuddyTimer, forMode: .common)
-        }
-    }
-    private func startWorkBuddyCN() {
-        workbuddyCNSummaryItem.view = workbuddyCNSummaryView
-        workbuddyCNRefreshItem.view = workbuddyCNRefreshView
-        workbuddyCNRefreshView.onRefresh = { [weak self] in
-            self?.refreshWorkBuddyCN(forceRefresh: true)
-        }
-        workbuddyCNSummaryView.apply(.idle)
-        refreshWorkBuddyCN(forceRefresh: false)
-        workbuddyCNTimer = Timer(timeInterval: 60, repeats: true) { [weak self] _ in
-            self?.refreshWorkBuddyCN(forceRefresh: false)
-        }
-        if let workbuddyCNTimer {
-            RunLoop.main.add(workbuddyCNTimer, forMode: .common)
-        }
-    }
+    #endif
 }

@@ -1122,6 +1122,7 @@ final class MoaChatSSEToResponsesSSEConverter {
     private var started = false
     private var finished = false
     private var failed = false
+    private var finishReason: String?
     private var textStarted = false
     private var reasoningStarted = false
     private var nextOutputIndex = 0
@@ -1149,16 +1150,18 @@ final class MoaChatSSEToResponsesSSEConverter {
         var frames: [String] = []
         for payload in try payloads(from: sseText) {
             if payload == "[DONE]" {
-                frames.append(contentsOf: try finish())
+                frames.append(contentsOf: try finish(receivedDone: true))
                 frames.append("data: [DONE]\n\n")
                 continue
             }
             frames.append(contentsOf: try ingest(jsonPayload: payload))
         }
+        if !finished { frames.append(contentsOf: try finish()) }
         return frames.joined()
     }
 
     func ingest(jsonPayload payload: String) throws -> [String] {
+        guard !finished else { return [] }
         guard let data = payload.data(using: .utf8),
               let chunk = try JSONSerialization.jsonObject(with: data) as? [String: Any]
         else {
@@ -1179,11 +1182,7 @@ final class MoaChatSSEToResponsesSSEConverter {
             return frames
         }
 
-        if let model = chunk["model"] as? String, model != self.model {
-            _ = model
-        }
-
-        if let choices = chunk["choices"] as? [[String: Any]], choices.isEmpty,
+        if (chunk["choices"] as? [[String: Any]])?.isEmpty != false,
            let usage = chunk["usage"] as? [String: Any],
            let mappedUsage = MoaChatToResponsesConverter.convertUsageForStreaming(usage) {
             frames.append(event("response.usage.delta", ["usage": mappedUsage]))
@@ -1193,6 +1192,7 @@ final class MoaChatSSEToResponsesSSEConverter {
         guard let choice = (chunk["choices"] as? [[String: Any]])?.first else {
             return frames
         }
+        if let reason = choice["finish_reason"] as? String, !reason.isEmpty { finishReason = reason }
         let delta = choice["delta"] as? [String: Any] ?? [:]
 
         if let reasoningDelta = delta["reasoning_content"] as? String, !reasoningDelta.isEmpty {
@@ -1214,9 +1214,25 @@ final class MoaChatSSEToResponsesSSEConverter {
         return frames
     }
 
-    func finish() throws -> [String] {
+    func finish(receivedDone: Bool = false) throws -> [String] {
         guard !finished else { return [] }
+        guard receivedDone || finishReason != nil else {
+            throw MoaProviderBridgeProtocolError.malformedSSE("Upstream ended before a stream terminator or finish_reason.")
+        }
+        if let finishReason,
+           !["stop", "tool_calls", "function_call", "length", "content_filter", "insufficient_system_resource"].contains(finishReason) {
+            throw MoaProviderBridgeProtocolError.malformedSSE("Unsupported upstream finish_reason: \(finishReason).")
+        }
         var frames = startIfNeeded()
+        if finishReason == "insufficient_system_resource" {
+            finished = true
+            var response = responseEnvelope(status: "failed")
+            response["error"] = ["code": "insufficient_system_resource", "message": "The upstream model stopped because of insufficient system resources."]
+            frames.append(event("response.failed", ["response": response]))
+            return frames
+        }
+        let incompleteReason = finishReason == "length" ? "max_output_tokens" : (finishReason == "content_filter" ? "content_filter" : nil)
+        let status = incompleteReason == nil ? "completed" : "incomplete"
         frames.append(contentsOf: flushInlineThinkBuffer())
         if failed {
             finished = true
@@ -1235,7 +1251,7 @@ final class MoaChatSSEToResponsesSSEConverter {
                 "item": [
                     "id": reasoningItemID,
                     "type": "reasoning",
-                    "status": "completed",
+                    "status": status,
                     "summary": [["type": "summary_text", "text": reasoning]]
                 ]
             ]))
@@ -1260,17 +1276,18 @@ final class MoaChatSSEToResponsesSSEConverter {
                 "item": [
                     "id": messageItemID,
                     "type": "message",
-                    "status": "completed",
+                    "status": status,
                     "role": "assistant",
                     "content": [["type": "output_text", "text": text, "annotations": []]]
                 ]
             ]))
             textStarted = false
         }
-        frames.append(contentsOf: try finishToolCalls())
-        frames.append(event("response.completed", [
-            "response": responseEnvelope(status: "completed")
-        ]))
+        // Do not turn truncated tool arguments into an executable tool call.
+        if incompleteReason == nil { frames.append(contentsOf: try finishToolCalls()) }
+        var response = responseEnvelope(status: status)
+        if let incompleteReason { response["incomplete_details"] = ["reason": incompleteReason] }
+        frames.append(event("response.\(status)", ["response": response]))
         finished = true
         return frames
     }

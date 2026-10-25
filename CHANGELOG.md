@@ -1,5 +1,26 @@
 # Changelog
 
+## 1.3.1 - 2026-10-25
+
+- Prevented child-process output deadlocks, bounded discarded-output commands, and released data operations after command failures or timeouts.
+- Limited Provider Bridge connections, cancelled active upstream work on stop, isolated restarts, and rejected unsupported request transfer encodings.
+- Required valid SHA-256 entries in schema 2 data packages and streamed file hashing to bound memory during data operations and updates.
+- Cached unchanged ZCode database queries with database/WAL change detection while recalculating current prices; avoided rewriting unchanged official account credentials on menu reads.
+- Preserved provider comments and accepted usage-only upstream chunks without a choices array.
+- Consolidated usage refresh scheduling, reduced idle scans, split usage modules by responsibility, and added individually discoverable SwiftPM/XCTest checks.
+- Matched saved ChatGPT accounts using workspace and JWT user identities, preventing different users in a shared workspace from overwriting each other's credentials while retaining normal token refreshes.
+- Removed configuration values from TOML diagnostics and omitted unparseable credential files so inline headers and multiline secrets cannot leak into diagnostic packages.
+- Rejected external, escaping, cyclic, and undeclared legacy symbolic links during data import while preserving safe relative links inside the package.
+- Preserved complete provider multiline strings, arrays, and neighboring tables, including array headers with inline comments, when switching configurations.
+- Removed complete quoted and multiline third-party URLs and bearer tokens when restoring official mode, while retaining unrelated configuration and provider identity.
+- Returned valid HTTP errors for Provider Bridge connection failures, rejected prematurely ended streams, and preserved incomplete output and tool-call status.
+- Deduplicated WorkBuddy request replays by their stable identity and added fractional ISO timestamp support for both clients.
+- Kept custom-price editing available for all model rows and refreshed cached prices after data imports or storage-root changes.
+- Kept menu storage-state reads responsive during background exports and removed the WorkBuddy menu scope note.
+- Coordinated data imports and storage moves with configuration, pricing, and cache writes; concurrent changes now return a retry message, and cached stores reload after replacement.
+- Normalized quoted and dotted provider names and complete multiline scalar assignments, preserving case-sensitive selection and avoiding duplicate settings.
+- Added regression checks for the reviewed account, data, streaming, usage, and price-setting boundaries.
+
 ## 1.3.0 - 2026-10-24
 
 - Added independent WorkBuddy and WorkBuddy AI account menus and usage tabs, including account enrollment, switching, rename/forget actions, and client launch helpers.

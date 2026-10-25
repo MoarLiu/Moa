@@ -46,6 +46,10 @@ final class MoaMainMenuCoordinator {
     }
 
     func menuWillOpen(_ menu: NSMenu) {
+        // Keep the existing menus responsive; their write actions are guarded
+        // by the shared store coordinator until the data operation finishes.
+        guard !app.dataPackageController.isDataOperationInProgress else { return }
+        app.usageCoordinator.refreshForPresentation()
         let now = Date()
         guard now.timeIntervalSince(app.lastMenuRefreshAt) >= app.menuRefreshInterval else {
             return
@@ -86,10 +90,11 @@ final class MoaMainMenuCoordinator {
             item.target = app
         }
 
-        app.toggleICloudStorageItem.title = app.dataPackageController.isICloudStorageEnabled()
+        let iCloudEnabled = app.dataPackageController.isICloudStorageEnabled()
+        app.toggleICloudStorageItem.title = iCloudEnabled
             ? MoaL10n.text("Move Data Back to This Mac")
             : MoaL10n.text("Store Data in iCloud")
-        app.toggleICloudStorageItem.state = app.dataPackageController.isICloudStorageEnabled() ? .on : .off
+        app.toggleICloudStorageItem.state = iCloudEnabled ? .on : .off
     }
 
     func refreshStatus() {

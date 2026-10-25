@@ -16,9 +16,9 @@ final class ConfigProfileController {
     let fileManager = FileManager.default
     let environment: [String: String]
     let codexHome: URL
-    let stateLock = NSRecursiveLock()
+    let stateLock: MoaDataStoreLock
 
-    #if MOA_TESTING
+    #if MOA_TESTING || MOA_TEST_SUPPORT
     static var testingProfileDatabaseSaveFailuresRemaining = 0
     static var testingOfficialAccountDatabaseSaveFailuresRemaining = 0
     #endif
@@ -63,6 +63,7 @@ final class ConfigProfileController {
 
     init(environment: [String: String] = ProcessInfo.processInfo.environment) {
         self.environment = environment
+        stateLock = MoaDataStoreLock(environment: environment)
         let home = environment["HOME"] ?? NSHomeDirectory()
         let codexHomePath = environment["CODEX_HOME"].flatMap { $0.isEmpty ? nil : $0 } ?? "\(home)/.codex"
 
@@ -74,9 +75,11 @@ final class ConfigProfileController {
     var cachedDatabase: ProfileDatabase?
     var cachedDatabaseModified: Date?
     var cachedDatabaseURLPath: String?
+    var cachedDatabaseRevision: UInt64?
     var cachedOfficialAccountDatabase: CodexOfficialAccountDatabase?
     var cachedOfficialAccountDatabaseModified: Date?
     var cachedOfficialAccountDatabaseURLPath: String?
+    var cachedOfficialAccountDatabaseRevision: UInt64?
 
     static let defaultConfig = """
 	model_provider = "Codex"

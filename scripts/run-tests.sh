@@ -106,6 +106,8 @@ MACOSX_DEPLOYMENT_TARGET="$MACOS_DEPLOYMENT_TARGET" "$SWIFTC_BIN" \
   -framework UniformTypeIdentifiers \
   "${MOA_TEST_ABS_SOURCES[@]}" \
   "$ROOT/Tests/MoaCoreTests.swift" \
+  "$ROOT/Tests/MoaReviewRegressionTests.swift" \
+  "$ROOT/Tests/MoaOptimizationTests.swift" \
   -o "$EXECUTABLE"
 
 "$EXECUTABLE"

@@ -37,6 +37,8 @@ final class MoaUsageInsightsWindowController {
     private var window: NSWindow?
     private var model: MoaUsageInsightsViewModel?
 
+    var isVisible: Bool { window?.isVisible == true }
+
     init(
         codexScanner: CodexUsageScanner,
         claudeScanner: ClaudeUsageScanner,
@@ -492,6 +494,14 @@ private struct MoaUsageInsightsView: View {
                             MoaStatusTag(title: MoaL10n.text("Fallback"), tint: MoaTheme.amber)
                         }
                     }
+                    Button {
+                        model.setOverride(for: row)
+                    } label: {
+                        Label(MoaL10n.text("Set Price"), systemImage: "slider.horizontal.3")
+                            .labelStyle(.iconOnly)
+                    }
+                    .buttonStyle(.borderless)
+                    .help(MoaL10n.text("Custom Usage Price"))
                 }
             }
         }

@@ -93,11 +93,14 @@ Moa 每天按本地时间在 `00:20:01` 检查 Sub2API 同源的 [model-price-re
 
 ```bash
 swift build
+swift test
 ./scripts/run-tests.sh
 CODE_SIGN_IDENTITY=- ./scripts/build-menu-bar-app.sh
 ```
 
 构建结果会输出到 `Moa.app`。
+
+`swift test` 在默认 debug 配置下将各项检查作为独立 XCTest 用例运行，也支持在 Xcode 中发现和调试。脚本保留独立运行器，并核对全部应用源码都参与编译。若当前 Command Line Tools 无法展开 SwiftUI 宏，请设置 `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer` 使用完整 Xcode。价格与故障注入测试包含共享状态，请串行运行测试套件。
 
 生成 DMG：
 

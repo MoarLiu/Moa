@@ -102,6 +102,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func configureUsageAlertCallbacks() {
+        usageCoordinator.needsFrequentRefresh = { [weak self] source in
+            let alertEnabled = DailyUsageAlertKind(rawValue: source.rawValue).flatMap { DailyUsageAlertController.threshold(for: $0) } != nil
+            return alertEnabled || self?.usageInsightsWindow.isVisible == true
+        }
         usageCoordinator.onCodexSummaryLoaded = { [weak self] summary in
             self?.maybeShowDailyUsageAlert(kind: .codex, summary: summary)
         }

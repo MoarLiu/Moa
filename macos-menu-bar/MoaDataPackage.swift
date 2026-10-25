@@ -322,11 +322,16 @@ final class MoaDataPackageController {
 
     private let fileManager = FileManager.default
     private let operationLock = NSRecursiveLock()
+    private let dataAccess: MoaDataAccessCoordinator
     private let environment: [String: String]
     private let home: URL
     private let appVersion: String
     private let appBuild: String
     private let providerBridgeDiagnostics: MoaProviderBridgeDiagnostics
+
+    #if MOA_TESTING || MOA_TEST_SUPPORT
+    var testingBeforeExportArchive: (() -> Void)?
+    #endif
 
     private var moaHome: URL {
         MoaDataRoot.localURL(environment: environment)
@@ -369,6 +374,7 @@ final class MoaDataPackageController {
         providerBridgeDiagnostics: MoaProviderBridgeDiagnostics = .shared
     ) {
         self.environment = environment
+        dataAccess = .shared(environment: environment)
         self.providerBridgeDiagnostics = providerBridgeDiagnostics
         home = MoaDataRoot.homeDirectory(environment: environment)
         appVersion = MoaUpdateController.currentVersion ?? "dev"
@@ -376,21 +382,25 @@ final class MoaDataPackageController {
     }
 
     func isICloudStorageEnabled() -> Bool {
-        operationLock.lock()
-        defer { operationLock.unlock() }
+        // This reads only device-local state. Menu rendering must not wait for
+        // the lock held by a long-running archive or data move.
         return MoaDataRoot.isICloudStorageEnabled(environment: environment)
     }
 
+    var isDataOperationInProgress: Bool { dataAccess.isBusy }
+
     @discardableResult
     func repairLegacyICloudDataSplitIfNeeded() throws -> Bool {
-        operationLock.lock()
-        defer { operationLock.unlock() }
-        guard isICloudStorageEnabled() else {
-            return false
+        return try dataAccess.withExclusiveOperation {
+            operationLock.lock()
+            defer { operationLock.unlock() }
+            guard isICloudStorageEnabled() else {
+                return false
+            }
+            let migrated = try migrateLegacyNestedICloudDataIfNeeded()
+            let materialized = try materializeLegacyICloudSymlinkIfNeeded()
+            return migrated || materialized
         }
-        let migrated = try migrateLegacyNestedICloudDataIfNeeded()
-        let materialized = try materializeLegacyICloudSymlinkIfNeeded()
-        return migrated || materialized
     }
 
     func defaultDataPackageURL(prefix: String = "Moa-Data-Backup") -> URL {
@@ -403,187 +413,199 @@ final class MoaDataPackageController {
 
     @discardableResult
     func exportDataPackage(to destination: URL) throws -> URL {
-        operationLock.lock()
-        defer { operationLock.unlock() }
-        try migrateSensitiveStoresBeforeExport()
-        let source = try resolvedMoaHome()
-        let stagingRoot = try temporaryDirectory(prefix: "MoaDataPackage")
-        defer { cleanupTemporaryDirectory(stagingRoot) }
-        let packageRoot = stagingRoot
-            .appendingPathComponent("MoaDataPackage", isDirectory: true)
-        try fileManager.createDirectory(at: packageRoot, withIntermediateDirectories: true)
+        return try dataAccess.withExclusiveOperation {
+            operationLock.lock()
+            defer { operationLock.unlock() }
+            try migrateSensitiveStoresBeforeExport()
+            let source = try resolvedMoaHome()
+            let stagingRoot = try temporaryDirectory(prefix: "MoaDataPackage")
+            defer { cleanupTemporaryDirectory(stagingRoot) }
+            let packageRoot = stagingRoot
+                .appendingPathComponent("MoaDataPackage", isDirectory: true)
+            try fileManager.createDirectory(at: packageRoot, withIntermediateDirectories: true)
 
-        let copiedMoaHome = packageRoot.appendingPathComponent(".moa", isDirectory: true)
-        try runDitto(["--noextattr", "--noacl", source.path, copiedMoaHome.path])
-        try removeRuntimeOnlyData(from: copiedMoaHome)
+            let copiedMoaHome = packageRoot.appendingPathComponent(".moa", isDirectory: true)
+            try runDitto(["--noextattr", "--noacl", source.path, copiedMoaHome.path])
+            try removeRuntimeOnlyData(from: copiedMoaHome)
 
-        let manifest = MoaDataPackageManifest(
-            schemaVersion: 2,
-            exportedAt: ISO8601DateFormatter().string(from: Date()),
-            appVersion: appVersion,
-            appBuild: appBuild,
-            dataRootName: ".moa",
-            files: try fileEntries(under: copiedMoaHome)
-        )
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let manifestData = try encoder.encode(manifest)
-        try manifestData.write(to: packageRoot.appendingPathComponent("MoaDataPackageManifest.json"), options: .atomic)
+            let manifest = MoaDataPackageManifest(
+                schemaVersion: 2,
+                exportedAt: ISO8601DateFormatter().string(from: Date()),
+                appVersion: appVersion,
+                appBuild: appBuild,
+                dataRootName: ".moa",
+                files: try fileEntries(under: copiedMoaHome)
+            )
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            let manifestData = try encoder.encode(manifest)
+            try manifestData.write(to: packageRoot.appendingPathComponent("MoaDataPackageManifest.json"), options: .atomic)
 
-        try? fileManager.removeItem(at: destination)
-        try fileManager.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try runDitto(["-c", "-k", "--sequesterRsrc", "--keepParent", packageRoot.path, destination.path])
-        return destination
+            try? fileManager.removeItem(at: destination)
+            try fileManager.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+            #if MOA_TESTING || MOA_TEST_SUPPORT
+            testingBeforeExportArchive?()
+            #endif
+            try runDitto(["-c", "-k", "--sequesterRsrc", "--keepParent", packageRoot.path, destination.path])
+            return destination
+        }
     }
 
     @discardableResult
     func importDataPackage(from packageURL: URL) throws -> URL {
-        operationLock.lock()
-        defer { operationLock.unlock() }
-        let extractRoot = try temporaryDirectory(prefix: "MoaDataImport")
-        defer { cleanupTemporaryDirectory(extractRoot) }
-        try runDitto(["-x", "-k", packageURL.path, extractRoot.path])
-        let importedMoaHome = try validatedImportedMoaHome(in: extractRoot)
+        return try dataAccess.withExclusiveOperation {
+            operationLock.lock()
+            defer { operationLock.unlock() }
+            let extractRoot = try temporaryDirectory(prefix: "MoaDataImport")
+            defer { cleanupTemporaryDirectory(extractRoot) }
+            try runDitto(["-x", "-k", packageURL.path, extractRoot.path])
+            let importedMoaHome = try validatedImportedMoaHome(in: extractRoot)
 
-        let destination = currentMoaHome
-        if !fileManager.fileExists(atPath: destination.path) {
-            try fileManager.createDirectory(at: destination, withIntermediateDirectories: true)
+            let destination = currentMoaHome
+            if !fileManager.fileExists(atPath: destination.path) {
+                try fileManager.createDirectory(at: destination, withIntermediateDirectories: true)
+            }
+            let rollbackURL = defaultDataPackageURL(prefix: "Moa-Data-Rollback")
+            try exportDataPackage(to: rollbackURL)
+
+            try replaceMoaHome(at: destination, with: importedMoaHome)
+            return rollbackURL
         }
-        let rollbackURL = defaultDataPackageURL(prefix: "Moa-Data-Rollback")
-        try exportDataPackage(to: rollbackURL)
-
-        try replaceMoaHome(at: destination, with: importedMoaHome)
-        return rollbackURL
     }
 
     @discardableResult
     func exportDiagnosticPackage(to destination: URL) throws -> URL {
-        operationLock.lock()
-        defer { operationLock.unlock() }
-        let source = try resolvedMoaHome()
-        let stagingRoot = try temporaryDirectory(prefix: "MoaDiagnostics")
-        defer { cleanupTemporaryDirectory(stagingRoot) }
-        let diagnosticRoot = stagingRoot
-            .appendingPathComponent("MoaDiagnostics", isDirectory: true)
-        try fileManager.createDirectory(at: diagnosticRoot, withIntermediateDirectories: true)
+        return try dataAccess.withExclusiveOperation {
+            operationLock.lock()
+            defer { operationLock.unlock() }
+            let source = try resolvedMoaHome()
+            let stagingRoot = try temporaryDirectory(prefix: "MoaDiagnostics")
+            defer { cleanupTemporaryDirectory(stagingRoot) }
+            let diagnosticRoot = stagingRoot
+                .appendingPathComponent("MoaDiagnostics", isDirectory: true)
+            try fileManager.createDirectory(at: diagnosticRoot, withIntermediateDirectories: true)
 
-        let summary: [String: Any] = [
-            "schemaVersion": 1,
-            "exportedAt": ISO8601DateFormatter().string(from: Date()),
-            "appVersion": appVersion,
-            "appBuild": appBuild,
-            "moaLiteHome": diagnosticPathSummary(moaHome),
-            "resolvedMoaHome": diagnosticPathSummary(source),
-            "iCloudStorageEnabled": isICloudStorageEnabled(),
-            "files": try fileEntries(under: source).map { ["path": $0.path, "size": $0.size] }
-        ]
-        let summaryData = try JSONSerialization.data(withJSONObject: summary, options: [.prettyPrinted, .sortedKeys])
-        try summaryData.write(to: diagnosticRoot.appendingPathComponent("diagnostic-summary.json"), options: .atomic)
+            let summary: [String: Any] = [
+                "schemaVersion": 1,
+                "exportedAt": ISO8601DateFormatter().string(from: Date()),
+                "appVersion": appVersion,
+                "appBuild": appBuild,
+                "moaLiteHome": diagnosticPathSummary(moaHome),
+                "resolvedMoaHome": diagnosticPathSummary(source),
+                "iCloudStorageEnabled": isICloudStorageEnabled(),
+                "files": try fileEntries(under: source).map { ["path": $0.path, "size": $0.size] }
+            ]
+            let summaryData = try JSONSerialization.data(withJSONObject: summary, options: [.prettyPrinted, .sortedKeys])
+            try summaryData.write(to: diagnosticRoot.appendingPathComponent("diagnostic-summary.json"), options: .atomic)
 
-        let redactedDirectory = diagnosticRoot.appendingPathComponent("redacted", isDirectory: true)
-        try fileManager.createDirectory(at: redactedDirectory, withIntermediateDirectories: true)
-        for name in ["profiles.json", "claude_desktop_profiles.json", "codex_official_accounts.json", "config.toml", "auth.json"] {
-            let url = source.appendingPathComponent(name)
-            guard fileManager.fileExists(atPath: url.path),
-                  let text = try? String(contentsOf: url, encoding: .utf8)
-            else {
-                continue
+            let redactedDirectory = diagnosticRoot.appendingPathComponent("redacted", isDirectory: true)
+            try fileManager.createDirectory(at: redactedDirectory, withIntermediateDirectories: true)
+            for name in ["profiles.json", "claude_desktop_profiles.json", "codex_official_accounts.json", "config.toml", "auth.json"] {
+                let url = source.appendingPathComponent(name)
+                guard fileManager.fileExists(atPath: url.path),
+                      let text = try? String(contentsOf: url, encoding: .utf8)
+                else {
+                    continue
+                }
+                let redacted = name.hasSuffix(".toml") ? redactedTOMLText(text) : redactedText(text)
+                try redacted.write(
+                    to: redactedDirectory.appendingPathComponent(name),
+                    atomically: true,
+                    encoding: .utf8
+                )
             }
-            try redactedText(text).write(
-                to: redactedDirectory.appendingPathComponent(name),
-                atomically: true,
-                encoding: .utf8
-            )
-        }
-        if let providerBridgeDiagnosticsJSON = providerBridgeDiagnostics.diagnosticJSON() {
-            try providerBridgeDiagnosticsJSON.write(
-                to: redactedDirectory.appendingPathComponent(MoaProviderBridgeDiagnostics.fileName),
-                atomically: true,
-                encoding: .utf8
-            )
-        }
+            if let providerBridgeDiagnosticsJSON = providerBridgeDiagnostics.diagnosticJSON() {
+                try providerBridgeDiagnosticsJSON.write(
+                    to: redactedDirectory.appendingPathComponent(MoaProviderBridgeDiagnostics.fileName),
+                    atomically: true,
+                    encoding: .utf8
+                )
+            }
 
-        try? fileManager.removeItem(at: destination)
-        try fileManager.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try runDitto(["-c", "-k", "--sequesterRsrc", "--keepParent", diagnosticRoot.path, destination.path])
-        return destination
+            try? fileManager.removeItem(at: destination)
+            try fileManager.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try runDitto(["-c", "-k", "--sequesterRsrc", "--keepParent", diagnosticRoot.path, destination.path])
+            return destination
+        }
     }
 
     @discardableResult
     func enableICloudStorage() throws -> URL {
-        operationLock.lock()
-        defer { operationLock.unlock() }
-        guard fileManager.fileExists(atPath: iCloudDriveRoot.path) else {
-            throw MoaDataPackageError.iCloudDriveUnavailable(iCloudDriveRoot)
+        return try dataAccess.withExclusiveOperation {
+            operationLock.lock()
+            defer { operationLock.unlock() }
+            guard fileManager.fileExists(atPath: iCloudDriveRoot.path) else {
+                throw MoaDataPackageError.iCloudDriveUnavailable(iCloudDriveRoot)
+            }
+
+            try materializeLegacyICloudSymlinkIfNeeded()
+            _ = try migrateLegacyNestedICloudDataIfNeeded()
+            if !fileManager.fileExists(atPath: moaHome.path) {
+                try fileManager.createDirectory(at: moaHome, withIntermediateDirectories: true)
+            }
+
+            let rollbackURL = defaultDataPackageURL(prefix: "Moa-Data-Before-iCloud")
+            try exportDataPackage(to: rollbackURL)
+            let source = moaHome
+            try fileManager.createDirectory(at: iCloudDriveRoot, withIntermediateDirectories: true)
+
+            var isDirectory: ObjCBool = false
+            let iCloudDataExists = fileManager.fileExists(atPath: iCloudMoaHome.path, isDirectory: &isDirectory)
+            if iCloudDataExists, !isDirectory.boolValue {
+                throw MoaDataPackageError.iCloudDataRootConflict(iCloudMoaHome)
+            }
+
+            let localHasUserData = containsMoaUserData(under: source)
+            let cloudHasUserData = iCloudDataExists && containsMoaUserData(under: iCloudMoaHome)
+            // Existing iCloud data may have come from another Mac. Treat it as authoritative
+            // so a new device with empty/default local files cannot erase the shared data root.
+            if !cloudHasUserData, localHasUserData {
+                try mirrorDirectory(from: source, to: iCloudMoaHome)
+            } else if !cloudHasUserData, !iCloudDataExists {
+                try fileManager.createDirectory(at: iCloudMoaHome, withIntermediateDirectories: true)
+            }
+
+            try setICloudStorageEnabled(true)
+            return rollbackURL
         }
-
-        try materializeLegacyICloudSymlinkIfNeeded()
-        _ = try migrateLegacyNestedICloudDataIfNeeded()
-        if !fileManager.fileExists(atPath: moaHome.path) {
-            try fileManager.createDirectory(at: moaHome, withIntermediateDirectories: true)
-        }
-
-        let rollbackURL = defaultDataPackageURL(prefix: "Moa-Data-Before-iCloud")
-        try exportDataPackage(to: rollbackURL)
-        let source = moaHome
-        try fileManager.createDirectory(at: iCloudDriveRoot, withIntermediateDirectories: true)
-
-        var isDirectory: ObjCBool = false
-        let iCloudDataExists = fileManager.fileExists(atPath: iCloudMoaHome.path, isDirectory: &isDirectory)
-        if iCloudDataExists, !isDirectory.boolValue {
-            throw MoaDataPackageError.iCloudDataRootConflict(iCloudMoaHome)
-        }
-
-        let localHasUserData = containsMoaUserData(under: source)
-        let cloudHasUserData = iCloudDataExists && containsMoaUserData(under: iCloudMoaHome)
-        // Existing iCloud data may have come from another Mac. Treat it as authoritative
-        // so a new device with empty/default local files cannot erase the shared data root.
-        if !cloudHasUserData, localHasUserData {
-            try mirrorDirectory(from: source, to: iCloudMoaHome)
-        } else if !cloudHasUserData, !iCloudDataExists {
-            try fileManager.createDirectory(at: iCloudMoaHome, withIntermediateDirectories: true)
-        }
-
-        try setICloudStorageEnabled(true)
-        return rollbackURL
     }
 
     @discardableResult
     func disableICloudStorage() throws -> URL {
-        operationLock.lock()
-        defer { operationLock.unlock() }
-        guard isICloudStorageEnabled() else {
-            throw MoaDataPackageError.iCloudAlreadyDisabled
-        }
-        guard fileManager.fileExists(atPath: iCloudDriveRoot.path) else {
-            throw MoaDataPackageError.iCloudDriveUnavailable(iCloudDriveRoot)
-        }
+        return try dataAccess.withExclusiveOperation {
+            operationLock.lock()
+            defer { operationLock.unlock() }
+            guard isICloudStorageEnabled() else {
+                throw MoaDataPackageError.iCloudAlreadyDisabled
+            }
+            guard fileManager.fileExists(atPath: iCloudDriveRoot.path) else {
+                throw MoaDataPackageError.iCloudDriveUnavailable(iCloudDriveRoot)
+            }
 
-        try materializeLegacyICloudSymlinkIfNeeded()
-        _ = try migrateLegacyNestedICloudDataIfNeeded()
-        let rollbackURL = defaultDataPackageURL(prefix: "Moa-Data-Before-iCloud-Off")
-        try exportDataPackage(to: rollbackURL)
-        if fileManager.fileExists(atPath: iCloudMoaHome.path) {
-            try replaceDirectory(at: moaHome, with: iCloudMoaHome)
-        } else {
-            try fileManager.createDirectory(at: moaHome, withIntermediateDirectories: true)
+            try materializeLegacyICloudSymlinkIfNeeded()
+            _ = try migrateLegacyNestedICloudDataIfNeeded()
+            let rollbackURL = defaultDataPackageURL(prefix: "Moa-Data-Before-iCloud-Off")
+            try exportDataPackage(to: rollbackURL)
+            if fileManager.fileExists(atPath: iCloudMoaHome.path) {
+                try replaceDirectory(at: moaHome, with: iCloudMoaHome)
+            } else {
+                try fileManager.createDirectory(at: moaHome, withIntermediateDirectories: true)
+            }
+            try setICloudStorageEnabled(false)
+            return rollbackURL
         }
-        try setICloudStorageEnabled(false)
-        return rollbackURL
     }
 
     func openMoaHome() {
-        operationLock.lock()
-        defer { operationLock.unlock() }
         let root = currentMoaHome
-        try? fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        let store = MoaDataStoreLock(environment: environment)
+        try? store.withLock { try fileManager.createDirectory(at: root, withIntermediateDirectories: true) }
         _ = runProcess("/usr/bin/open", [root.path])
     }
 
     func openICloudMoaHome() {
-        operationLock.lock()
-        defer { operationLock.unlock() }
-        try? fileManager.createDirectory(at: iCloudMoaHome, withIntermediateDirectories: true)
+        let store = MoaDataStoreLock(environment: environment)
+        try? store.withLock { try fileManager.createDirectory(at: iCloudMoaHome, withIntermediateDirectories: true) }
         _ = runProcess("/usr/bin/open", [iCloudMoaHome.path])
     }
 
@@ -721,6 +743,9 @@ final class MoaDataPackageController {
             throw MoaDataPackageError.invalidPackage
         }
         let manifestURL = packageRoot.appendingPathComponent("MoaDataPackageManifest.json")
+        guard (try manifestURL.resourceValues(forKeys: [.isSymbolicLinkKey])).isSymbolicLink != true else {
+            throw MoaDataPackageError.invalidPackage
+        }
         let manifest = try JSONDecoder().decode(MoaDataPackageManifest.self, from: Data(contentsOf: manifestURL))
         guard (1...2).contains(manifest.schemaVersion), manifest.dataRootName == ".moa" else {
             throw MoaDataPackageError.invalidPackage
@@ -731,6 +756,7 @@ final class MoaDataPackageController {
         let importedPath = importedMoaHome.resolvingSymlinksInPath().standardizedFileURL.path
         guard fileManager.fileExists(atPath: importedMoaHome.path, isDirectory: &isDirectory),
               isDirectory.boolValue,
+              (try importedMoaHome.resourceValues(forKeys: [.isSymbolicLinkKey])).isSymbolicLink != true,
               importedPath.hasPrefix(extractPath + "/")
         else {
             throw MoaDataPackageError.invalidPackage
@@ -770,13 +796,23 @@ final class MoaDataPackageController {
             guard isSafeRelativePath(entry.path), manifestEntries[entry.path] == nil else {
                 throw MoaDataPackageError.invalidPackage
             }
+            if manifest.schemaVersion >= 2 {
+                guard let hash = entry.sha256, hash.utf8.count == 64,
+                      hash.utf8.allSatisfy({ (48...57).contains($0) || (65...70).contains($0) || (97...102).contains($0) }) else {
+                    throw MoaDataPackageError.invalidPackage
+                }
+            }
             manifestEntries[entry.path] = entry
         }
 
-        let actualEntries = Dictionary(uniqueKeysWithValues: try fileEntries(
-            under: root,
-            includeSymbolicLinks: manifest.schemaVersion >= 2
-        ).map { ($0.path, $0) })
+        let files = try fileEntries(under: root)
+        if manifest.schemaVersion == 1, files.contains(where: { $0.resolvedKind == .symbolicLink }) {
+            throw MoaDataPackageError.invalidPackage
+        }
+        for entry in files where entry.resolvedKind == .symbolicLink {
+            _ = try resolvedPackagePath(root.appendingPathComponent(entry.path), root: root, visited: [])
+        }
+        let actualEntries = Dictionary(uniqueKeysWithValues: files.map { ($0.path, $0) })
         guard Set(manifestEntries.keys) == Set(actualEntries.keys) else {
             throw MoaDataPackageError.invalidPackage
         }
@@ -801,6 +837,50 @@ final class MoaDataPackageController {
             return false
         }
         return !path.split(separator: "/").contains("..")
+    }
+
+    private func resolvedPackagePath(_ url: URL, root: URL, visited: Set<String>) throws -> URL {
+        let base = root.standardizedFileURL
+        let candidate = url.standardizedFileURL
+        guard candidate == base || candidate.path.hasPrefix(base.path + "/") else {
+            throw MoaDataPackageError.invalidPackage
+        }
+        let relative = candidate.path.dropFirst(base.path.count)
+        return try resolvePackageComponents(relative.split(separator: "/").map(String.init), from: base, root: base, visited: visited)
+    }
+
+    private func resolvePackageComponents(_ components: [String], from directory: URL, root: URL, visited: Set<String>) throws -> URL {
+        var resolved = directory
+        for component in components {
+            if component == "." { continue }
+            if component == ".." {
+                resolved.deleteLastPathComponent()
+                guard resolved == root || resolved.path.hasPrefix(root.path + "/") else {
+                    throw MoaDataPackageError.invalidPackage
+                }
+                continue
+            }
+            resolved.appendPathComponent(String(component))
+            let type = (try? fileManager.attributesOfItem(atPath: resolved.path)[.type]) as? FileAttributeType
+            if type == .typeSymbolicLink {
+                guard visited.count < 64, !visited.contains(resolved.path) else {
+                    throw MoaDataPackageError.invalidPackage
+                }
+                let destination = try fileManager.destinationOfSymbolicLink(atPath: resolved.path)
+                guard !destination.isEmpty, !destination.hasPrefix("/") else {
+                    throw MoaDataPackageError.invalidPackage
+                }
+                var nextVisited = visited
+                nextVisited.insert(resolved.path)
+                // Resolve links before '..': lexical normalization before link
+                // expansion can turn a path that escapes the root into a safe one.
+                resolved = try resolvePackageComponents(
+                    destination.split(separator: "/").map(String.init),
+                    from: resolved.deletingLastPathComponent(), root: root, visited: nextVisited
+                )
+            }
+        }
+        return resolved
     }
 
     private func containsMoaUserData(under root: URL) -> Bool {
@@ -887,10 +967,13 @@ final class MoaDataPackageController {
         under root: URL,
         includeSymbolicLinks: Bool = true
     ) throws -> [MoaDataPackageManifest.FileEntry] {
-        let rootPath = root.standardizedFileURL.path
+        // Enumerate the canonical directory so URLs for dangling links cannot
+        // differ from the root only by a system alias such as /var vs /private/var.
+        let canonicalRoot = root.resolvingSymlinksInPath().standardizedFileURL
+        let rootPath = canonicalRoot.path
         var enumerationError: Error?
         guard let enumerator = fileManager.enumerator(
-            at: root,
+            at: canonicalRoot,
             includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey],
             options: [.skipsPackageDescendants],
             errorHandler: { _, error in
@@ -904,7 +987,8 @@ final class MoaDataPackageController {
         var entries: [MoaDataPackageManifest.FileEntry] = []
         for case let url as URL in enumerator {
             let values = try url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey, .isDirectoryKey])
-            let filePath = url.standardizedFileURL.path
+            let filePath = url.deletingLastPathComponent().resolvingSymlinksInPath()
+                .standardizedFileURL.appendingPathComponent(url.lastPathComponent).path
             guard filePath.hasPrefix(rootPath + "/") else {
                 continue
             }
@@ -977,8 +1061,7 @@ final class MoaDataPackageController {
     }
 
     private func fileSHA256(_ url: URL) throws -> String {
-        let data = try Data(contentsOf: url)
-        return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        try MoaFileHash.sha256(url)
     }
 
     private func temporaryDirectory(prefix: String) throws -> URL {
@@ -993,10 +1076,21 @@ final class MoaDataPackageController {
     }
 
     private func redactedText(_ text: String) -> String {
-        if let json = redactedJSONText(text) {
-            return json
+        redactedJSONText(text) ?? "[Unparseable content omitted]"
+    }
+
+    private func redactedTOMLText(_ text: String) -> String {
+        // Export configuration shape only. An inline table, multiline value or
+        // custom header may contain credentials under otherwise harmless keys.
+        var lines: [String] = []
+        for context in MoaTomlEditor.lineContexts(in: text) where context.isStatementStart {
+            if context.isStructural, let table = MoaTomlEditor.tableName(from: context.text) {
+                lines.append("[\(table)]")
+            } else if let entry = MoaTomlEditor.keyValue(from: context.text) {
+                lines.append("\(entry.key) = \"[REDACTED]\"")
+            }
         }
-        return redactedKeyValueText(text)
+        return lines.joined(separator: "\n")
     }
 
     private func diagnosticPathSummary(_ url: URL) -> String {
@@ -1051,111 +1145,6 @@ final class MoaDataPackageController {
         return value
     }
 
-    private func redactedKeyValueText(_ text: String) -> String {
-        text.split(separator: "\n", omittingEmptySubsequences: false)
-            .map { redactedKeyValueLine(String($0)) }
-            .joined(separator: "\n")
-    }
-
-    private func redactedKeyValueLine(_ line: String) -> String {
-        guard let separator = keyValueSeparatorIndex(in: line) else {
-            return line
-        }
-
-        let key = diagnosticKey(from: String(line[..<separator]))
-        guard isSensitiveDiagnosticKey(key) else {
-            return line
-        }
-
-        var valueStart = line.index(after: separator)
-        while valueStart < line.endIndex, line[valueStart].isWhitespace {
-            valueStart = line.index(after: valueStart)
-        }
-
-        let prefix = String(line[..<valueStart])
-        guard valueStart < line.endIndex else {
-            return prefix + "\"[REDACTED]\""
-        }
-
-        let firstValueCharacter = line[valueStart]
-        if firstValueCharacter == "\"" || firstValueCharacter == "'" {
-            var index = line.index(after: valueStart)
-            var previousWasEscape = false
-            while index < line.endIndex {
-                let character = line[index]
-                if character == firstValueCharacter && !previousWasEscape {
-                    let afterValue = line.index(after: index)
-                    return prefix + "\(firstValueCharacter)[REDACTED]\(firstValueCharacter)" + String(line[afterValue...])
-                }
-                previousWasEscape = character == "\\" && !previousWasEscape
-                if character != "\\" {
-                    previousWasEscape = false
-                }
-                index = line.index(after: index)
-            }
-            return prefix + "\(firstValueCharacter)[REDACTED]\(firstValueCharacter)"
-        }
-
-        var valueEnd = valueStart
-        while valueEnd < line.endIndex {
-            let character = line[valueEnd]
-            if character.isWhitespace || character == "," || character == "}" || character == "]" {
-                break
-            }
-            valueEnd = line.index(after: valueEnd)
-        }
-        return prefix + "\"[REDACTED]\"" + String(line[valueEnd...])
-    }
-
-    private func keyValueSeparatorIndex(in line: String) -> String.Index? {
-        var quote: Character?
-        var previousWasEscape = false
-
-        for index in line.indices {
-            let character = line[index]
-
-            if let currentQuote = quote {
-                if character == currentQuote && !previousWasEscape {
-                    quote = nil
-                }
-                previousWasEscape = character == "\\" && !previousWasEscape
-                if character != "\\" {
-                    previousWasEscape = false
-                }
-                continue
-            }
-
-            if character == "\"" || character == "'" {
-                quote = character
-                previousWasEscape = false
-                continue
-            }
-
-            if character == ":" || character == "=" {
-                return index
-            }
-        }
-
-        return nil
-    }
-
-    private func diagnosticKey(from raw: String) -> String {
-        var key = raw
-        if let delimiter = key.lastIndex(where: { $0 == "{" || $0 == "," }) {
-            key = String(key[key.index(after: delimiter)...])
-        }
-        key = key.trimmingCharacters(in: .whitespacesAndNewlines)
-        if key.count >= 2,
-           let first = key.first,
-           let last = key.last,
-           (first == "\"" || first == "'"),
-           first == last {
-            key.removeFirst()
-            key.removeLast()
-        }
-        return key.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
     private func isSensitiveDiagnosticKey(_ key: String) -> Bool {
         let normalized = key.lowercased()
             .replacingOccurrences(of: "-", with: "_")
@@ -1184,18 +1173,7 @@ final class MoaDataPackageController {
 
     @discardableResult
     private func runProcess(_ executable: String, _ arguments: [String]) -> Int32 {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = arguments
-        process.standardOutput = Pipe()
-        process.standardError = Pipe()
-        do {
-            try process.run()
-            process.waitUntilExit()
-            return process.terminationStatus
-        } catch {
-            return 127
-        }
+        MoaProcessRunner.run(executable, arguments, timeout: 300)
     }
 
     private static func timestamp() -> String {

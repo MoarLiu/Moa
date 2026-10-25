@@ -128,6 +128,8 @@ extension ConfigProfileController {
     }
 
     func bootstrap() throws {
+        try stateLock.lock()
+        defer { stateLock.unlock() }
         try ensureStore()
         try importInitialProfileIfNeeded()
     }
@@ -189,7 +191,7 @@ extension ConfigProfileController {
             ?? (try? String(contentsOf: moaConfigURL, encoding: .utf8))
             ?? ""
         let providerID = rootTomlStringValue(in: config, key: "model_provider") ?? "Current Codex"
-        let providerTable = "model_providers.\(providerID)"
+        let providerTable = MoaTomlEditor.keyPath(["model_providers", providerID])
         let baseURL = tomlStringValue(in: config, table: providerTable, key: "base_url")
             ?? firstTomlStringValue(in: config, key: "base_url")
             ?? ""

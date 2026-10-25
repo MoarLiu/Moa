@@ -93,11 +93,14 @@ When iCloud storage is enabled, Moa reads and writes `iCloud Drive/Moa` directly
 
 ```bash
 swift build
+swift test
 ./scripts/run-tests.sh
 CODE_SIGN_IDENTITY=- ./scripts/build-menu-bar-app.sh
 ```
 
 The app bundle is written to `Moa.app`.
+
+`swift test` runs the checks as individual XCTest cases in the default debug configuration; they are also discoverable in Xcode. The script retains the standalone runner and checks that every app source is compiled. Use full Xcode (`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`) if the selected command-line tools cannot expand SwiftUI macros. Run the suite serially because pricing and fault-injection checks use shared test state.
 
 To create a DMG:
 

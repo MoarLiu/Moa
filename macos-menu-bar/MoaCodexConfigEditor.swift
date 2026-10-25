@@ -4,16 +4,18 @@ enum MoaCodexConfigEditor {
     static func removingExperimentalBearerTokens(from text: String) -> String {
         var outputLines: [String] = []
         var currentTable = ""
+        var skippingValue = false
         for context in MoaTomlEditor.lineContexts(in: text) {
             let line = context.text
-            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            if context.isStructural, let tableName = MoaTomlEditor.tableName(from: trimmed) {
-                currentTable = tableName
+            if context.isStatementStart {
+                skippingValue = false
+                if context.isStructural, let header = MoaTomlEditor.tableHeader(from: line) {
+                    currentTable = header.contextName
+                } else {
+                    skippingValue = isManagedRemovalLine(line, currentTable: currentTable)
+                }
             }
-            if context.isStructural, isManagedRemovalLine(line, currentTable: currentTable) {
-                continue
-            }
-            outputLines.append(line)
+            if !skippingValue { outputLines.append(line) }
         }
         return MoaTomlEditor.collapseBlankLines(outputLines.joined(separator: "\n"))
     }
@@ -23,38 +25,35 @@ enum MoaCodexConfigEditor {
         var outputLines: [String] = []
         var currentTable = ""
         var skippingProviderTable = false
+        var skippingValue = false
 
         for context in MoaTomlEditor.lineContexts(in: text) {
             let line = context.text
             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
 
-            if context.isStructural, let tableName = MoaTomlEditor.tableName(from: trimmed) {
-                currentTable = tableName
-                skippingProviderTable = isUnselectedMoaManagedProviderTable(
-                    tableName,
-                    selectedProviderID: selectedProviderID
-                )
-                if skippingProviderTable {
-                    continue
+            if context.isStatementStart {
+                skippingValue = false
+                if context.isStructural, let header = MoaTomlEditor.tableHeader(from: trimmed) {
+                    currentTable = header.contextName
+                    skippingProviderTable = isUnselectedMoaManagedProviderTable(
+                        header.name, selectedProviderID: selectedProviderID
+                    )
+                    if skippingProviderTable { continue }
+                } else if !skippingProviderTable {
+                    skippingValue = isOfficialRestoreRemovalLine(
+                        line, currentTable: currentTable, selectedProviderID: selectedProviderID
+                    )
                 }
             }
 
             if skippingProviderTable {
-                if trimmed.isEmpty || trimmed.hasPrefix("#") {
+                if context.isStatementStart, trimmed.isEmpty || trimmed.hasPrefix("#") {
                     outputLines.append(line)
                 }
                 continue
             }
 
-            if context.isStructural, isOfficialRestoreRemovalLine(
-                line,
-                currentTable: currentTable,
-                selectedProviderID: selectedProviderID
-            ) {
-                continue
-            }
-
-            outputLines.append(line)
+            if !skippingValue { outputLines.append(line) }
         }
 
         return MoaTomlEditor.collapseBlankLines(outputLines.joined(separator: "\n"))
@@ -68,7 +67,7 @@ enum MoaCodexConfigEditor {
         extraLines: [String]
     ) -> String {
         ([
-            "[model_providers.\(providerID)]",
+            "[\(MoaTomlEditor.keyPath(["model_providers", providerID]))]",
             "name = \(MoaTomlEditor.quotedString(displayName ?? providerID))",
             "base_url = \(MoaTomlEditor.quotedString(baseURL))",
             "experimental_bearer_token = \(MoaTomlEditor.quotedString(apiKey))",
@@ -81,26 +80,20 @@ enum MoaCodexConfigEditor {
         if currentTable.isEmpty {
             return isOfficialModeRootRemovedLine(line)
         }
-        guard isMoaManagedProviderTable(currentTable) else {
+        guard isMoaManagedProviderTable(currentTable), MoaTomlEditor.keyPathComponents(currentTable)?.count == 2 else {
             return false
         }
         return isMoaProviderRemovedLine(line)
     }
 
     private static func isMoaProviderRemovedLine(_ line: String) -> Bool {
-        let trimmed = MoaTomlEditor.trimInlineComment(from: line)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let equals = trimmed.firstIndex(of: "=") else {
-            return false
-        }
-
-        let key = trimmed[..<equals]
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let entry = MoaTomlEditor.keyValue(from: line) else { return false }
+        let key = MoaTomlEditor.unquotedKey(entry.key)
         return key == "experimental_bearer_token" || key == "base_url"
     }
 
     private static func isMoaManagedProviderTable(_ tableName: String) -> Bool {
-        tableName.hasPrefix("model_providers.moa-")
+        providerID(fromTable: tableName)?.hasPrefix("moa-") == true
     }
 
     private static func isUnselectedMoaManagedProviderTable(_ tableName: String, selectedProviderID: String?) -> Bool {
@@ -112,7 +105,7 @@ enum MoaCodexConfigEditor {
         else {
             return true
         }
-        return providerID.caseInsensitiveCompare(selectedProviderID) != .orderedSame
+        return providerID != selectedProviderID
     }
 
     private static func isOfficialRestoreRemovalLine(
@@ -124,6 +117,7 @@ enum MoaCodexConfigEditor {
             return isOfficialModeRootRemovedLine(line)
         }
         if isMoaManagedProviderTable(currentTable) {
+            guard MoaTomlEditor.keyPathComponents(currentTable)?.count == 2 else { return false }
             return isMoaProviderRemovedLine(line)
         }
         guard isSelectedProviderTable(currentTable, selectedProviderID: selectedProviderID) else {
@@ -133,45 +127,29 @@ enum MoaCodexConfigEditor {
     }
 
     private static func isSelectedProviderTable(_ tableName: String, selectedProviderID: String?) -> Bool {
+        guard MoaTomlEditor.keyPathComponents(tableName)?.count == 2 else { return false }
         guard let providerID = providerID(fromTable: tableName) else {
             return false
         }
         guard let selectedProviderID else {
             return false
         }
-        return providerID.caseInsensitiveCompare(selectedProviderID) == .orderedSame
+        return providerID == selectedProviderID
     }
 
     private static func providerID(fromTable tableName: String) -> String? {
-        let prefix = "model_providers."
-        guard tableName.hasPrefix(prefix) else {
-            return nil
-        }
-        let providerID = String(tableName.dropFirst(prefix.count))
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return providerID.isEmpty ? nil : providerID
+        guard let components = MoaTomlEditor.keyPathComponents(tableName), components.count >= 2,
+              components[0] == "model_providers", !components[1].isEmpty else { return nil }
+        return components[1]
     }
 
     private static func rootTomlStringValue(in text: String, key: String) -> String? {
-        guard let entry = MoaTomlEditor.entries(in: text).first(where: { $0.table.isEmpty && $0.key == key }) else {
-            return nil
-        }
-        let value = entry.value
-        guard (value.hasPrefix("\"") && value.hasSuffix("\"")) || (value.hasPrefix("'") && value.hasSuffix("'")) else {
-            return nil
-        }
-        return MoaTomlEditor.unquoteString(value)
+        MoaTomlEditor.stringValue(in: text, table: "", key: key)
     }
 
     private static func isOfficialModeRootRemovedLine(_ line: String) -> Bool {
-        let trimmed = MoaTomlEditor.trimInlineComment(from: line)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let equals = trimmed.firstIndex(of: "=") else {
-            return false
-        }
-
-        let key = trimmed[..<equals]
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let entry = MoaTomlEditor.keyValue(from: line) else { return false }
+        let key = MoaTomlEditor.unquotedKey(entry.key)
         return [
             "model",
             "experimental_bearer_token",

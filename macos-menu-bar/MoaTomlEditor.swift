@@ -6,6 +6,13 @@ enum MoaTomlEditor {
         let contentRange: Range<String.Index>
         let nextLineStart: String.Index
         let isStructural: Bool
+        let isStatementStart: Bool
+    }
+
+    struct TableHeader {
+        let name: String
+        let isArray: Bool
+        var contextName: String { isArray ? "[[\(name)]]" : name }
     }
 
     private enum MultilineString {
@@ -32,17 +39,20 @@ enum MoaTomlEditor {
         var entries: [Entry] = []
         var currentTable = ""
 
-        for context in lineContexts(in: text) where context.isStructural {
+        let starts = lineContexts(in: text).filter(\.isStatementStart)
+        for (index, context) in starts.enumerated() {
             let line = context.text
             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
 
-            if let tableName = tableName(from: trimmed) {
-                currentTable = tableName
-            } else if trimmed.hasPrefix("[["), trimmed.hasSuffix("]]") {
-                // Array members are never root/desktop scalar settings.
-                currentTable = trimmed
-            } else if let keyValue = keyValue(from: line) {
-                entries.append(Entry(table: currentTable, key: keyValue.key, value: keyValue.value, lineRange: context.contentRange))
+            if context.isStructural, let header = tableHeader(from: trimmed) {
+                currentTable = header.contextName
+            } else {
+                var end = index + 1 < starts.count ? starts[index + 1].contentRange.lowerBound : text.endIndex
+                if end > context.contentRange.lowerBound, isLineBreak(text[text.index(before: end)]) { end = text.index(before: end) }
+                let range = context.contentRange.lowerBound..<end
+                if let keyValue = keyValue(from: String(text[range])) {
+                    entries.append(Entry(table: currentTable, key: keyValue.key, value: keyValue.value, lineRange: range))
+                }
             }
         }
 
@@ -52,41 +62,50 @@ enum MoaTomlEditor {
     static func lineContexts(in text: String) -> [LineContext] {
         var contexts: [LineContext] = []
         var multiline: MultilineString?
+        var arrayDepth = 0
         var lineStart = text.startIndex
 
         while lineStart < text.endIndex {
-            let newline = text[lineStart...].firstIndex(of: "\n")
+            let newline = text[lineStart...].firstIndex(where: isLineBreak)
             let lineEnd = newline ?? text.endIndex
             let nextLineStart = newline.map { text.index(after: $0) } ?? text.endIndex
             let line = String(text[lineStart..<lineEnd])
             let startedInsideMultiline = multiline != nil
-            let sawMultilineDelimiter = updateMultilineState(for: line, state: &multiline)
+            let startedInsideArray = arrayDepth > 0
+            let sawMultilineDelimiter = updateMultilineState(for: line, state: &multiline, arrayDepth: &arrayDepth)
             contexts.append(LineContext(
                 text: line,
                 contentRange: lineStart..<lineEnd,
                 nextLineStart: nextLineStart,
-                isStructural: !startedInsideMultiline && multiline == nil && !sawMultilineDelimiter
+                isStructural: !startedInsideMultiline && !startedInsideArray && arrayDepth == 0 && multiline == nil && !sawMultilineDelimiter,
+                isStatementStart: !startedInsideMultiline && !startedInsideArray
             ))
             lineStart = nextLineStart
         }
 
-        if text.isEmpty || text.hasSuffix("\n") {
+        if text.isEmpty || text.last.map(isLineBreak) == true {
             contexts.append(LineContext(
                 text: "",
                 contentRange: text.endIndex..<text.endIndex,
                 nextLineStart: text.endIndex,
-                isStructural: multiline == nil
+                isStructural: multiline == nil && arrayDepth == 0,
+                isStatementStart: multiline == nil && arrayDepth == 0
             ))
         }
         return contexts
     }
 
-    private static func updateMultilineState(for line: String, state: inout MultilineString?) -> Bool {
+    private static func isLineBreak(_ character: Character) -> Bool {
+        character == "\n" || character == "\r\n"
+    }
+
+    private static func updateMultilineState(for line: String, state: inout MultilineString?, arrayDepth: inout Int) -> Bool {
         let characters = Array(line)
         var index = 0
         var quote: Character?
         var escaped = false
         var sawDelimiter = false
+        var inValue = arrayDepth > 0
 
         func hasDelimiter(_ delimiter: [Character], at offset: Int) -> Bool {
             offset + delimiter.count <= characters.count
@@ -139,6 +158,11 @@ enum MoaTomlEditor {
                 escaped = false
                 index += 1
             } else {
+                if characters[index] == "=" { inValue = true }
+                if inValue {
+                    if characters[index] == "[" { arrayDepth += 1 }
+                    if characters[index] == "]" { arrayDepth = max(0, arrayDepth - 1) }
+                }
                 index += 1
             }
         }
@@ -162,36 +186,42 @@ enum MoaTomlEditor {
     }
 
     static func tableName(from line: String) -> String? {
-        let trimmed = trimInlineComment(from: line).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.hasPrefix("["),
-              trimmed.hasSuffix("]"),
-              !trimmed.hasPrefix("[["),
-              !trimmed.hasSuffix("]]")
-        else {
-            return nil
-        }
+        guard let header = tableHeader(from: line), !header.isArray else { return nil }
+        return header.name
+    }
 
-        let start = trimmed.index(after: trimmed.startIndex)
-        let end = trimmed.index(before: trimmed.endIndex)
-        let name = trimmed[start..<end].trimmingCharacters(in: .whitespacesAndNewlines)
-        return name.isEmpty ? nil : name
+    static func tableHeader(from line: String) -> TableHeader? {
+        let trimmed = trimInlineComment(from: line).trimmingCharacters(in: .whitespacesAndNewlines)
+        let isArray = trimmed.hasPrefix("[[")
+        let width = isArray ? 2 : 1
+        guard trimmed.hasPrefix("["), trimmed.hasSuffix(isArray ? "]]" : "]"),
+              trimmed.count > width * 2 else { return nil }
+        let name = trimmed.dropFirst(width).dropLast(width).trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? nil : TableHeader(name: name, isArray: isArray)
     }
 
     static func keyValue(from line: String) -> (key: String, value: String)? {
-        let scanner = Scanner(string: line)
-        scanner.charactersToBeSkipped = nil
-
-        _ = scanner.scanCharacters(from: .whitespacesAndNewlines)
-        guard let rawKey = scanner.scanUpToString("=") else {
-            return nil
+        var quote: Character?
+        var escaped = false
+        var separator: String.Index?
+        for index in line.indices {
+            let character = line[index]
+            if let current = quote {
+                if character == current && !escaped { quote = nil }
+                escaped = current == "\"" && character == "\\" && !escaped
+            } else if character == "#" || isLineBreak(character) {
+                return nil
+            } else if character == "\"" || character == "'" {
+                quote = character
+            } else if character == "=" {
+                separator = index
+                break
+            }
         }
-
-        let key = rawKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !key.isEmpty, scanner.scanString("=") != nil else {
-            return nil
-        }
-
-        let remainder = String(line[scanner.currentIndex...])
+        guard let separator else { return nil }
+        let key = line[..<separator].trimmingCharacters(in: .whitespacesAndNewlines)
+        guard keyPathComponents(key)?.isEmpty == false else { return nil }
+        let remainder = String(line[line.index(after: separator)...])
         let value = trimInlineComment(from: remainder).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty else {
             return nil
@@ -201,45 +231,48 @@ enum MoaTomlEditor {
     }
 
     static func trimInlineComment(from value: String) -> String {
+        let characters = Array(value)
+        var result = ""
         var quote: Character?
-        var previousWasEscape = false
-
-        for index in value.indices {
-            let character = value[index]
-
-            if let currentQuote = quote {
-                if currentQuote == "'" {
-                    if character == "'" {
+        var multiline = false
+        var escaped = false
+        var index = 0
+        while index < characters.count {
+            let character = characters[index]
+            if let current = quote {
+                if multiline, character == current, (current == "'" || !isEscaped(characters, at: index)) {
+                    var end = index
+                    while end < characters.count, characters[end] == current { end += 1 }
+                    if end - index >= 3 {
+                        let count = min(5, end - index)
+                        result += String(characters[index..<(index + count)])
+                        index += count
                         quote = nil
+                        multiline = false
+                        continue
                     }
-                    continue
-                }
-
-                if character == currentQuote && !previousWasEscape {
+                } else if !multiline, character == current, !escaped {
                     quote = nil
-                    previousWasEscape = false
-                    continue
                 }
-                if character == "\\" && !previousWasEscape {
-                    previousWasEscape = true
-                } else {
-                    previousWasEscape = false
-                }
+                result.append(character)
+                escaped = !multiline && current == "\"" && character == "\\" && !escaped
+            } else if character == "#" {
+                while index < characters.count, !isLineBreak(characters[index]) { index += 1 }
                 continue
-            }
-
-            if character == "\"" || character == "'" {
+            } else if character == "\"" || character == "'" {
                 quote = character
-                previousWasEscape = false
+                escaped = false
+                multiline = index + 2 < characters.count && characters[index + 1] == character && characters[index + 2] == character
+                let count = multiline ? 3 : 1
+                result += String(characters[index..<(index + count)])
+                index += count
                 continue
+            } else {
+                result.append(character)
             }
-
-            if character == "#" {
-                return String(value[..<index])
-            }
+            index += 1
         }
-
-        return value
+        return result
     }
 
     static func collapseBlankLines(_ text: String) -> String {
@@ -288,16 +321,7 @@ enum MoaTomlEditor {
         guard let entry = entries(in: text).first(where: { matches($0, table: table, key: key) }) else {
             return nil
         }
-        let value = entry.value
-        if value.hasPrefix("\""), value.hasSuffix("\""),
-           let data = value.data(using: .utf8),
-           let decoded = try? JSONSerialization.jsonObject(with: data, options: .fragmentsAllowed) as? String {
-            return decoded
-        }
-        if value.hasPrefix("'"), value.hasSuffix("'"), value.count >= 2 {
-            return String(value.dropFirst().dropLast())
-        }
-        return nil
+        return decodedString(entry.value)
     }
 
     static func upsertingString(_ value: String, in text: String, table: String, key: String) -> String {
@@ -310,12 +334,12 @@ enum MoaTomlEditor {
         let contexts = lineContexts(in: text)
         let headers = contexts.filter {
             let line = $0.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            return $0.isStructural && (tableName(from: line) != nil || line.hasPrefix("[["))
+            return $0.isStructural && tableHeader(from: line) != nil
         }
         var insertion: String.Index?
         if table.isEmpty {
             insertion = headers.first?.contentRange.lowerBound ?? text.endIndex
-        } else if let index = headers.firstIndex(where: { unquotedKey(tableName(from: $0.text) ?? "") == table }) {
+        } else if let index = headers.firstIndex(where: { keyPathComponents(tableName(from: $0.text) ?? "") == keyPathComponents(table) }) {
             insertion = headers.dropFirst(index + 1).first?.contentRange.lowerBound ?? text.endIndex
         }
         if let insertion {
@@ -329,16 +353,107 @@ enum MoaTomlEditor {
     }
 
     private static func matches(_ entry: Entry, table: String, key: String) -> Bool {
-        (unquotedKey(entry.table) == table && unquotedKey(entry.key) == key)
-            || (!table.isEmpty && entry.table.isEmpty && entry.key == "\(table).\(key)")
+        guard let tablePath = keyPathComponents(entry.table), let keyPath = keyPathComponents(entry.key),
+              let target = keyPathComponents(table) else { return false }
+        return tablePath + keyPath == target + [key]
     }
 
-    private static func unquotedKey(_ value: String) -> String {
-        if value.count >= 2,
-           (value.hasPrefix("\"") && value.hasSuffix("\"")) || (value.hasPrefix("'") && value.hasSuffix("'")) {
-            return String(value.dropFirst().dropLast())
+    static func unquotedKey(_ value: String) -> String {
+        decodedString(value) ?? value
+    }
+
+    static func keyPathComponents(_ raw: String) -> [String]? {
+        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if text.isEmpty { return [] }
+        var parts: [String] = []
+        var start = text.startIndex
+        var quote: Character?
+        var escaped = false
+        for index in text.indices {
+            let character = text[index]
+            if let current = quote {
+                if character == current && !escaped { quote = nil }
+                escaped = current == "\"" && character == "\\" && !escaped
+            } else if character == "\"" || character == "'" {
+                quote = character
+            } else if character == "." {
+                parts.append(String(text[start..<index]))
+                start = text.index(after: index)
+            }
         }
-        return value
+        guard quote == nil else { return nil }
+        parts.append(String(text[start...]))
+        var decoded: [String] = []
+        for part in parts {
+            let key = part.trimmingCharacters(in: .whitespacesAndNewlines)
+            if key.hasPrefix("\"") || key.hasPrefix("'") {
+                guard !key.contains("\n"), !key.hasPrefix("\"\"\""), !key.hasPrefix("'''"), let value = decodedString(key) else { return nil }
+                decoded.append(value)
+            } else {
+                guard isBareKey(key) else { return nil }
+                decoded.append(key)
+            }
+        }
+        return decoded
+    }
+
+    static func keyPath(_ components: [String]) -> String {
+        components.map { isBareKey($0) ? $0 : quotedString($0) }.joined(separator: ".")
+    }
+
+    private static func isBareKey(_ value: String) -> Bool {
+        !value.isEmpty && value.unicodeScalars.allSatisfy {
+            (48...57).contains($0.value) || (65...90).contains($0.value) || (97...122).contains($0.value) || $0 == "_" || $0 == "-"
+        }
+    }
+
+    private static func decodedString(_ raw: String) -> String? {
+        guard let quote = raw.first, quote == "\"" || quote == "'" else { return nil }
+        let delimiter = String(repeating: String(quote), count: 3)
+        let multiline = raw.hasPrefix(delimiter)
+        let width = multiline ? 3 : 1
+        guard raw.count >= width * 2, raw.hasSuffix(multiline ? delimiter : String(quote)) else { return nil }
+        var content = String(raw.dropFirst(width).dropLast(width))
+        if multiline {
+            content = content.replacingOccurrences(of: "\r\n", with: "\n")
+            if content.hasPrefix("\n") { content.removeFirst() }
+        }
+        if quote == "'" { return content }
+        let characters = Array(content)
+        var decoded = ""
+        var index = 0
+        while index < characters.count {
+            let character = characters[index]
+            if character != "\\" { decoded.append(character); index += 1; continue }
+            index += 1
+            guard index < characters.count else { return nil }
+            let escaped = characters[index]
+            if multiline, escaped.isWhitespace {
+                let start = index
+                while index < characters.count, characters[index].isWhitespace { index += 1 }
+                guard characters[start..<index].contains("\n") else { return nil }
+                continue
+            }
+            switch escaped {
+            case "b": decoded.append("\u{08}")
+            case "t": decoded.append("\t")
+            case "n": decoded.append("\n")
+            case "f": decoded.append("\u{0C}")
+            case "r": decoded.append("\r")
+            case "\"": decoded.append("\"")
+            case "\\": decoded.append("\\")
+            case "u", "U":
+                let width = escaped == "u" ? 4 : 8
+                guard index + width < characters.count,
+                      let value = UInt32(String(characters[(index + 1)...(index + width)]), radix: 16),
+                      let scalar = UnicodeScalar(value) else { return nil }
+                decoded.unicodeScalars.append(scalar)
+                index += width
+            default: return nil
+            }
+            index += 1
+        }
+        return decoded
     }
 
     static func quotedString(_ value: String) -> String {

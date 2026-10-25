@@ -34,15 +34,6 @@ final class MoaWorkBuddyCoordinator: NSObject {
         menu.autoenablesItems = false
         menu.addItem(summaryItem)
         menu.addItem(refreshItem)
-        let note = NSMenuItem()
-        let container = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 46))
-        let label = NSTextField(wrappingLabelWithString: edition.localized("All local accounts · API estimates, not credits. Unpriced models are excluded from cost."))
-        label.font = .systemFont(ofSize: 11)
-        label.textColor = .secondaryLabelColor
-        label.frame = NSRect(x: 16, y: 3, width: 288, height: 40)
-        container.addSubview(label)
-        note.view = container
-        menu.addItem(note)
         menu.addItem(menuItem("Usage Details", #selector(showWorkBuddyUsageAction)))
         let alertItem = menuItem("Daily Usage Alert", #selector(showWorkBuddyUsageAlertAction))
         alertItem.title = DailyUsageAlertController.menuTitle(for: edition.alertKind)

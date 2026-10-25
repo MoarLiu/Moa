@@ -238,8 +238,7 @@ final class MoaUpdateController {
         else {
             throw MoaUpdateError.invalidChecksum
         }
-        let data = try Data(contentsOf: dmgURL)
-        let actual = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        let actual = try MoaFileHash.sha256(dmgURL)
         guard actual == expected else {
             throw MoaUpdateError.checksumMismatch
         }

@@ -1,9 +1,33 @@
 import Foundation
 
 extension ConfigProfileController {
+    struct OfficialAuthIdentity {
+        var accountID: String?
+        var subject: String?
+
+        func conflicts(with other: Self) -> Bool {
+            if let accountID, let otherID = other.accountID, accountID != otherID { return true }
+            if let subject, let otherSubject = other.subject, subject != otherSubject { return true }
+            return false
+        }
+
+        func matches(_ other: Self) -> Bool {
+            guard !conflicts(with: other) else { return false }
+            if let subject, let otherSubject = other.subject { return subject == otherSubject }
+            // Retain legacy snapshots without JWT claims, but do not treat a
+            // missing subject as proof that two workspace users are identical.
+            if subject == nil, other.subject == nil, let accountID, let otherID = other.accountID {
+                return accountID == otherID
+            }
+            return false
+        }
+    }
+
     func officialAccounts() throws -> [CodexOfficialAccount] {
-        _ = try syncMoaAuthSessionFromCodex(updateSelectedOfficialAccount: true)
-        return try loadOfficialAccountDatabaseHydratingEmails().accounts
+        try stateLock.withLock {
+            _ = try syncMoaAuthSessionFromCodex(updateSelectedOfficialAccount: true)
+            return try loadOfficialAccountDatabaseHydratingEmails().accounts
+        }
     }
 
     func selectedOfficialAccountID() throws -> String? {
@@ -339,9 +363,15 @@ extension ConfigProfileController {
         let refreshToken = officialAuthRefreshToken(from: auth)
         let comparableAuth = officialAuthComparableData(from: auth)
         let currentEmail = officialAuthEmail(from: auth)
+        let currentIdentity = officialAuthIdentity(from: auth)
 
         for account in database.accounts {
             let savedAuth = readAuthJSON(from: try officialAuthURL(for: account))
+            let savedIdentity = officialAuthIdentity(from: savedAuth)
+            if currentIdentity.conflicts(with: savedIdentity) { continue }
+            if currentIdentity.matches(savedIdentity) {
+                return account.withEmailIfAvailable(currentEmail)
+            }
             if let refreshToken, officialAuthRefreshToken(from: savedAuth) == refreshToken {
                 return account.withEmailIfAvailable(officialAuthEmail(from: savedAuth) ?? currentEmail)
             }
@@ -358,6 +388,7 @@ extension ConfigProfileController {
         if let currentEmail {
             for account in database.accounts {
                 let savedAuth = readAuthJSON(from: try officialAuthURL(for: account))
+                if currentIdentity.conflicts(with: officialAuthIdentity(from: savedAuth)) { continue }
                 let savedEmail = officialAuthEmail(from: savedAuth) ?? account.email
                 if savedEmail?.caseInsensitiveCompare(currentEmail) == .orderedSame {
                     return account.withEmailIfAvailable(currentEmail)
@@ -366,6 +397,25 @@ extension ConfigProfileController {
         }
 
         return nil
+    }
+
+    func officialAuthIdentity(from auth: [String: Any]) -> OfficialAuthIdentity {
+        let tokens = auth["tokens"] as? [String: Any] ?? [:]
+        let token = authStringValue(tokens["id_token"]) ?? authStringValue(tokens["idToken"]) ?? ""
+        let parts = token.split(separator: ".", omittingEmptySubsequences: false)
+        var claims: [String: Any] = [:]
+        if parts.count >= 2, let data = base64URLDecodedData(String(parts[1])) {
+            claims = (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
+        }
+        let openAI = claims["https://api.openai.com/auth"] as? [String: Any]
+        func identifier(_ value: Any?) -> String? {
+            let trimmed = authStringValue(value)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        return OfficialAuthIdentity(
+            accountID: identifier(tokens["account_id"]) ?? identifier(openAI?["chatgpt_account_id"]),
+            subject: identifier(claims["sub"])
+        )
     }
 
     func officialAuthRefreshToken(from auth: [String: Any]) -> String? {
@@ -383,6 +433,8 @@ extension ConfigProfileController {
     }
 
     func loadOfficialAccountDatabaseHydratingEmails() throws -> CodexOfficialAccountDatabase {
+        try stateLock.lock()
+        defer { stateLock.unlock() }
         var database = try loadOfficialAccountDatabase()
         var changed = false
 

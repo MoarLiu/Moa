@@ -3,7 +3,7 @@ import Foundation
 final class ProviderBridgeProfileController {
     private let fileManager = FileManager.default
     private let environment: [String: String]
-    private let stateLock = NSRecursiveLock()
+    private let stateLock: MoaDataStoreLock
 
     private var moaHome: URL {
         MoaDataRoot.currentURL(environment: environment)
@@ -15,6 +15,7 @@ final class ProviderBridgeProfileController {
 
     init(environment: [String: String] = ProcessInfo.processInfo.environment) {
         self.environment = environment
+        stateLock = MoaDataStoreLock(environment: environment)
         try? ensureStore()
     }
 
@@ -211,6 +212,7 @@ final class ProviderBridgeProfileController {
     private var cachedDatabase: ProfileDatabase?
     private var cachedDatabaseModified: Date?
     private var cachedDatabaseURLPath: String?
+    private var cachedDatabaseRevision: UInt64?
 
     private func loadDatabase() throws -> ProfileDatabase {
         try stateLock.withLock {
@@ -218,7 +220,8 @@ final class ProviderBridgeProfileController {
             let modified = (try? fileManager.attributesOfItem(atPath: databaseURL.path))?[.modificationDate] as? Date
             if let cachedDatabase, let cachedDatabaseModified, let modified,
                cachedDatabaseModified == modified,
-               cachedDatabaseURLPath == databaseURL.standardizedFileURL.path {
+               cachedDatabaseURLPath == databaseURL.standardizedFileURL.path,
+               cachedDatabaseRevision == stateLock.revision {
                 return cachedDatabase
             }
             let data = try Data(contentsOf: databaseURL)
@@ -226,6 +229,7 @@ final class ProviderBridgeProfileController {
             cachedDatabase = database
             cachedDatabaseModified = modified
             cachedDatabaseURLPath = databaseURL.standardizedFileURL.path
+            cachedDatabaseRevision = stateLock.revision
             return database
         }
     }
@@ -241,6 +245,7 @@ final class ProviderBridgeProfileController {
             cachedDatabase = database
             cachedDatabaseModified = (try? fileManager.attributesOfItem(atPath: databaseURL.path))?[.modificationDate] as? Date
             cachedDatabaseURLPath = databaseURL.standardizedFileURL.path
+            cachedDatabaseRevision = stateLock.revision
         }
     }
 

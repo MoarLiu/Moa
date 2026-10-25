@@ -48,6 +48,57 @@ private struct MoaProviderBridgeForwardResult {
     var errorCode: String?
 }
 
+private final class MoaProviderBridgeConnection: @unchecked Sendable {
+    let id = UUID()
+    let generation: UUID
+    let configuration: MoaProviderBridgeServerConfiguration
+    let fd: Int32
+    private let lock = NSLock()
+    private var cancelled = false
+    private var finished = false
+    private var task: Task<Void, Never>?
+
+    init(fd: Int32, generation: UUID, configuration: MoaProviderBridgeServerConfiguration) {
+        self.fd = fd
+        self.generation = generation
+        self.configuration = configuration
+    }
+
+    var isCancelled: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return cancelled
+    }
+
+    func install(_ task: Task<Void, Never>) {
+        lock.lock()
+        let shouldCancel = cancelled || finished
+        if !shouldCancel { self.task = task }
+        lock.unlock()
+        if shouldCancel { task.cancel() }
+    }
+
+    func cancel() {
+        lock.lock()
+        cancelled = true
+        let task = task
+        // Wake readers/writers without closing a descriptor still owned by a
+        // worker. Only finish() closes it, so descriptor reuse cannot race I/O.
+        if !finished { _ = Darwin.shutdown(fd, SHUT_RDWR) }
+        lock.unlock()
+        task?.cancel()
+    }
+
+    func finish() {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !finished else { return }
+        finished = true
+        task = nil
+        close(fd)
+    }
+}
+
 enum MoaProviderBridgeServerError: LocalizedError {
     case bindFailed(Int32)
     case invalidRequest
@@ -78,11 +129,21 @@ final class MoaProviderBridgeServer: @unchecked Sendable {
     private var socketFD: Int32 = -1
     private var acceptSource: DispatchSourceRead?
     private var configuration: MoaProviderBridgeServerConfiguration?
+    private var generation = UUID()
+    private var connections: [UUID: MoaProviderBridgeConnection] = [:]
+    private let connectionLimit: Int
     private(set) var activePort: Int?
 
-    init(urlSession: URLSession = .shared, diagnostics: MoaProviderBridgeDiagnostics = .shared) {
+    init(urlSession: URLSession = .shared, diagnostics: MoaProviderBridgeDiagnostics = .shared, connectionLimit: Int = 32) {
         self.urlSession = urlSession
         self.diagnostics = diagnostics
+        self.connectionLimit = max(1, connectionLimit)
+    }
+
+    var activeConnectionCount: Int {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return connections.count
     }
 
     deinit {
@@ -119,8 +180,9 @@ final class MoaProviderBridgeServer: @unchecked Sendable {
                 mutableConfiguration.bridgeToken = bridgeToken
 
                 let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: acceptQueue)
+                let sourceGeneration = generation
                 source.setEventHandler { [weak self] in
-                    self?.acceptAvailableConnections()
+                    self?.acceptAvailableConnections(listenFD: fd, generation: sourceGeneration)
                 }
                 source.setCancelHandler {
                     close(fd)
@@ -158,14 +220,17 @@ final class MoaProviderBridgeServer: @unchecked Sendable {
         stateLock.lock()
         let source = acceptSource
         acceptSource = nil
+        generation = UUID()
         configuration = nil
         activePort = nil
         if source == nil, socketFD >= 0 {
             close(socketFD)
         }
         socketFD = -1
+        let activeConnections = Array(connections.values)
         stateLock.unlock()
         source?.cancel()
+        for connection in activeConnections { connection.cancel() }
         diagnostics.bridgeStopped()
     }
 
@@ -238,30 +303,48 @@ final class MoaProviderBridgeServer: @unchecked Sendable {
         }
     }
 
-    private func acceptAvailableConnections() {
+    private func acceptAvailableConnections(listenFD: Int32, generation: UUID) {
         while true {
             stateLock.lock()
-            let listenFD = socketFD
-            stateLock.unlock()
-            guard listenFD >= 0 else { return }
+            guard self.generation == generation, socketFD == listenFD,
+                  let configuration else {
+                stateLock.unlock()
+                return
+            }
 
             let clientFD = Darwin.accept(listenFD, nil, nil)
             if clientFD < 0 {
-                if errno == EWOULDBLOCK || errno == EAGAIN {
-                    return
-                }
+                let acceptError = errno
+                stateLock.unlock()
+                if acceptError == EINTR { continue }
                 return
+            }
+            guard connections.count < connectionLimit else {
+                close(clientFD)
+                stateLock.unlock()
+                continue
             }
             configureClientSocket(clientFD)
             let flags = fcntl(clientFD, F_GETFL, 0)
             if flags >= 0 {
                 _ = fcntl(clientFD, F_SETFL, flags & ~O_NONBLOCK)
             }
+            let connection = MoaProviderBridgeConnection(fd: clientFD, generation: generation, configuration: configuration)
+            connections[connection.id] = connection
+            stateLock.unlock()
 
             workerQueue.async { [weak self] in
-                self?.handleConnection(clientFD)
+                guard let self else { connection.finish(); return }
+                self.handleConnection(connection)
             }
         }
+    }
+
+    private func finishConnection(_ connection: MoaProviderBridgeConnection) {
+        connection.finish()
+        stateLock.lock()
+        connections.removeValue(forKey: connection.id)
+        stateLock.unlock()
     }
 
     private func configureClientSocket(_ fd: Int32) {
@@ -272,7 +355,8 @@ final class MoaProviderBridgeServer: @unchecked Sendable {
         setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
     }
 
-    private func handleConnection(_ clientFD: Int32) {
+    private func handleConnection(_ connection: MoaProviderBridgeConnection) {
+        let clientFD = connection.fd
         var shouldClose = true
         let requestStartedAt = Date()
         var observedRequest: MoaProviderBridgeHTTPRequest?
@@ -280,22 +364,24 @@ final class MoaProviderBridgeServer: @unchecked Sendable {
         var requestDiagnosticRecorded = false
         defer {
             if shouldClose {
-                close(clientFD)
+                finishConnection(connection)
             }
         }
         do {
+            guard !connection.isCancelled else { return }
             guard let request = try MoaProviderBridgeHTTPRequest.read(from: clientFD) else {
                 try MoaProviderBridgeHTTPResponse(statusCode: 400, json: errorJSON("invalid_request", "Invalid HTTP request.")).write(to: clientFD)
                 return
             }
             observedRequest = request
 
-            let config = try currentConfiguration()
+            let config = connection.configuration
             observedConfig = config
             guard isAuthorized(request, token: config.bridgeToken) else {
                 recordRequestSummary(
                     request,
                     config: config,
+                    connection: connection,
                     startedAt: requestStartedAt,
                     statusCode: 401,
                     errorCode: "unauthorized"
@@ -306,7 +392,7 @@ final class MoaProviderBridgeServer: @unchecked Sendable {
             }
 
             if request.method == "GET", request.normalizedPath == "/v1/models" || request.normalizedPath == "/models" {
-                recordRequestSummary(request, config: config, startedAt: requestStartedAt, statusCode: 200)
+                recordRequestSummary(request, config: config, connection: connection, startedAt: requestStartedAt, statusCode: 200)
                 requestDiagnosticRecorded = true
                 try MoaProviderBridgeHTTPResponse(statusCode: 200, json: modelsJSON(config)).write(to: clientFD)
                 return
@@ -318,6 +404,7 @@ final class MoaProviderBridgeServer: @unchecked Sendable {
                 recordRequestSummary(
                     request,
                     config: config,
+                    connection: connection,
                     startedAt: requestStartedAt,
                     statusCode: 404,
                     errorCode: "not_found"
@@ -337,30 +424,35 @@ final class MoaProviderBridgeServer: @unchecked Sendable {
 
             if (chatRequest["stream"] as? Bool) == true {
                 shouldClose = false
-                Task { [weak self] in
-                    defer { close(clientFD) }
-                    guard let self else { return }
+                let task = Task { [self] in
+                    defer { finishConnection(connection) }
+                    guard !connection.isCancelled else { return }
                     await self.handleStreamingResponsesRequest(
                         chatRequest,
                         request: request,
                         config: config,
+                        connection: connection,
                         toolContext: toolContext,
                         clientFD: clientFD,
                         startedAt: requestStartedAt
                     )
                 }
+                connection.install(task)
                 requestDiagnosticRecorded = true
             } else {
                 shouldClose = false
-                Task { [weak self] in
-                    defer { close(clientFD) }
-                    guard let self else { return }
+                let task = Task { [self] in
+                    defer { finishConnection(connection) }
+                    guard !connection.isCancelled else { return }
                     var recorded = false
                     do {
+                        try Task.checkCancellation()
                         let result = try await self.forwardNonStreaming(chatRequest, config: config, toolContext: toolContext)
+                        try Task.checkCancellation()
                         self.recordRequestSummary(
                             request,
                             config: config,
+                            connection: connection,
                             startedAt: requestStartedAt,
                             statusCode: result.response.statusCode,
                             upstreamStatus: result.upstreamStatus,
@@ -369,10 +461,12 @@ final class MoaProviderBridgeServer: @unchecked Sendable {
                         recorded = true
                         try result.response.write(to: clientFD)
                     } catch {
+                        guard !connection.isCancelled else { return }
                         if !recorded {
                             self.recordRequestSummary(
                                 request,
                                 config: config,
+                                connection: connection,
                                 startedAt: requestStartedAt,
                                 statusCode: 500,
                                 errorCode: "bridge_error"
@@ -385,33 +479,32 @@ final class MoaProviderBridgeServer: @unchecked Sendable {
                         try? response.write(to: clientFD)
                     }
                 }
+                connection.install(task)
                 requestDiagnosticRecorded = true
             }
         } catch {
+            guard !connection.isCancelled else { return }
+            let invalidRequest = (error as? MoaProviderBridgeServerError).map {
+                if case .invalidRequest = $0 { return true }
+                return false
+            } ?? false
+            let status = invalidRequest ? 400 : 500
             if !requestDiagnosticRecorded, let request = observedRequest, let config = observedConfig {
                 recordRequestSummary(
                     request,
                     config: config,
+                    connection: connection,
                     startedAt: requestStartedAt,
-                    statusCode: 500,
-                    errorCode: "bridge_error"
+                    statusCode: status,
+                    errorCode: invalidRequest ? "invalid_request" : "bridge_error"
                 )
             }
             let response = MoaProviderBridgeHTTPResponse(
-                statusCode: 500,
-                json: errorJSON("bridge_error", error.localizedDescription)
+                statusCode: status,
+                json: errorJSON(invalidRequest ? "invalid_request" : "bridge_error", error.localizedDescription)
             )
             try? response.write(to: clientFD)
         }
-    }
-
-    private func currentConfiguration() throws -> MoaProviderBridgeServerConfiguration {
-        stateLock.lock()
-        defer { stateLock.unlock() }
-        guard let configuration else {
-            throw MoaProviderBridgeServerError.invalidRequest
-        }
-        return configuration
     }
 
     private func isAuthorized(_ request: MoaProviderBridgeHTTPRequest, token: String) -> Bool {
@@ -425,12 +518,16 @@ final class MoaProviderBridgeServer: @unchecked Sendable {
     private func recordRequestSummary(
         _ request: MoaProviderBridgeHTTPRequest,
         config: MoaProviderBridgeServerConfiguration,
+        connection: MoaProviderBridgeConnection,
         startedAt: Date,
         statusCode: Int,
         upstreamStatus: Int? = nil,
         errorCode: String? = nil,
         stream: Bool = false
     ) {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        guard generation == connection.generation else { return }
         diagnostics.recordRequest(
             method: request.method,
             path: request.normalizedPath,
@@ -488,6 +585,7 @@ final class MoaProviderBridgeServer: @unchecked Sendable {
         _ chatRequest: [String: Any],
         request localRequest: MoaProviderBridgeHTTPRequest,
         config: MoaProviderBridgeServerConfiguration,
+        connection: MoaProviderBridgeConnection,
         toolContext: MoaProviderBridgeToolContext,
         clientFD: Int32,
         startedAt: Date
@@ -495,10 +593,12 @@ final class MoaProviderBridgeServer: @unchecked Sendable {
         var statusCode = 500
         var upstreamStatus: Int?
         var errorCode: String? = "bridge_error"
+        var headersSent = false
         defer {
             recordRequestSummary(
                 localRequest,
                 config: config,
+                connection: connection,
                 startedAt: startedAt,
                 statusCode: statusCode,
                 upstreamStatus: upstreamStatus,
@@ -507,6 +607,7 @@ final class MoaProviderBridgeServer: @unchecked Sendable {
             )
         }
         do {
+            try Task.checkCancellation()
             var request = try upstreamChatRequest(chatRequest, config: config)
             request.httpBody = try MoaProviderBridgeJSON.data(from: chatRequest)
             let (bytes, response) = try await urlSession.bytes(for: request)
@@ -536,12 +637,14 @@ final class MoaProviderBridgeServer: @unchecked Sendable {
             }
 
             try MoaProviderBridgeHTTPResponse.streamingHeaders().writeHeaders(to: clientFD)
+            headersSent = true
             statusCode = 200
             errorCode = nil
             let converter = MoaChatSSEToResponsesSSEConverter(model: config.model, toolContext: toolContext)
             var pendingFrameLines: [String] = []
             var sawDone = false
             for try await line in bytes.lines {
+                try Task.checkCancellation()
                 if line.isEmpty {
                     if !pendingFrameLines.isEmpty {
                         sawDone = try await writeSSEFrame(pendingFrameLines, converter: converter, clientFD: clientFD) || sawDone
@@ -565,8 +668,16 @@ final class MoaProviderBridgeServer: @unchecked Sendable {
                 try MoaProviderBridgeHTTPResponse.writeRaw("data: [DONE]\n\n", to: clientFD)
             }
         } catch {
-            statusCode = 500
+            guard !connection.isCancelled else { return }
+            statusCode = headersSent ? 500 : 502
             errorCode = "bridge_error"
+            if !headersSent {
+                try? MoaProviderBridgeHTTPResponse(
+                    statusCode: 502,
+                    json: MoaChatToResponsesConverter.errorEnvelope(statusCode: 502, message: error.localizedDescription, code: "bridge_error")
+                ).write(to: clientFD)
+                return
+            }
             let payload = MoaProviderBridgeHTTPResponse.sseEvent([
                 "type": "response.failed",
                 "response": MoaChatToResponsesConverter.errorEnvelope(statusCode: 500, message: error.localizedDescription)
@@ -583,7 +694,7 @@ final class MoaProviderBridgeServer: @unchecked Sendable {
     ) async throws -> Bool {
         guard let payload = ssePayload(from: lines), !payload.isEmpty else { return false }
         if payload == "[DONE]" {
-            for frame in try converter.finish() {
+            for frame in try converter.finish(receivedDone: true) {
                 try MoaProviderBridgeHTTPResponse.writeRaw(frame, to: clientFD)
             }
             try MoaProviderBridgeHTTPResponse.writeRaw("data: [DONE]\n\n", to: clientFD)
@@ -723,7 +834,14 @@ private struct MoaProviderBridgeHTTPRequest {
             guard let colon = line.firstIndex(of: ":") else { continue }
             let name = line[..<colon].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             let value = line[line.index(after: colon)...].trimmingCharacters(in: .whitespacesAndNewlines)
+            if name == "content-length", headers[name] != nil {
+                throw MoaProviderBridgeServerError.invalidRequest
+            }
             headers[name] = value
+        }
+
+        guard headers["transfer-encoding"] == nil else {
+            throw MoaProviderBridgeServerError.invalidRequest
         }
 
         let contentLengthText = headers["content-length"] ?? "0"

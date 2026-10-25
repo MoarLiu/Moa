@@ -329,7 +329,6 @@
 "Delete Saved WorkBuddy AI Account?" = "删除已保存的 WorkBuddy AI 账号？";
 "Only Moa's saved copy is deleted. WorkBuddy AI stays signed in and its local sessions are kept." = "仅删除 Moa 保存的副本。WorkBuddy AI 的当前登录态和本机会话会保留。";
 "WorkBuddy AI: all local accounts. API price estimates are not credits or subscription bills. Unpriced models contribute tokens only; set a custom price to include their cost." = "WorkBuddy AI：统计本机全部账号的日志。API 价格估算不代表积分或订阅账单。未定价模型仅计入 Token，设置自定义价格后才计入费用。";
-"All local accounts · API estimates, not credits. Unpriced models are excluded from cost." = "本机全部账号 · API 价格估算，非积分账单。未定价模型不计入费用。";
 "Unpriced" = "未定价";
 "Tokens only; cost excluded" = "仅统计 Token，未计入费用";
 "Choose a source to view its daily usage alert threshold." = "请选择一个来源，查看对应的每日用量提醒阈值。";
@@ -344,3 +343,4 @@
 "WorkBuddy and WorkBuddy AI are separate sources. Reports use USD API reference prices, not credits. Unpriced models contribute tokens only." = "WorkBuddy 与 WorkBuddy AI 分别统计。费用采用美元 API 参考原价，不按积分计算；未定价模型仅计入 Token。";
 "Moa - Codex, Claude, ZCode, WorkBuddy, WorkBuddy AI, Provider Bridge" = "Moa - Codex、Claude、ZCode、WorkBuddy、WorkBuddy AI、Provider Bridge";
 "WorkBuddy" = "WorkBuddy";
+"Moa is processing data. Try again when it finishes." = "Moa 正在处理数据，请在完成后重试。";
