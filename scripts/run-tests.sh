@@ -108,6 +108,8 @@ MACOSX_DEPLOYMENT_TARGET="$MACOS_DEPLOYMENT_TARGET" "$SWIFTC_BIN" \
   "$ROOT/Tests/MoaCoreTests.swift" \
   "$ROOT/Tests/MoaReviewRegressionTests.swift" \
   "$ROOT/Tests/MoaOptimizationTests.swift" \
+  "$ROOT/Tests/DeepSeekTests.swift" \
+  "$ROOT/Tests/PricingHotUpdateTests.swift" \
   -o "$EXECUTABLE"
 
 "$EXECUTABLE"

@@ -28,6 +28,8 @@ final class MoaMainMenuCoordinator {
         app.menu.addItem(app.workbuddyCNItem)
         app.workbuddyItem.submenu = app.workbuddyMenu
         app.menu.addItem(app.workbuddyItem)
+        app.deepseekCoordinator.item.submenu = app.deepseekCoordinator.menu
+        app.menu.addItem(app.deepseekCoordinator.item)
         app.menu.addItem(NSMenuItem.separator())
 
         app.moaDataItem.submenu = app.moaDataMenu
@@ -57,6 +59,7 @@ final class MoaMainMenuCoordinator {
         rebuildClaudeDesktopProfilesMenu()
         rebuildZCodeMenu()
         app.rebuildWorkBuddyMenus()
+        app.deepseekCoordinator.rebuildMenu()
         configureMoaDataMenu()
         refreshStatus()
     }
