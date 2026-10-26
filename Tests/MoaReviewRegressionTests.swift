@@ -8,6 +8,9 @@ import CryptoKit
 
 enum MoaReviewRegressionTests {
     static let tests: [(String, () throws -> Void)] = [
+        ("official account deletion follows the live file including saved and signed-out sessions", officialDeletionLiveFile),
+        ("Codex profile edits recheck selection inside the store lock", codexProfileEditSelection),
+        ("Claude profile edits recheck selection inside the store lock", claudeProfileEditSelection),
         ("retired provider storage keeps direct profiles and requires reselection", retiredProviderStorage),
         ("direct profile round trips omit retired routing fields", directProfileCompatibility),
         ("retired provider imports fail atomically with migration guidance", retiredProviderImport),
@@ -39,6 +42,89 @@ enum MoaReviewRegressionTests {
         defer { try? FileManager.default.removeItem(at: home) }
         try run(home, ["HOME": home.path, "CODEX_HOME": home.appendingPathComponent(".codex").path])
     }
+    private static func codexProfileEditSelection() throws {
+        try withHome { _, environment in
+            let controller = ConfigProfileController(environment: environment)
+            let a = try controller.addProfile(name: "A", baseURL: "https://a.example.invalid/v1", apiKey: "synthetic-a")
+            let b = try controller.addProfile(name: "B", baseURL: "https://b.example.invalid/v1", apiKey: "synthetic-b")
+            _ = try controller.applyProfile(id: a.id)
+            // The account window was loaded with A active; a menu action now selects B.
+            _ = try controller.applyProfile(id: b.id)
+            let liveB = try Data(contentsOf: controller.codexConfigURL)
+            let inactiveApplied = try controller.updateProfileApplyingIfSelected(id: a.id, name: "Edited A", baseURL: a.baseURL, apiKey: "synthetic-a-edited", applyToCurrent: true)
+            try check(!inactiveApplied && (try controller.selectedProfileID()) == b.id, "editing stale active row A must not select it again")
+            try check(try Data(contentsOf: controller.codexConfigURL) == liveB, "inactive edits must leave the live config unchanged")
+            let unconfirmedApplied = try controller.updateProfileApplyingIfSelected(id: b.id, name: "Saved B", baseURL: b.baseURL, apiKey: "synthetic-b-saved", applyToCurrent: false)
+            try check(!unconfirmedApplied && (try Data(contentsOf: controller.codexConfigURL)) == liveB, "a config that becomes active after the prompt must not reopen without consent")
+            let activeApplied = try controller.updateProfileApplyingIfSelected(id: b.id, name: "Applied B", baseURL: b.baseURL, apiKey: "synthetic-b-applied", applyToCurrent: true)
+            try check(activeApplied && (try controller.selectedProfileID()) == b.id, "confirmed edits of the current profile must still apply")
+            try check(try String(contentsOf: controller.codexConfigURL).contains("synthetic-b-applied"), "current profile edits must reach the real client file")
+        }
+    }
+
+    private static func claudeProfileEditSelection() throws {
+        try withHome { home, environment in
+            let controller = ClaudeDesktopProfileController(environment: environment)
+            let models = ["claude-sonnet-4-6"]
+            let a = try controller.addProfile(name: "A", baseURL: "https://a.example.invalid/v1", apiKey: "synthetic-a", models: models, oneMModels: [])
+            let b = try controller.addProfile(name: "B", baseURL: "https://b.example.invalid/v1", apiKey: "synthetic-b", models: models, oneMModels: [])
+            func liveFiles() throws -> [String: Data] {
+                let root = home.appendingPathComponent("Library/Application Support")
+                var files: [String: Data] = [:]
+                for case let file as URL in FileManager.default.enumerator(at: root, includingPropertiesForKeys: [.isRegularFileKey])! {
+                    if (file.path.contains("/Claude/") || file.path.contains("/Claude-3p/")),
+                       try file.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true {
+                        files[file.path] = try Data(contentsOf: file)
+                    }
+                }
+                return files
+            }
+            _ = try controller.applyProfile(id: a.id)
+            _ = try controller.applyProfile(id: b.id)
+            let liveB = try liveFiles()
+            try check(!liveB.isEmpty, "fixture must create actual Claude client files")
+            let inactiveApplied = try controller.updateProfileApplyingIfSelected(id: a.id, name: "Edited A", baseURL: a.baseURL, apiKey: "synthetic-a-edited", models: models, oneMModels: [], applyToCurrent: true)
+            try check(!inactiveApplied && (try controller.selectedProfileID()) == b.id && (try liveFiles()) == liveB, "Claude must not reactivate an old window row")
+            let unconfirmedApplied = try controller.updateProfileApplyingIfSelected(id: b.id, name: "Saved B", baseURL: b.baseURL, apiKey: "synthetic-b-saved", models: models, oneMModels: [], applyToCurrent: false)
+            try check(!unconfirmedApplied && (try liveFiles()) == liveB, "an unconfirmed live edit must only save its metadata")
+            let activeApplied = try controller.updateProfileApplyingIfSelected(id: b.id, name: "Applied B", baseURL: b.baseURL, apiKey: "synthetic-b-applied", models: models, oneMModels: [], applyToCurrent: true)
+            try check(activeApplied && (try controller.selectedProfileID()) == b.id, "confirmed edits of the current Claude profile must apply")
+            try check(try liveFiles().values.contains { String(decoding: $0, as: UTF8.self).contains("synthetic-b-applied") }, "current edits must reach Claude's actual profile files")
+        }
+    }
+
+    private static func officialDeletionLiveFile() throws {
+        for state in ["signed-out", "saved", "unsaved"] {
+            try withHome { _, environment in
+                let controller = ConfigProfileController(environment: environment)
+                func auth(_ label: String) throws -> [String: Any] {
+                    try JSONSerialization.jsonObject(with: login(label + "@example.invalid", accountID: label, token: "synthetic-" + label, subject: label)) as! [String: Any]
+                }
+                let a = try controller.saveNewOfficialAccount(auth: auth("A"), name: "A")
+                _ = try controller.saveNewOfficialAccount(auth: auth("B"), name: "B", activate: false)
+                let c = state == "saved" ? try controller.saveNewOfficialAccount(auth: auth("C"), name: "C", activate: false) : nil
+                let live = state == "signed-out" ? Data(#"{"auth_mode":"apikey","OPENAI_API_KEY":null}"#.utf8)
+                    : try login("C@example.invalid", accountID: "C", token: "synthetic-C", subject: "C")
+                try live.write(to: controller.codexAuthURL)
+                let result = try controller.deleteOfficialAccount(id: a.id)
+                try check(result.activated == nil, "deleting stale A must not activate B when the client is \(state)")
+                try check(try Data(contentsOf: controller.codexAuthURL) == live, "deleting an inactive saved account must preserve the actual \(state) login bytes")
+                try check(try controller.selectedOfficialAccountID() == c?.id, "a stale selection must move to the known live account or clear when none is saved")
+            }
+        }
+        try withHome { _, environment in
+            let controller = ConfigProfileController(environment: environment)
+            let aAuth = try JSONSerialization.jsonObject(with: login("A@example.invalid", accountID: "A", token: "synthetic-A", subject: "A")) as! [String: Any]
+            let bAuth = try JSONSerialization.jsonObject(with: login("B@example.invalid", accountID: "B", token: "synthetic-B", subject: "B")) as! [String: Any]
+            let a = try controller.saveNewOfficialAccount(auth: aAuth, name: "A")
+            let b = try controller.saveNewOfficialAccount(auth: bAuth, name: "B", activate: false)
+            try controller.writeAuthJSON(bAuth, to: controller.codexAuthURL)
+            let result = try controller.deleteOfficialAccount(id: b.id)
+            try check(result.activated?.id == a.id, "deleting the actual current login must still activate the remaining account")
+            try check(controller.officialAuthRefreshToken(from: controller.readAuthJSON(from: controller.codexAuthURL)) == "synthetic-A", "active-account deletion must write the chosen replacement")
+        }
+    }
+
     private static func login(_ email: String?, accountID: String?, token: String, subject: String? = nil, jwtAccountID: String? = nil) throws -> Data {
         var tokens: [String: String] = ["refresh_token": token, "access_token": "synthetic-access"]
         tokens["email"] = email

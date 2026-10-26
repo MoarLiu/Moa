@@ -1,7 +1,10 @@
 # Changelog
 
-## Unreleased
+## 1.4.0 - 2026-10-26
 
+- Matched Codex account deletion against the actual client login, preserving unsaved and signed-out sessions when deleting stale selections. Profile edits recheck and apply the current selection under the store lock, with live-edit confirmation based on the current state.
+- Enabled Escape to close focused glass forms and background dragging for borderless form panels.
+- Excluded DeepSeek credential files and saved account stores from source tracking and release packaging.
 - Added one account-management window grouped by client, with save/enroll, rename, edit, delete, and switch actions for the appropriate account types.
 - Unified account-window and menu switching for WorkBuddy and DeepSeek; account-list reads wait until switching finishes, and menu switches refresh an open account window.
 - Added **Update Prices** to fetch and persist the complete Sub2API-reference catalog, apply new USD token prices without an app release, and refresh usage immediately. Failed downloads retain the previous catalog and custom prices remain independent.

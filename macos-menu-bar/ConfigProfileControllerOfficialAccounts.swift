@@ -287,7 +287,12 @@ extension ConfigProfileController {
                 guard let index = database.accounts.firstIndex(where: { $0.id == id }) else {
                     throw CodexOfficialAccountError.accountNotFound
                 }
-                let deletesLiveLogin = database.selectedAccountID == id
+                // The saved selection can lag behind the client: Codex may be
+                // signed in with a login that was never saved. Only the account
+                // whose credentials match the live login is actually in use, so
+                // deleting anything else must not switch the session.
+                let liveLoginID = try currentLiveOfficialAccountID()
+                let deletesLiveLogin = liveLoginID == id
 
                 try backupCodexFiles()
                 let deleted = database.accounts.remove(at: index)
@@ -306,8 +311,10 @@ extension ConfigProfileController {
                     try copyFile(from: nextAuthURL, to: codexAuthURL)
                     activated = next
                 } else {
-                    if deletesLiveLogin {
-                        database.selectedAccountID = nil
+                    if deletesLiveLogin || database.selectedAccountID == id {
+                        // Reconcile a stale selection with a known live login,
+                        // or clear it when the live login is not saved.
+                        database.selectedAccountID = deletesLiveLogin ? nil : liveLoginID
                     }
                     activated = nil
                 }
@@ -358,6 +365,14 @@ extension ConfigProfileController {
             throw CodexOfficialAccountError.invalidAuthPath(account.authPath)
         }
         return candidate
+    }
+
+    /// This must not fall back to Moa's historical session when Codex is signed
+    /// out or its auth file is absent. It is used for destructive-action checks.
+    func currentLiveOfficialAccountID() throws -> String? {
+        try stateLock.withLock {
+            try matchingOfficialAccount(for: readAuthJSON(from: codexAuthURL))?.id
+        }
     }
 
     func preferredCurrentOfficialAuth() -> [String: Any] {

@@ -206,6 +206,15 @@ final class ClaudeDesktopProfileController {
         }
     }
 
+    func updateProfileApplyingIfSelected(id: String, name: String, baseURL: String, apiKey: String, models: [String], oneMModels: [String], applyToCurrent: Bool) throws -> Bool {
+        try stateLock.withLock {
+            _ = try updateProfile(id: id, name: name, baseURL: baseURL, apiKey: apiKey, models: models, oneMModels: oneMModels)
+            guard applyToCurrent, try selectedProfileID() == id else { return false }
+            _ = try applyProfile(id: id)
+            return true
+        }
+    }
+
     @discardableResult
     func deleteProfile(id: String) throws -> ClaudeDesktopProviderProfile {
         try stateLock.withLock {

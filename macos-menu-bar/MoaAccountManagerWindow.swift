@@ -76,7 +76,7 @@ enum MoaAccountCatalog {
 
         take(.codexOfficial) {
             let accounts = try app.profileController.officialAccounts()
-            let selected = try app.profileController.selectedOfficialAccountID()
+            let selected = try app.profileController.currentLiveOfficialAccountID()
             let status = try app.profileController.currentOfficialLoginSaveStatus()
             return MoaAccountSection(
                 group: .codexOfficial,
@@ -282,33 +282,31 @@ final class MoaAccountManagerModel: ObservableObject {
     func edit(_ row: MoaAccountRow) {
         switch row.group {
         case .codexConfig:
-            guard !row.active || confirmLiveEdit(row, MoaL10n.text("Codex quits and reopens, so finish active tasks first.")) else { return }
             guard let profile = try? app.profileController.profiles().first(where: { $0.id == row.id }),
                   let input = app.showEditProfilePanel(for: profile) else { return }
-            // Editing the config Codex is running must reach Codex, so it is
-            // applied and Codex reopens. Editing any other config only saves.
-            let apply = row.active
+            // The row's active flag is from the last reload, so the menu may
+            // have switched configs since. Re-read what is current at save time
+            // and only reapply a config the client is still using.
+            let id = row.id
+            let applyToCurrent = (try? app.profileController.selectedProfileID()) == id
+            guard !applyToCurrent || confirmLiveEdit(row, MoaL10n.text("Codex quits and reopens, so finish active tasks first.")) else { return }
             run(MoaL10n.text("Saving…")) {
-                _ = try self.app.profileController.updateProfile(id: row.id, name: input.name, baseURL: input.baseURL, apiKey: input.apiKey)
-                if apply {
-                    _ = try self.app.profileController.applyProfile(id: row.id)
-                    self.app.controller.reopenCodex()
-                }
+                let applied = try self.app.profileController.updateProfileApplyingIfSelected(
+                    id: id, name: input.name, baseURL: input.baseURL, apiKey: input.apiKey, applyToCurrent: applyToCurrent)
+                if applied { self.app.controller.reopenCodex() }
             }
         case .claude:
-            guard !row.active || confirmLiveEdit(row, MoaL10n.text("Claude Desktop quits and reopens, so finish active tasks first.")) else { return }
             guard let profile = try? app.claudeDesktopProfileController.profiles().first(where: { $0.id == row.id }),
                   let input = app.showEditClaudeDesktopProviderPanel(for: profile) else { return }
-            let apply = row.active
+            let id = row.id
+            let applyToCurrent = (try? app.claudeDesktopProfileController.selectedProfileID()) == id
+            guard !applyToCurrent || confirmLiveEdit(row, MoaL10n.text("Claude Desktop quits and reopens, so finish active tasks first.")) else { return }
             run(MoaL10n.text("Saving…")) {
-                _ = try self.app.claudeDesktopProfileController.updateProfile(
-                    id: row.id, name: input.name, baseURL: input.baseURL, apiKey: input.apiKey,
-                    models: input.models, oneMModels: input.oneMModels
+                let applied = try self.app.claudeDesktopProfileController.updateProfileApplyingIfSelected(
+                    id: id, name: input.name, baseURL: input.baseURL, apiKey: input.apiKey,
+                    models: input.models, oneMModels: input.oneMModels, applyToCurrent: applyToCurrent
                 )
-                if apply {
-                    _ = try self.app.claudeDesktopProfileController.applyProfile(id: row.id)
-                    self.app.claudeDesktopProfileController.reopenClaudeDesktop()
-                }
+                if applied { self.app.claudeDesktopProfileController.reopenClaudeDesktop() }
             }
         case .codexOfficial, .workbuddy, .workbuddyCN, .deepseek:
             break

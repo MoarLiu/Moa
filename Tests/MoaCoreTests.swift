@@ -102,6 +102,7 @@ enum MoaCoreTests {
             ("official no-account mode selects first direct config when none selected", testOfficialNoAccountSelectsFirstDirectConfigWhenNoneSelected),
             ("official no-account mode deduplicates current login by email", testOfficialNoAccountDeduplicatesCurrentLoginByEmail),
             ("official account list syncs selected account email", testOfficialAccountListSyncsSelectedAccountEmail),
+            ("deleting a stale official selection keeps the unsaved live login", testDeletingStaleOfficialSelectionKeepsLiveLogin),
             ("updater compares versions and parses release feed", testUpdaterVersionComparisonAndFeedParsing),
             ("updater prunes old backups", testUpdaterBackupPruning),
             ("GPT-5.6 family uses current local pricing", testGPT56Pricing),
@@ -1547,6 +1548,39 @@ enum MoaCoreTests {
 
         try expect(accounts.count == 1, "selected account sync should not create another account")
         try expect(accounts.first?.displayTitle == "K12(\(email))", "selected account should show email after Codex relogin")
+    }
+
+    private static func testDeletingStaleOfficialSelectionKeepsLiveLogin() throws {
+        let home = try temporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let codexHome = home.appendingPathComponent(".codex", isDirectory: true)
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        let controller = ConfigProfileController(environment: ["HOME": home.path, "CODEX_HOME": codexHome.path])
+
+        // Save login A and leave it selected in Moa's database.
+        try authJSON(email: "a@example.com", refreshToken: "refresh-a", accountID: "account-a")
+            .write(to: codexHome.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8)
+        let savedA = try controller.addOfficialAccountFromCurrentLogin(name: "A")
+        _ = try controller.saveNewOfficialAccount(
+            auth: ["auth_mode": "chatgpt", "tokens": ["refresh_token": "refresh-b"]],
+            name: "B",
+            activate: false
+        )
+
+        // Codex is now signed in with C, a login Moa never saved, while the
+        // database still records A as the selection.
+        try authJSON(email: "c@example.com", refreshToken: "refresh-c", accountID: "account-c")
+            .write(to: codexHome.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8)
+        try expect(try controller.selectedOfficialAccountID() == savedA.id, "database should still select A before the delete")
+
+        let result = try controller.deleteOfficialAccount(id: savedA.id)
+        let liveAuth = try String(contentsOf: codexHome.appendingPathComponent("auth.json"), encoding: .utf8)
+
+        try expect(result.activated == nil, "deleting a stale selection must not activate another account")
+        try expect(liveAuth.contains("refresh-c"), "the unsaved live login must stay signed in")
+        try expect(!liveAuth.contains("refresh-b"), "the next saved account must not take over the session")
+        try expect(try controller.selectedOfficialAccountID() == nil, "the selection must not keep pointing at the deleted account")
     }
 
     private static func testJWT(email: String) throws -> String {

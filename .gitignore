@@ -23,6 +23,12 @@ fast-toggle-backups/
 .moa/
 .workbuddy/
 .workbuddy-ai/
+.dsh/
+.credentials.yaml
+deepseek-accounts/
+accounts.json
+codex_official_accounts.json
+claude_desktop_profiles.json
 auth.json
 profiles.json
 config.toml

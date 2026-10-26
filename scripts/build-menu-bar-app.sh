@@ -106,16 +106,16 @@ chmod 755 "$EXECUTABLE"
 check_mach_o_deployment_target "$EXECUTABLE"
 
 if [[ -f "$ROOT/assets/moa-icon.icns" ]]; then
-  /usr/bin/ditto --noextattr --noacl "$ROOT/assets/moa-icon.icns" "$RESOURCES/AppIcon.icns"
+  /bin/cp -X "$ROOT/assets/moa-icon.icns" "$RESOURCES/AppIcon.icns"
 fi
 
 if [[ -f "$ROOT/assets/moa-menubar-template.png" ]]; then
-  /usr/bin/ditto --noextattr --noacl "$ROOT/assets/moa-menubar-template.png" "$RESOURCES/MoaMenuBarIcon.png"
+  /bin/cp -X "$ROOT/assets/moa-menubar-template.png" "$RESOURCES/MoaMenuBarIcon.png"
 fi
 
 if [[ -d "$ROOT/assets/Localization" ]]; then
   while IFS= read -r -d '' lproj; do
-    /usr/bin/ditto --noextattr --noacl "$lproj" "$RESOURCES/$(basename "$lproj")"
+    /bin/cp -R -X "$lproj" "$RESOURCES/$(basename "$lproj")"
   done < <(find "$ROOT/assets/Localization" -maxdepth 1 -name "*.lproj" -type d -print0)
 fi
 

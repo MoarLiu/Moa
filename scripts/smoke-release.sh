@@ -69,6 +69,12 @@ if find "$APP" \( \
   -name ".codex" -o \
   -name ".workbuddy" -o \
   -name ".workbuddy-ai" -o \
+  -name ".dsh" -o \
+  -name ".credentials.yaml" -o \
+  -name "deepseek-accounts" -o \
+  -name "accounts.json" -o \
+  -name "codex_official_accounts.json" -o \
+  -name "claude_desktop_profiles.json" -o \
   -name "workbuddy-accounts" -o \
   -name "workbuddy-cn-accounts" -o \
   -name "workbuddy-desktop*.info" -o \

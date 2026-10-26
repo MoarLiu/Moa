@@ -16,7 +16,11 @@ It intentionally excludes the original Moa Companion surface: no desktop pet, AI
 - Updates: check GitHub Releases from the main menu, then download, verify, and install the matching macOS DMG.
 - Model prices: choose **Update Prices** in the main menu to download the complete public price table used as Sub2API's reference. Supported USD token rates take effect immediately, refresh open usage reports, and persist across restarts. Failed downloads keep the previous table; custom prices take precedence. Daily automatic checks remain enabled.
 
-## Upgrading to 1.3.2
+## Upgrading to 1.4.0
+
+Existing account stores and custom prices are retained. Use **Manage Accounts…** in a client menu for enrollment and saved-entry management, and **Update Prices** in the main menu to refresh pricing without replacing the app. The new **DeepSeek** menu controls DeepSeek Harness; see its account-enrollment instructions below.
+
+## Upgrading from Provider Bridge
 
 1.3.2 removes Provider Bridge, its local HTTP server, protocol conversion, and configuration controls. Codex providers now connect directly to OpenAI Responses-compatible endpoints. Connection tests check Responses without falling back to Chat Completions.
 
@@ -141,7 +145,7 @@ The script builds `Moa.app`, stops any currently running Moa process, and launch
 
 - Provider API keys stay local.
 - Diagnostic packages redact auth, key, and token fields.
-- Packaging scripts refuse to include `.moa`, `.codex`, auth/config/profile files, environment files, and signing keys.
+- Packaging scripts refuse to include `.moa`, `.codex`, `.dsh`, client login/account stores, auth/config/profile files, environment files, and signing keys.
 - Moa does not bundle `MoaMCP` and does not expose local workflow tools.
 
 For release candidates, `scripts/version.env` keeps `APP_VERSION` numeric for macOS bundle metadata and uses `APP_RELEASE_VERSION` for the displayed version, GitHub tag, and DMG filename. Both architecture builds must use the same `APP_BUILD`; set `MOA_AUTO_BUMP_BUILD=0` after choosing that build number.

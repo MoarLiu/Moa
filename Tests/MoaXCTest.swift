@@ -28,6 +28,10 @@ final class MoaXCTest: XCTestCase {
 
     func testNativeDiscoveryMatchesTheCheckRegistry() {
         let expected: Set<String> = [
+            "deleting a stale official selection keeps the unsaved live login",
+            "official account deletion follows the live file including saved and signed-out sessions",
+            "Codex profile edits recheck selection inside the store lock",
+            "Claude profile edits recheck selection inside the store lock",
             "Grok Build aliases and Fast context rates price local usage",
             "full pricing downloads preserve all records and accept new model IDs",
             "pricing commits immediately invalidate independent catalog caches",
@@ -138,6 +142,10 @@ final class MoaXCTest: XCTestCase {
         XCTAssertEqual(MoaCoreTests.tests.count, expected.count)
     }
 
+    func testDeletingStaleOfficialSelection() throws { try run("deleting a stale official selection keeps the unsaved live login") }
+    func testOfficialDeletionLiveFile() throws { try run("official account deletion follows the live file including saved and signed-out sessions") }
+    func testCodexProfileEditSelection() throws { try run("Codex profile edits recheck selection inside the store lock") }
+    func testClaudeProfileEditSelection() throws { try run("Claude profile edits recheck selection inside the store lock") }
     func testGrokBuildPricing() throws { try run("Grok Build aliases and Fast context rates price local usage") }
     func testFullPricingCatalog() throws { try run("full pricing downloads preserve all records and accept new model IDs") }
     func testPricingCacheInvalidation() throws { try run("pricing commits immediately invalidate independent catalog caches") }

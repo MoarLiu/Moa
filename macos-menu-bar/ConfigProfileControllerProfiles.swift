@@ -177,6 +177,17 @@ extension ConfigProfileController {
         }
     }
 
+    /// Keep the selection check and application serialized with menu switches.
+    /// The caller permits application only after confirming a live edit.
+    func updateProfileApplyingIfSelected(id: String, name: String, baseURL: String, apiKey: String, applyToCurrent: Bool) throws -> Bool {
+        try stateLock.withLock {
+            _ = try updateProfile(id: id, name: name, baseURL: baseURL, apiKey: apiKey)
+            guard applyToCurrent, try selectedProfileID() == id else { return false }
+            _ = try applyProfile(id: id)
+            return true
+        }
+    }
+
     @discardableResult
     func deleteProfile(id: String) throws -> ConfigProfile {
         try stateLock.withLock {

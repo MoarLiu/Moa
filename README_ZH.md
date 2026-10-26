@@ -16,7 +16,11 @@ Moa 是一个支持 ChatGPT（原 Codex Desktop）、Claude Desktop、ZCode、Wo
 - 更新检查：可从主菜单检查 GitHub Releases，下载、校验并安装匹配当前 Mac 的 DMG。
 - 价格热更新：主菜单点击「更新价格」，即可获取 Sub2API 参考的完整公开价格目录。支持的美元 Token 价格立即生效，自动刷新已打开的用量明细，并在重启后保留。下载失败继续使用原价格，自定义价格始终优先；每天自动检查仍保留。
 
-## 1.3.2 升级说明
+## 1.4.0 升级说明
+
+原有账号库和自定义价格继续保留。请在客户端菜单中通过「管理账号…」保存或管理账号，在主菜单点击「更新价格」即可刷新价格，无需替换应用。新增「DeepSeek」菜单用于 DeepSeek Harness，账号录入步骤见下文。
+
+## 从 Provider Bridge 升级
 
 1.3.2 移除了 Provider Bridge、本地 HTTP 服务、协议转换和相关配置入口。Codex 服务商现在直接使用支持 OpenAI Responses 的端点；连接测试只验证 Responses，不再回退到 Chat Completions。
 
@@ -141,7 +145,7 @@ Codex app 的 Run 按钮通过以下文件接入：
 
 - Provider API key 只保存在本地。
 - 诊断包会脱敏 auth、key、token 字段。
-- 打包脚本会拒绝把 `.moa`、`.codex`、auth/config/profile 文件、环境变量文件和签名密钥打进发布包。
+- 打包脚本会拒绝把 `.moa`、`.codex`、`.dsh`、客户端登录/账号库、auth/config/profile 文件、环境变量文件和签名密钥打进发布包。
 - Moa 不打包 `MoaMCP`，也不暴露本地 workflow tools。
 
 候选版在 `scripts/version.env` 中使用数字 `APP_VERSION` 作为 macOS 包版本，使用 `APP_RELEASE_VERSION` 作为显示版本、GitHub 标签和 DMG 文件名。两个架构应使用相同的 `APP_BUILD`；确定构建号后，通过 `MOA_AUTO_BUMP_BUILD=0` 避免分别封包时重复递增。

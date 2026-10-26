@@ -43,7 +43,10 @@ else
   fi
 fi
 
-/usr/bin/ditto --noextattr --noacl "$APP" "$DMG_ROOT/$APP_NAME.app"
+# ditto can retain mandatory com.apple.macl grants even with --noextattr.
+# Copy data/modes without extended attributes, then verify the sealed copy.
+/bin/cp -R -X "$APP" "$DMG_ROOT/$APP_NAME.app"
+/usr/bin/codesign --verify --deep --strict "$DMG_ROOT/$APP_NAME.app"
 ln -s /Applications "$DMG_ROOT/Applications"
 find "$DMG_ROOT" -name ".DS_Store" -delete
 
@@ -52,6 +55,12 @@ SENSITIVE_MATCH="$(find "$DMG_ROOT" \( \
   -name ".codex" -o \
   -name ".workbuddy" -o \
   -name ".workbuddy-ai" -o \
+  -name ".dsh" -o \
+  -name ".credentials.yaml" -o \
+  -name "deepseek-accounts" -o \
+  -name "accounts.json" -o \
+  -name "codex_official_accounts.json" -o \
+  -name "claude_desktop_profiles.json" -o \
   -name "workbuddy-accounts" -o \
   -name "workbuddy-cn-accounts" -o \
   -name "workbuddy-desktop*.info" -o \
@@ -74,6 +83,12 @@ if [[ -n "$SENSITIVE_MATCH" ]]; then
     -name ".codex" -o \
     -name ".workbuddy" -o \
     -name ".workbuddy-ai" -o \
+    -name ".dsh" -o \
+    -name ".credentials.yaml" -o \
+    -name "deepseek-accounts" -o \
+    -name "accounts.json" -o \
+    -name "codex_official_accounts.json" -o \
+    -name "claude_desktop_profiles.json" -o \
     -name "workbuddy-accounts" -o \
     -name "workbuddy-cn-accounts" -o \
     -name "workbuddy-desktop*.info" -o \
