@@ -64,10 +64,8 @@ enum MoaGlassModalHost {
 
 private final class MoaModalHostingView<Content: View>: MoaInteractiveHostingView<Content> {
     // The panel is borderless, so the only way to drag it is by its background.
-    // A SwiftUI NSHostingView is the view that receives every click, buttons
-    // and text fields included, so mouseDownCanMoveWindow must stay off here.
-    // Empty space still drags: performDrag looks at what is under the cursor
-    // and only starts a window drag when that is not a control.
+    // This hosting view receives SwiftUI button, toggle, and picker clicks, so
+    // mouseDownCanMoveWindow must stay off. mouseDown drags only the empty area.
     override var mouseDownCanMoveWindow: Bool { false }
 
     override func mouseDown(with event: NSEvent) {
@@ -79,14 +77,20 @@ private final class MoaModalHostingView<Content: View>: MoaInteractiveHostingVie
     }
 
     private func isInteractiveControl(at windowPoint: NSPoint) -> Bool {
-        guard let local = superview?.convert(windowPoint, from: nil),
-              let hit = hitTest(local) else { return false }
-        var view: NSView? = hit
-        while let current = view, current !== self {
-            if current is NSControl || current is NSTextView { return true }
-            view = current.superview
+        guard let superviewPoint = superview?.convert(windowPoint, from: nil) else { return false }
+        if let hit = hitTest(superviewPoint) {
+            var view: NSView? = hit
+            while let current = view, current !== self {
+                if current is NSControl || current is NSTextView { return true }
+                view = current.superview
+            }
         }
-        return false
+        // Bordered buttons, custom glass buttons, toggles, and menu pickers do not
+        // hit-test as NSControls. SwiftUI places a non-hit-testable proxy at the
+        // control frame; clicks there must reach the hosting view, and only the
+        // remaining empty area starts a window drag.
+        let localPoint = convert(windowPoint, from: nil)
+        return subviews.contains { $0.frame.contains(localPoint) }
     }
 }
 
