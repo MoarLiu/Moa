@@ -96,10 +96,10 @@ extension AppDelegate {
                 onSave: { threshold in
                     didSave = true
                     savedThreshold = threshold
-                    NSApp.stopModal(withCode: .OK)
+                    MoaGlassModalHost.finish(.OK)
                 },
                 onCancel: {
-                    NSApp.stopModal(withCode: .cancel)
+                    MoaGlassModalHost.finish(.cancel)
                 }
             )
         }

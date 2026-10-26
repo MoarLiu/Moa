@@ -18,10 +18,10 @@ enum MoaProviderProfilePanels {
                 initialName: initialName,
                 onSave: { name in
                     result = name
-                    NSApp.stopModal(withCode: .OK)
+                    MoaGlassModalHost.finish(.OK)
                 },
                 onCancel: {
-                    NSApp.stopModal(withCode: .cancel)
+                    MoaGlassModalHost.finish(.cancel)
                 }
             )
         }
@@ -99,10 +99,10 @@ enum MoaProviderProfilePanels {
                 initial: initial,
                 onSave: { name, baseURL, apiKey in
                     result = (name, baseURL, apiKey)
-                    NSApp.stopModal(withCode: .OK)
+                    MoaGlassModalHost.finish(.OK)
                 },
                 onCancel: {
-                    NSApp.stopModal(withCode: .cancel)
+                    MoaGlassModalHost.finish(.cancel)
                 }
             )
         }
@@ -138,10 +138,10 @@ enum MoaProviderProfilePanels {
                 initial: initial,
                 onSave: { name, baseURL, apiKey, models, oneMModels in
                     result = (name, baseURL, apiKey, models, oneMModels)
-                    NSApp.stopModal(withCode: .OK)
+                    MoaGlassModalHost.finish(.OK)
                 },
                 onCancel: {
-                    NSApp.stopModal(withCode: .cancel)
+                    MoaGlassModalHost.finish(.cancel)
                 }
             )
         }
@@ -199,17 +199,12 @@ private struct CodexOfficialAccountNameFormView: View {
 
             HStack(spacing: 10) {
                 Spacer()
-                Button(MoaL10n.text("Cancel"), action: onCancel)
-                    .frame(minWidth: 78)
-                    .controlSize(.regular)
-                    .buttonStyle(.bordered)
-                    .keyboardShortcut(.cancelAction)
-                Button(buttonTitle, action: save)
+                MoaModalButton(title: MoaL10n.text("Cancel")) {
+                    onCancel()
+                }
+                .frame(minWidth: 78)
+                MoaModalButton(title: buttonTitle, prominence: .prominent, keyEquivalent: "\r", action: save)
                     .frame(minWidth: 88)
-                    .controlSize(.regular)
-                    .buttonStyle(.borderedProminent)
-                    .tint(MoaTheme.tint)
-                    .keyboardShortcut(.defaultAction)
             }
         }
         .moaModalFormBody()
@@ -328,23 +323,12 @@ private struct CodexProfileFormView: View {
 
             HStack(spacing: 10) {
                 Spacer()
-                Button(MoaL10n.text("Cancel"), action: onCancel)
+                MoaModalButton(title: MoaL10n.text("Cancel"), action: onCancel)
                     .frame(minWidth: 78)
-                    .controlSize(.regular)
-                    .buttonStyle(.bordered)
-                    .keyboardShortcut(.cancelAction)
-                Button(MoaL10n.text("Test Connection"), action: testConnection)
+                MoaModalButton(title: MoaL10n.text("Test Connection"), isEnabled: !isTesting, action: testConnection)
                     .frame(minWidth: 120)
-                    .controlSize(.regular)
-                    .buttonStyle(.bordered)
-                    .disabled(isTesting)
-                Button(buttonTitle, action: save)
+                MoaModalButton(title: buttonTitle, prominence: .prominent, keyEquivalent: "\r", isEnabled: !isTesting, action: save)
                     .frame(minWidth: 88)
-                    .controlSize(.regular)
-                    .buttonStyle(.borderedProminent)
-                    .tint(MoaTheme.tint)
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(isTesting)
             }
         }
         .moaModalFormBody()
@@ -521,23 +505,12 @@ private struct ClaudeProviderFormView: View {
 
             HStack(spacing: 10) {
                 Spacer()
-                Button(MoaL10n.text("Cancel"), action: onCancel)
+                MoaModalButton(title: MoaL10n.text("Cancel"), action: onCancel)
                     .frame(minWidth: 78)
-                    .controlSize(.regular)
-                    .buttonStyle(.bordered)
-                    .keyboardShortcut(.cancelAction)
-                Button(MoaL10n.text("Test Connection"), action: testConnection)
+                MoaModalButton(title: MoaL10n.text("Test Connection"), isEnabled: !isTesting, action: testConnection)
                     .frame(minWidth: 120)
-                    .controlSize(.regular)
-                    .buttonStyle(.bordered)
-                    .disabled(isTesting)
-                Button(buttonTitle, action: save)
+                MoaModalButton(title: buttonTitle, prominence: .prominent, keyEquivalent: "\r", isEnabled: !isTesting, action: save)
                     .frame(minWidth: 88)
-                    .controlSize(.regular)
-                    .buttonStyle(.borderedProminent)
-                    .tint(MoaTheme.tint)
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(isTesting)
             }
         }
         .moaModalFormBody()

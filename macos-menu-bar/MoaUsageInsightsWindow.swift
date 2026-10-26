@@ -288,14 +288,14 @@ private final class MoaUsageInsightsViewModel: ObservableObject {
                 initialCacheCreation: existing?.cacheCreationUSDPerMillion.map { String(format: "%.4f", $0) } ?? "",
                 onSave: { input, output, cacheRead, cacheCreation in
                     action = .save(input: input, output: output, cacheRead: cacheRead, cacheCreation: cacheCreation)
-                    NSApp.stopModal(withCode: .OK)
+                    MoaGlassModalHost.finish(.OK)
                 },
                 onRemove: {
                     action = .remove
-                    NSApp.stopModal(withCode: .abort)
+                    MoaGlassModalHost.finish(.abort)
                 },
                 onCancel: {
-                    NSApp.stopModal(withCode: .cancel)
+                    MoaGlassModalHost.finish(.cancel)
                 }
             )
         }
@@ -660,16 +660,11 @@ private struct CustomPriceFormView: View {
 
             HStack(spacing: 10) {
                 if canRemove {
-                    Button(MoaL10n.text("Remove"), action: requestRemove)
-                        .buttonStyle(MoaGlassButtonStyle(tone: .danger, minWidth: 88, height: 34))
+                    MoaModalButton(title: MoaL10n.text("Remove"), action: requestRemove)
                 }
                 Spacer()
-                Button(MoaL10n.text("Cancel"), action: requestCancel)
-                    .buttonStyle(MoaGlassButtonStyle(tone: .neutral, minWidth: 78, height: 34))
-                    .keyboardShortcut(.cancelAction)
-                Button(MoaL10n.text("Save"), action: requestSave)
-                    .buttonStyle(MoaGlassButtonStyle(tone: .primary, minWidth: 88, height: 34))
-                    .keyboardShortcut(.defaultAction)
+                MoaModalButton(title: MoaL10n.text("Cancel"), action: requestCancel)
+                MoaModalButton(title: MoaL10n.text("Save"), prominence: .prominent, keyEquivalent: "\r", action: requestSave)
             }
         }
         .moaModalFormBody()

@@ -9,9 +9,14 @@ import SwiftUI
 /// 把一个 SwiftUI 视图托管进玻璃弹窗并以 modal 方式运行,返回 modal 响应码。
 /// 弹窗高度按内容自适应:在固定宽度下测量 SwiftUI 内容需要的合身高度,
 /// 避免硬编码高度导致弹窗过高、底部大片留白。`fallbackHeight` 仅在测量失败时兜底。
-/// 视图内部通过传入的闭包调用 `NSApp.stopModal(withCode:)` 结束会话,
+/// 视图内部通过传入的闭包调用 `MoaGlassModalHost.finish(_:)` 结束会话,
 /// 调用方在闭包里捕获结果(与 AIQuickActionEditorPanelView 相同的模式)。
 enum MoaGlassModalHost {
+    /// Ends the running glass modal.
+    static func finish(_ response: NSApplication.ModalResponse) {
+        NSApp.stopModal(withCode: response)
+    }
+
     @discardableResult
     static func runModal<Content: View>(
         width: CGFloat,
@@ -38,7 +43,7 @@ enum MoaGlassModalHost {
         )
         panel.becomesKeyOnlyIfNeeded = false
         MoaModalPanelStyle.installModalCancelHandler({
-            NSApp.stopModal(withCode: .cancel)
+            MoaGlassModalHost.finish(.cancel)
         }, in: panel)
 
         hostingView.wantsLayer = true
@@ -63,34 +68,66 @@ enum MoaGlassModalHost {
 }
 
 private final class MoaModalHostingView<Content: View>: MoaInteractiveHostingView<Content> {
-    // The panel is borderless, so the only way to drag it is by its background.
-    // This hosting view receives SwiftUI button, toggle, and picker clicks, so
-    // mouseDownCanMoveWindow must stay off. mouseDown drags only the empty area.
+    // AppKit consults this before delivering a click. Answering yes turns every
+    // click on a SwiftUI control into a window drag, so it must stay off; the
+    // panel is borderless and cannot be dragged by its background.
     override var mouseDownCanMoveWindow: Bool { false }
+}
 
-    override func mouseDown(with event: NSEvent) {
-        guard !isInteractiveControl(at: event.locationInWindow) else {
-            super.mouseDown(with: event)
-            return
-        }
-        window?.performDrag(with: event)
+/// Action button for glass modals, backed by a real NSButton.
+/// A SwiftUI Button inside a panel run by NSApp.runModal accepts the click but
+/// runs its action only when the modal session ends; an AppKit button performs
+/// its target-action immediately, the way a normal modal dialog behaves.
+struct MoaModalButton: NSViewRepresentable {
+    enum Prominence {
+        case normal
+        case prominent
     }
 
-    private func isInteractiveControl(at windowPoint: NSPoint) -> Bool {
-        guard let superviewPoint = superview?.convert(windowPoint, from: nil) else { return false }
-        if let hit = hitTest(superviewPoint) {
-            var view: NSView? = hit
-            while let current = view, current !== self {
-                if current is NSControl || current is NSTextView { return true }
-                view = current.superview
-            }
+    var title: String
+    var prominence: Prominence = .normal
+    var keyEquivalent: String = ""
+    var isEnabled: Bool = true
+    var action: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(action: action)
+    }
+
+    func makeNSView(context: Context) -> NSButton {
+        let button = NSButton(title: title, target: context.coordinator, action: #selector(Coordinator.fire))
+        button.bezelStyle = .rounded
+        button.controlSize = .regular
+        button.font = .systemFont(ofSize: 13, weight: .medium)
+        button.setContentHuggingPriority(.required, for: .horizontal)
+        button.setContentCompressionResistancePriority(.required, for: .horizontal)
+        if !keyEquivalent.isEmpty {
+            button.keyEquivalent = keyEquivalent
         }
-        // Bordered buttons, custom glass buttons, toggles, and menu pickers do not
-        // hit-test as NSControls. SwiftUI places a non-hit-testable proxy at the
-        // control frame; clicks there must reach the hosting view, and only the
-        // remaining empty area starts a window drag.
-        let localPoint = convert(windowPoint, from: nil)
-        return subviews.contains { $0.frame.contains(localPoint) }
+        button.isEnabled = isEnabled
+        if prominence == .prominent {
+            button.bezelColor = NSColor(MoaTheme.tint)
+            button.contentTintColor = .white
+        }
+        return button
+    }
+
+    func updateNSView(_ view: NSButton, context: Context) {
+        context.coordinator.action = action
+        if view.title != title { view.title = title }
+        view.isEnabled = isEnabled
+    }
+
+    final class Coordinator: NSObject {
+        var action: () -> Void
+
+        init(action: @escaping () -> Void) {
+            self.action = action
+        }
+
+        @objc func fire() {
+            action()
+        }
     }
 }
 

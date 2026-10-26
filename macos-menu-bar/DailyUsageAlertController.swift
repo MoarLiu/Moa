@@ -79,12 +79,8 @@ struct DailyUsageAlertFormView: View {
 
             HStack(spacing: 10) {
                 Spacer()
-                Button(MoaL10n.text("Close"), action: onCancel)
-                    .buttonStyle(MoaGlassButtonStyle(tone: .neutral, minWidth: 78, height: 34))
-                    .keyboardShortcut(.cancelAction)
-                Button(MoaL10n.text("Save"), action: save)
-                    .buttonStyle(MoaGlassButtonStyle(tone: .primary, minWidth: 88, height: 34))
-                    .keyboardShortcut(.defaultAction)
+                MoaModalButton(title: MoaL10n.text("Close"), action: onCancel)
+                MoaModalButton(title: MoaL10n.text("Save"), prominence: .prominent, keyEquivalent: "\r", action: save)
             }
         }
         .moaModalFormBody()
