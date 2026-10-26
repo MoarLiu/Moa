@@ -64,10 +64,29 @@ enum MoaGlassModalHost {
 
 private final class MoaModalHostingView<Content: View>: MoaInteractiveHostingView<Content> {
     // The panel is borderless, so the only way to drag it is by its background.
-    // This view fills the whole panel; letting a click on empty space move the
-    // window keeps clicks on buttons and text fields working as usual.
-    override var mouseDownCanMoveWindow: Bool {
-        true
+    // A SwiftUI NSHostingView is the view that receives every click, buttons
+    // and text fields included, so mouseDownCanMoveWindow must stay off here.
+    // Empty space still drags: performDrag looks at what is under the cursor
+    // and only starts a window drag when that is not a control.
+    override var mouseDownCanMoveWindow: Bool { false }
+
+    override func mouseDown(with event: NSEvent) {
+        guard !isInteractiveControl(at: event.locationInWindow) else {
+            super.mouseDown(with: event)
+            return
+        }
+        window?.performDrag(with: event)
+    }
+
+    private func isInteractiveControl(at windowPoint: NSPoint) -> Bool {
+        guard let local = superview?.convert(windowPoint, from: nil),
+              let hit = hitTest(local) else { return false }
+        var view: NSView? = hit
+        while let current = view, current !== self {
+            if current is NSControl || current is NSTextView { return true }
+            view = current.superview
+        }
+        return false
     }
 }
 
