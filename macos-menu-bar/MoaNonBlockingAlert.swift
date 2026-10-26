@@ -196,7 +196,7 @@ enum MoaModalPanelStyle {
     }
 }
 
-private final class MoaModalPanel: NSPanel {
+final class MoaModalPanel: NSPanel {
     var onCancel: (() -> Void)?
 
     override var canBecomeKey: Bool {

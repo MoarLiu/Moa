@@ -48,15 +48,26 @@ enum MoaGlassModalHost {
         NSApp.activate(ignoringOtherApps: true)
         panel.center()
         panel.makeKeyAndOrderFront(nil)
+        // A text field with focus swallows Escape before any view sees it, so
+        // watch the panel's own key events and close on Escape regardless.
+        let escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            guard event.window == panel, event.keyCode == 53 else { return event }
+            (panel as? MoaModalPanel)?.cancelOperation(nil)
+            return nil
+        }
         let response = NSApp.runModal(for: panel)
+        if let escapeMonitor { NSEvent.removeMonitor(escapeMonitor) }
         panel.close()
         return response
     }
 }
 
 private final class MoaModalHostingView<Content: View>: MoaInteractiveHostingView<Content> {
+    // The panel is borderless, so the only way to drag it is by its background.
+    // This view fills the whole panel; letting a click on empty space move the
+    // window keeps clicks on buttons and text fields working as usual.
     override var mouseDownCanMoveWindow: Bool {
-        false
+        true
     }
 }
 
