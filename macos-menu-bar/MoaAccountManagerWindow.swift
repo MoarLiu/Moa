@@ -151,6 +151,10 @@ final class MoaAccountManagerWindowController {
 
     init(app: AppDelegate) { self.app = app }
 
+    func refreshIfVisible() {
+        if window?.isVisible == true { model?.reload() }
+    }
+
     func show(group: MoaAccountGroup? = nil) {
         let window = existingOrNewWindow()
         if let group { model?.focus = group }
@@ -193,6 +197,12 @@ final class MoaAccountManagerModel: ObservableObject {
     init(app: AppDelegate) { self.app = app }
 
     func reload() {
+        // Client account controllers hold their lock while graceful quit/launch
+        // hands work to the main thread. Never synchronously wait on that lock
+        // from the UI while a coordinator is switching an account.
+        guard !busy, !app.workbuddyCoordinator.isUpdatingAccounts,
+              !app.workbuddyCNCoordinator.isUpdatingAccounts,
+              !app.deepseekCoordinator.isUpdatingAccounts else { return }
         let loaded = MoaAccountCatalog.load(app: app)
         sections = loaded.sections
         failures = loaded.failures
@@ -342,6 +352,23 @@ final class MoaAccountManagerModel: ObservableObject {
             primaryButtonTitle: MoaL10n.text("Switch"),
             tone: .warning
         ) else { return }
+        let refresh: () -> Void = { [weak self] in self?.reload() }
+        switch row.group {
+        case .workbuddy:
+            guard let id = UUID(uuidString: row.id) else { return }
+            app.workbuddyCoordinator.applySavedAccount(id: id, onComplete: refresh)
+            return
+        case .workbuddyCN:
+            guard let id = UUID(uuidString: row.id) else { return }
+            app.workbuddyCNCoordinator.applySavedAccount(id: id, onComplete: refresh)
+            return
+        case .deepseek:
+            guard let id = UUID(uuidString: row.id) else { return }
+            app.deepseekCoordinator.applySavedAccount(id: id, onComplete: refresh)
+            return
+        case .codexOfficial, .codexConfig, .claude:
+            break
+        }
         run(MoaL10n.text("Switching…")) {
             switch row.group {
             case .codexOfficial:
@@ -353,15 +380,8 @@ final class MoaAccountManagerModel: ObservableObject {
             case .claude:
                 _ = try self.app.claudeDesktopProfileController.applyProfile(id: row.id)
                 self.app.claudeDesktopProfileController.reopenClaudeDesktop()
-            case .workbuddy:
-                guard let id = UUID(uuidString: row.id) else { return }
-                _ = try self.app.workbuddyCoordinator.controller.apply(id: id)
-            case .workbuddyCN:
-                guard let id = UUID(uuidString: row.id) else { return }
-                _ = try self.app.workbuddyCNCoordinator.controller.apply(id: id)
-            case .deepseek:
-                guard let id = UUID(uuidString: row.id) else { return }
-                _ = try self.app.deepseekCoordinator.controller.apply(id: id)
+            case .workbuddy, .workbuddyCN, .deepseek:
+                break // Routed through their shared menu coordinators above.
             }
         }
     }

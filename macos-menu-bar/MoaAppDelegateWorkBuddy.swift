@@ -8,6 +8,7 @@ final class MoaWorkBuddyCoordinator: NSObject {
     let item: NSMenuItem
     let menu: NSMenu
     private var operationInFlight = false
+    var isUpdatingAccounts: Bool { operationInFlight }
 
     init(app: AppDelegate, edition: WorkBuddyEdition) {
         self.app = app
@@ -113,7 +114,11 @@ final class MoaWorkBuddyCoordinator: NSObject {
 
     @objc func applyWorkBuddyAccountAction(_ sender: NSMenuItem) {
         guard let text = sender.representedObject as? String, let id = UUID(uuidString: text) else { return }
-        performWorkBuddyOperation { _ = try self.controller.apply(id: id) }
+        applySavedAccount(id: id)
+    }
+
+    func applySavedAccount(id: UUID, onComplete: (() -> Void)? = nil) {
+        performWorkBuddyOperation(onComplete: onComplete) { _ = try self.controller.apply(id: id) }
     }
 
     @objc func openWorkBuddyAction() { performWorkBuddyOperation { try self.controller.open() } }
@@ -129,7 +134,8 @@ final class MoaWorkBuddyCoordinator: NSObject {
             DispatchQueue.main.async {
                 self.operationInFlight = false
                 self.rebuildMenu()
-                onComplete?()
+                if let onComplete { onComplete() }
+                else { self.app.accountManagerWindow.refreshIfVisible() }
                 if self.edition == .china {
                     self.app.usageCoordinator.refreshWorkBuddyCN(forceRefresh: true)
                 } else {

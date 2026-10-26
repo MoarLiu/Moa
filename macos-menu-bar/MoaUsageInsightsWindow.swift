@@ -39,6 +39,10 @@ final class MoaUsageInsightsWindowController {
 
     var isVisible: Bool { window?.isVisible == true }
 
+    func refreshAfterPricingUpdate() {
+        if isVisible { model?.refresh(forceRefresh: true) }
+    }
+
     init(
         codexScanner: CodexUsageScanner,
         claudeScanner: ClaudeUsageScanner,
@@ -117,6 +121,7 @@ private final class MoaUsageInsightsViewModel: ObservableObject {
     @Published var recentDays = 30
     @Published var isLoading = false
     @Published var errorMessage: String?
+    private var pendingForceRefresh = false
 
     private let codexScanner: CodexUsageScanner
     private let claudeScanner: ClaudeUsageScanner
@@ -227,7 +232,10 @@ private final class MoaUsageInsightsViewModel: ObservableObject {
     }
 
     func refresh(forceRefresh: Bool) {
-        guard !isLoading else { return }
+        guard !isLoading else {
+            pendingForceRefresh = pendingForceRefresh || forceRefresh
+            return
+        }
         isLoading = true
         errorMessage = nil
 
@@ -245,6 +253,10 @@ private final class MoaUsageInsightsViewModel: ObservableObject {
                 self.isLoading = false
                 if let report = result.report { self.report = report }
                 self.errorMessage = result.failures.isEmpty ? nil : result.failures.joined(separator: "\n")
+                if self.pendingForceRefresh {
+                    self.pendingForceRefresh = false
+                    self.refresh(forceRefresh: true)
+                }
             }
         }
     }

@@ -1,6 +1,6 @@
 # Moa
 
-Moa 是一个支持 ChatGPT（原 Codex Desktop）、Claude Desktop、ZCode、WorkBuddy、WorkBuddy AI 国际版工作流的 macOS 菜单栏应用。
+Moa 是一个支持 ChatGPT（原 Codex Desktop）、Claude Desktop、ZCode、WorkBuddy、WorkBuddy AI 国际版及 DeepSeek Harness 工作流的 macOS 菜单栏应用。
 
 它不包含原 Moa 的 Companion 相关功能：没有桌面宠物、AI 快捷动作、提醒事项、日记、番茄钟、MCP helper、Workflow Runner、资产上传、Dashboard、皮肤和声音资源包。
 
@@ -8,10 +8,13 @@ Moa 是一个支持 ChatGPT（原 Codex Desktop）、Claude Desktop、ZCode、Wo
 
 - ChatGPT / Codex 控制：Fast Mode、远程连接设置入口、官方账号切换、provider profile 导入导出、重新打开客户端。
 - Claude Desktop profile：写入 Claude Desktop 3P gateway profile，并复制 Claude Code 环境变量片段。
+- 账号管理：各客户端菜单的「管理账号…」打开同一个按客户端分组的窗口，在其中重命名、编辑或删除已保存条目；菜单里点击账号仍会立即切换。
 - WorkBuddy / WorkBuddy AI 国际版：各有独立菜单和用量 Tab，分别保存本机登录态、添加和切换账号、重命名或删除已保存账号，并正常退出和重启对应客户端。
+- DeepSeek：保存、添加、切换、重命名和忘记本机 DeepSeek Harness 账号，并提供打开和重启入口。
 - 用量统计：基于本地 Codex / Claude / ZCode / WorkBuddy AI 日志估算用量，提供模型明细、CSV / Markdown 导出、自定义价格和每日提醒阈值。
 - Moa 数据：导出/导入完整数据包、导出脱敏诊断包，并可把数据根切换到 iCloud Drive。
 - 更新检查：可从主菜单检查 GitHub Releases，下载、校验并安装匹配当前 Mac 的 DMG。
+- 价格热更新：主菜单点击「更新价格」，即可获取 Sub2API 参考的完整公开价格目录。支持的美元 Token 价格立即生效，自动刷新已打开的用量明细，并在重启后保留。下载失败继续使用原价格，自定义价格始终优先；每天自动检查仍保留。
 
 ## 1.3.2 升级说明
 
@@ -29,6 +32,18 @@ Moa 是一个支持 ChatGPT（原 Codex Desktop）、Claude Desktop、ZCode、Wo
 
 用量读取兼容 `token_usage_record` 和旧 `token_count`，避免双重计数，分别保留缓存读取、缓存写入和每次请求的用量。费用按单次请求判断长上下文档位；1.3.0 使用 2026-10-24 核对的 API 价格快照，覆盖 OpenAI、Claude、GLM 及 WorkBuddy 模型，并保留缓存与 Fast 参数；详见[完整模型价格与来源](MODEL_PRICING.md)。这些是本地 Codex 任务的 API 标准价格估算，不是 ChatGPT 订阅账单。
 
+## DeepSeek
+
+「DeepSeek」菜单控制 DeepSeek Harness（`com.deepseek.dsh`）。账号适配针对 Harness `0.2.1-rc.3` 使用的 version 1 块式 YAML。默认凭据文件为 `~/.dsh/.credentials.yaml`；Moa 继承的绝对路径 `DSH_HOME` 可指定其他 Harness 目录，已保存账号与该凭据路径绑定。
+
+1. 在 Harness 登录账号 A，结束正在运行的任务，然后在 Moa 选择「DeepSeek → 管理账号…」。在 DeepSeek 分组点击「保存当前登录」，填写便于识别的名称。
+2. 在同一分组点击「再添加一个账号」。Moa 正常退出 Harness，保存 A，仅移除账号登录记录后重新打开客户端。请选择登录，在浏览器中授权账号 B，再回到 Moa 点击「保存当前登录」。保留的 API Key 可能使客户端直接进入工作区，此时从客户端的登录入口继续。
+3. 在 DeepSeek 菜单点击 A 或 B 切换，确认 Harness 显示的账号，并使用账号供应商实际发送一次请求。账号管理窗口可重命名或删除所有副本，包括当前未登录的账号。
+
+切换仅修改 `records.deepseek-account-platform/default`，保留 API Key、设备标识、浏览器连接凭据、设置和本地会话。切换前请关闭其他 DSH 实例，桌面端和 CLI 可能共享凭据文件。Moa 使用 Harness 的凭据写入锁及独立账号操作锁；客户端拒绝退出时停止写入，启动失败时只恢复原账号记录，并保留启动期间其他字段的更新。无法确认的凭据格式会在编辑前被拒绝。
+
+账号副本保存在 `~/Library/Application Support/Moa/deepseek-accounts/accounts.json`，目录/文件权限为 `700` / `600`，不进入数据包、诊断包或 iCloud 数据根迁移。忘记副本不会退出 Harness 当前登录。添加账号时不要使用 Harness 的「退出登录」，它会向服务器注销会话；过期或已注销的登录态需要重新登录并保存。隔离测试覆盖本地切换和回滚；真实 A → B → A 登录、模型请求及服务器是否保留同设备的两个会话，仍需人工验收。本模块暂不提供 DeepSeek 用量统计。
+
 ## WorkBuddy
 
 菜单中的「WorkBuddy」和用量洞察中的同名 Tab 专门管理 `com.tencent.workbuddy.mac`。登录文件为 `~/Library/Application Support/CodeBuddyExtension/Data/Public/auth/workbuddy-desktop.info`，数据与密钥来自 `~/.workbuddy`。首次添加多个账号的流程与下方国际版一致，按钮会显示 WorkBuddy 名称；保存、切换、添加新登录及失败回滚都只操作国内版客户端。
@@ -45,9 +60,9 @@ Moa 是一个支持 ChatGPT（原 Codex Desktop）、Claude Desktop、ZCode、Wo
 
 首次添加两个账号：
 
-1. 在 WorkBuddy AI 登录账号 A，结束正在运行的任务，在 Moa 选择「保存当前 WorkBuddy AI 账号」，填写便于识别的名称。
-2. 选择「添加另一个 WorkBuddy AI 账号」。Moa 正常退出客户端，保存当前登录态，移除当前登录文件后打开新的登录页；这不会调用退出登录或撤销凭证。
-3. 登录账号 B，再选择「保存当前 WorkBuddy AI 账号」。之后点击菜单中的账号即可切换。
+1. 在 WorkBuddy AI 登录账号 A，结束正在运行的任务，在 Moa 选择「WorkBuddy AI → 管理账号…」，然后在 WorkBuddy AI 分组点击「保存当前登录」，填写便于识别的名称。
+2. 在同一分组点击「再添加一个账号」。Moa 正常退出客户端，保存当前登录态，移除当前登录文件后打开新的登录页；这不会调用退出登录或撤销凭证。
+3. 登录账号 B，再点击「保存当前登录」。之后点击菜单中的账号即可切换，在账号管理窗口重命名或删除已保存副本。
 
 保存和切换都在客户端退出后读取最新凭证，保留 Refresh Token 和整个加密信封。跨 Moa 实例的文件锁会阻止多个副本同时修改账号。切换时会先保存实际使用中的账号；尚未命名的账号会自动保存，避免丢失。客户端未能正常退出时停止操作，启动失败时先保留目标账号可能已刷新的凭证，再恢复原登录文件。删除已保存账号只删除 Moa 的副本，保留客户端的当前登录态。不要在客户端中使用「退出登录」，否则此前保存的凭证可能失效。
 

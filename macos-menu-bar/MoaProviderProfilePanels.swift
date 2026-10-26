@@ -37,15 +37,6 @@ enum MoaProviderProfilePanels {
         )
     }
 
-    static func showAddCodexPresetProfile(_ preset: MoaProviderPreset) -> (name: String, baseURL: String, apiKey: String)? {
-        showCodexProfilePanel(
-            title: MoaL10n.format("Add %@", preset.name),
-            message: MoaL10n.text("Add a Responses-compatible provider preset for Codex. Moa will configure Codex directly and will not translate the upstream protocol."),
-            buttonTitle: MoaL10n.text("Add"),
-            initial: CodexProfileFormView.Initial(preset: preset)
-        )
-    }
-
     static func showEditCodexProfile(for profile: ConfigProfile) -> (name: String, baseURL: String, apiKey: String)? {
         showCodexProfilePanel(
             title: MoaL10n.text("Edit Codex Config"),
@@ -262,12 +253,6 @@ private struct CodexProfileFormView: View {
             name = profile.name
             baseURL = profile.baseURL
             apiKey = profile.apiKey
-        }
-
-        init(preset: MoaProviderPreset) {
-            name = preset.name
-            baseURL = preset.baseURL
-            apiKey = ""
         }
     }
 

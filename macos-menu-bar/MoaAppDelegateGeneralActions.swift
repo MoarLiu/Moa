@@ -3,6 +3,30 @@ import Foundation
 import SwiftUI
 
 extension AppDelegate {
+    @objc func updatePricesAction() {
+        guard !usageCoordinator.isUpdatingPrices else { return }
+        statusItemText.title = Self.statusTitle("Updating Prices…")
+        usageCoordinator.updatePrices { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case .success:
+                self.statusItemText.title = Self.statusTitle("Prices Updated")
+                MoaNonBlockingAlert.present(
+                    messageText: MoaL10n.text("Prices Updated"),
+                    informativeText: MoaL10n.format("Fetched pricing data for %d models. Usage estimates are refreshing; your custom prices are unchanged.", self.usageCoordinator.pricingModelCount),
+                    tone: .success
+                )
+            case .failure(let error):
+                self.statusItemText.title = Self.statusTitle("Price Update Failed")
+                MoaNonBlockingAlert.present(
+                    messageText: MoaL10n.text("Price Update Failed"),
+                    informativeText: MoaL10n.format("%@\nPrevious prices and custom prices are still available. Try again later.", error.localizedDescription),
+                    tone: .warning
+                )
+            }
+        }
+    }
+
     @objc func refreshStatusAction() {
         usageCoordinator.refreshCodex(forceRefresh: true)
     }

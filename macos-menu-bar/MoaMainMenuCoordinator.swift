@@ -10,6 +10,7 @@ final class MoaMainMenuCoordinator {
 
     func configureMenu() {
         app.menu.delegate = app
+        app.menu.autoenablesItems = false
 
         app.versionItem.title = AppDelegate.versionTitle()
         app.versionItem.isEnabled = false
@@ -37,6 +38,8 @@ final class MoaMainMenuCoordinator {
         app.menu.addItem(app.moaDataItem)
         app.menu.addItem(NSMenuItem.separator())
 
+        app.updatePricesItem.target = app
+        app.menu.addItem(app.updatePricesItem)
         let checkUpdateItem = NSMenuItem(title: MoaL10n.text("Check Update"), action: #selector(AppDelegate.checkUpdateAction), keyEquivalent: "")
         checkUpdateItem.target = app
         app.menu.addItem(checkUpdateItem)
@@ -103,7 +106,7 @@ final class MoaMainMenuCoordinator {
         app.remoteConnectionsItem.state = .off
 
         if let button = app.statusItem.button {
-            button.toolTip = MoaL10n.text("Moa - Codex, Claude, ZCode, WorkBuddy, WorkBuddy AI")
+            button.toolTip = MoaL10n.text("Moa - Codex, Claude, ZCode, WorkBuddy, WorkBuddy AI, DeepSeek")
         }
     }
 

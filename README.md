@@ -1,6 +1,6 @@
 # Moa
 
-Moa is a macOS menu bar app for ChatGPT (formerly Codex Desktop), Claude Desktop, ZCode, WorkBuddy, and WorkBuddy AI International workflows.
+Moa is a macOS menu bar app for ChatGPT (formerly Codex Desktop), Claude Desktop, ZCode, WorkBuddy, WorkBuddy AI International, and DeepSeek Harness workflows.
 
 It intentionally excludes the original Moa Companion surface: no desktop pet, AI quick actions, reminders, journal, Pomodoro, MCP helper, workflow runner, asset upload, dashboard, skins, or sounds.
 
@@ -8,10 +8,13 @@ It intentionally excludes the original Moa Companion surface: no desktop pet, AI
 
 - ChatGPT / Codex controls: Fast Mode, a remote connection settings shortcut, official account switching, provider profile import/export, and client reopen helpers.
 - Claude Desktop profiles: write Claude Desktop 3P gateway profiles and copy Claude Code environment snippets.
+- Account management: **Manage Accounts…** opens one window grouped by client. Rename, edit, or delete saved entries there; selecting an account in the menu still switches immediately.
 - WorkBuddy / WorkBuddy AI International: separate account menus and usage tabs, local logins, account enrollment and switching, rename/forget actions, and client launch helpers.
+- DeepSeek: save, enroll, switch, rename, and forget local DeepSeek Harness account logins, with open/reopen helpers.
 - Usage insights: local Codex, Claude, ZCode, and WorkBuddy AI summaries, model details, CSV / Markdown exports, custom prices, and configurable daily alerts.
 - Moa Data: export/import data packages, export redacted diagnostics, and optionally switch the active data root to iCloud Drive.
 - Updates: check GitHub Releases from the main menu, then download, verify, and install the matching macOS DMG.
+- Model prices: choose **Update Prices** in the main menu to download the complete public price table used as Sub2API's reference. Supported USD token rates take effect immediately, refresh open usage reports, and persist across restarts. Failed downloads keep the previous table; custom prices take precedence. Daily automatic checks remain enabled.
 
 ## Upgrading to 1.3.2
 
@@ -29,6 +32,18 @@ The remote connection menu opens `codex://settings/connections`; ChatGPT manages
 
 Usage scanning supports both `token_usage_record` and legacy `token_count` events without counting both, and retains cache reads, cache writes, and request boundaries. Long-context prices apply per request. Version 1.3.0 includes API prices checked on 2026-10-24 for OpenAI, Claude, GLM, and WorkBuddy models, including cache and Fast parameters. See the [complete model price and source table](MODEL_PRICING.md). These are standard API price estimates for local Codex tasks, not ChatGPT subscription invoices.
 
+## DeepSeek
+
+The **DeepSeek** menu controls DeepSeek Harness (`com.deepseek.dsh`). Its account adapter targets the version-1 block YAML used by Harness `0.2.1-rc.3`. The default credential file is `~/.dsh/.credentials.yaml`; an absolute `DSH_HOME` inherited by Moa selects another Harness home. Saved accounts are bound to that credential path.
+
+1. Sign in as account A in Harness, finish active tasks, and choose **DeepSeek → Manage Accounts…** in Moa. In the DeepSeek group, choose **Save Current Login** and give the account a recognizable name.
+2. In the same group, choose **Add Another Account**. Moa exits Harness normally, saves A, removes only the account login record, and reopens Harness. Choose **Sign In** and authorize account B in the browser, then use **Save Current Login** again. Existing API keys can keep Harness in its workspace rather than its welcome screen.
+3. Select A or B in the DeepSeek menu to switch. Confirm the account shown in Harness and send a request using its account provider. Rename or delete saved copies in the account window, including accounts that are no longer signed in.
+
+Switching edits only `records.deepseek-account-platform/default`. Provider API keys, device identity, the browser-connection secret, settings, and local sessions are retained. Close other DSH instances before switching: the desktop and CLI can share a credential store. Moa uses Harness's credential writer lock and a separate account-operation lock. Refused quits prevent writes; launch failures restore the original account record while retaining unrelated changes made during startup. Unsupported or ambiguous credential formats are rejected before editing.
+
+Account snapshots stay in `~/Library/Application Support/Moa/deepseek-accounts/accounts.json` with directory/file modes `700`/`600`. They do not enter data packages, diagnostics, or iCloud data-root moves. Forgetting a saved entry leaves Harness signed in. Do not use Harness **Log Out** to enroll another account, because it revokes the server session. Expired or revoked sessions require signing in and saving again. Local fixture tests cover switching and rollback; real A → B → A login and inference remain a manual acceptance check, including whether the server retains both sessions on one device. This module does not add DeepSeek usage reporting.
+
 ## WorkBuddy
 
 The **WorkBuddy** menu and usage tab address `com.tencent.workbuddy.mac`, using `~/Library/Application Support/CodeBuddyExtension/Data/Public/auth/workbuddy-desktop.info` and the data/keyblob under `~/.workbuddy`. Account enrollment follows the international steps below, with WorkBuddy client labels. Saving, switching, fresh sign-in, and recovery only control the domestic client.
@@ -45,9 +60,9 @@ The `WorkBuddy AI` menu addresses `com.workbuddy.workbuddy-ai` and only changes 
 
 To enroll two accounts:
 
-1. Sign into account A in WorkBuddy AI, finish active tasks, then choose **Save Current WorkBuddy AI Account** in Moa and give it a name.
-2. Choose **Add Another WorkBuddy AI Account**. Moa quits the client normally, saves the current login, removes the live auth file, and opens a fresh sign-in screen without calling logout or revoking credentials.
-3. Sign into account B and save it in Moa. Select either saved account in the menu to switch.
+1. Sign into account A in WorkBuddy AI, finish active tasks, then choose **WorkBuddy AI → Manage Accounts…** in Moa. In the WorkBuddy AI group, choose **Save Current Login** and give it a name.
+2. Choose **Add Another Account** in that group. Moa quits the client normally, saves the current login, removes the live auth file, and opens a fresh sign-in screen without calling logout or revoking credentials.
+3. Sign into account B and use **Save Current Login** again. Select either saved account in the menu to switch; rename or delete saved copies in the account window.
 
 Moa captures credentials after the client exits, preserving rotated refresh tokens, encrypted envelopes, and unknown fields. A file lock serializes account operations across Moa instances. Switching also saves an unrecognized outgoing account automatically. A refused or timed-out quit stops the operation; failed launches retain any newly refreshed target credentials before restoring the previous login file. Forgetting a saved account only removes Moa's copy and leaves the live login intact. Avoid **Log Out** in WorkBuddy AI because it may invalidate saved credentials.
 

@@ -3,9 +3,19 @@ import XCTest
 @testable import Moa
 
 final class MoaXCTest: XCTestCase {
+    private var pricingHome: URL?
     override func setUp() {
         super.setUp()
         MoaRuntimeMode.suppressesUserInteraction = true
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent("moa-test-pricing-\(UUID().uuidString)")
+        pricingHome = home
+        MoaUsagePricing.useRemoteCatalogStoreForTesting(.init(environment: ["HOME": home.path]))
+    }
+
+    override func tearDown() {
+        MoaUsagePricing.resetRemoteCatalogStoreForTesting()
+        if let pricingHome { try? FileManager.default.removeItem(at: pricingHome) }
+        super.tearDown()
     }
 
     private func run(_ name: String) throws {
@@ -18,6 +28,21 @@ final class MoaXCTest: XCTestCase {
 
     func testNativeDiscoveryMatchesTheCheckRegistry() {
         let expected: Set<String> = [
+            "Grok Build aliases and Fast context rates price local usage",
+            "full pricing downloads preserve all records and accept new model IDs",
+            "pricing commits immediately invalidate independent catalog caches",
+            "manual price updates coalesce and reprice unchanged downloads",
+            "failed price downloads keep prior catalogs and custom prices",
+            "stopping price updates releases requests and suppresses stale callbacks",
+            "new remote models reprice unchanged WorkBuddy logs without a release",
+            "DeepSeek edits only the account grant in Harness YAML",
+            "DeepSeek rejects ambiguous and unsupported credential formats",
+            "DeepSeek saves after quit and manages saved account copies",
+            "DeepSeek account enrollment and switching preserve other credentials",
+            "DeepSeek launch failures restore only the previous account grant",
+            "DeepSeek credential writes respect process locks and stopped clients",
+            "DeepSeek rejects symbolic links and corrupt saved accounts",
+            "DeepSeek account snapshots stay outside packages and iCloud",
             "retired provider storage keeps direct profiles and requires reselection",
             "direct profile round trips omit retired routing fields",
             "retired provider imports fail atomically with migration guidance",
@@ -37,7 +62,7 @@ final class MoaXCTest: XCTestCase {
             "WorkBuddy aliases use API list prices without credit discounts",
             "GPT-6 Sol and Luna use current standard and Fast rates",
             "Claude current models apply correct context and cache prices",
-            "official pricing corrections override stale and regional mirrors",
+            "fresh remote prices replace seeds while stale mirrors cannot",
             "ZCode context prices apply to requests before aggregation",
             "WorkBuddy editions have separate identities and state paths",
             "WorkBuddy China switching and recovery preserve the AI client",
@@ -65,7 +90,6 @@ final class MoaXCTest: XCTestCase {
             "official no-account mode selects first direct config when none selected",
             "official no-account mode deduplicates current login by email",
             "official account list syncs selected account email",
-            "LiteLLM preset no longer uses original Moa model name",
             "updater compares versions and parses release feed",
             "updater prunes old backups",
             "GPT-5.6 family uses current local pricing",
@@ -113,6 +137,23 @@ final class MoaXCTest: XCTestCase {
         XCTAssertEqual(Set(MoaCoreTests.tests.map { $0.0 }), expected)
         XCTAssertEqual(MoaCoreTests.tests.count, expected.count)
     }
+
+    func testGrokBuildPricing() throws { try run("Grok Build aliases and Fast context rates price local usage") }
+    func testFullPricingCatalog() throws { try run("full pricing downloads preserve all records and accept new model IDs") }
+    func testPricingCacheInvalidation() throws { try run("pricing commits immediately invalidate independent catalog caches") }
+    func testManualPricingRefresh() throws { try run("manual price updates coalesce and reprice unchanged downloads") }
+    func testFailedPricingDownload() throws { try run("failed price downloads keep prior catalogs and custom prices") }
+    func testStoppedPricingRefresh() throws { try run("stopping price updates releases requests and suppresses stale callbacks") }
+    func testRepriceUnchangedLogs() throws { try run("new remote models reprice unchanged WorkBuddy logs without a release") }
+
+    func testDeepSeekDocumentEdits() throws { try run("DeepSeek edits only the account grant in Harness YAML") }
+    func testDeepSeekDocumentGuards() throws { try run("DeepSeek rejects ambiguous and unsupported credential formats") }
+    func testDeepSeekSaveAndManage() throws { try run("DeepSeek saves after quit and manages saved account copies") }
+    func testDeepSeekSwitchAndEnroll() throws { try run("DeepSeek account enrollment and switching preserve other credentials") }
+    func testDeepSeekLaunchRollback() throws { try run("DeepSeek launch failures restore only the previous account grant") }
+    func testDeepSeekWriteExclusion() throws { try run("DeepSeek credential writes respect process locks and stopped clients") }
+    func testDeepSeekStorageGuards() throws { try run("DeepSeek rejects symbolic links and corrupt saved accounts") }
+    func testDeepSeekStorageIsolation() throws { try run("DeepSeek account snapshots stay outside packages and iCloud") }
 
     func testWorkBuddySavesExactEncryptedLoginAfterQuit() throws {
         try run("WorkBuddy saves exact encrypted login after quit")
@@ -175,7 +216,7 @@ final class MoaXCTest: XCTestCase {
     }
 
     func testOfficialPricingCorrectionsOverrideStaleAndRegionalMirrors() throws {
-        try run("official pricing corrections override stale and regional mirrors")
+        try run("fresh remote prices replace seeds while stale mirrors cannot")
     }
 
     func testZCodeContextPricesApplyToRequestsBeforeAggregation() throws {
@@ -284,10 +325,6 @@ final class MoaXCTest: XCTestCase {
 
     func testOfficialAccountListSyncsSelectedAccountEmail() throws {
         try run("official account list syncs selected account email")
-    }
-
-    func testLiteLLMPresetNoLongerUsesOriginalMoaModelName() throws {
-        try run("LiteLLM preset no longer uses original Moa model name")
     }
 
     func testUpdaterComparesVersionsAndParsesReleaseFeed() throws {

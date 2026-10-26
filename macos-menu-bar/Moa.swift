@@ -79,6 +79,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let openMoaDataFolderItem = NSMenuItem(title: MoaL10n.text("Open Moa Data Folder"), action: #selector(openMoaDataFolderAction), keyEquivalent: "")
     let openICloudDataFolderItem = NSMenuItem(title: MoaL10n.text("Open iCloud Data Folder"), action: #selector(openICloudDataFolderAction), keyEquivalent: "")
     let versionItem = NSMenuItem(title: "Moa", action: nil, keyEquivalent: "")
+    let updatePricesItem = NSMenuItem(title: MoaL10n.text("Update Prices"), action: #selector(updatePricesAction), keyEquivalent: "")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -92,6 +93,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func configureUsageAlertCallbacks() {
+        usageCoordinator.onPricingUpdated = { [weak self] in self?.usageInsightsWindow.refreshAfterPricingUpdate() }
+        usageCoordinator.onPricingRefreshStateChanged = { [weak self] updating in
+            self?.updatePricesItem.title = MoaL10n.text(updating ? "Updating Prices…" : "Update Prices")
+            self?.updatePricesItem.isEnabled = !updating
+        }
         usageCoordinator.needsFrequentRefresh = { [weak self] source in
             let alertEnabled = DailyUsageAlertKind(rawValue: source.rawValue).flatMap { DailyUsageAlertController.threshold(for: $0) } != nil
             return alertEnabled || self?.usageInsightsWindow.isVisible == true

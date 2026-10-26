@@ -201,7 +201,7 @@ final class WorkBuddyUsageScanner {
         let canonical = MoaUsagePricingSeed.canonicalModel(request.model)
         let custom = overrides.override(source: edition.usageSource, model: request.model)
             ?? overrides.override(source: edition.usageSource, model: canonical)
-        let remote = MoaUsagePricing.catalogPricing(source: edition.usageSource, model: canonical, store: catalog)
+        let remote = MoaUsagePricing.catalogPricing(source: edition.usageSource, model: request.model, store: catalog)
         if custom != nil || remote != nil {
             let above = remote?.usesLongContext(promptTokens: request.input) ?? false
             let input = custom?.inputUSDPerMillion ?? (above ? remote?.inputUSDPerMillionAboveThreshold : nil) ?? remote?.inputUSDPerMillion ?? 0

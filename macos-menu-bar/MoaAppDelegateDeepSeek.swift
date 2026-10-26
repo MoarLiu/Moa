@@ -7,6 +7,7 @@ final class MoaDeepSeekCoordinator: NSObject {
     let item = NSMenuItem(title: "DeepSeek", action: nil, keyEquivalent: "")
     let menu = NSMenu(title: "DeepSeek")
     private var operationInFlight = false
+    var isUpdatingAccounts: Bool { operationInFlight }
 
     init(app: AppDelegate, controller: DeepSeekController = DeepSeekController()) {
         self.app = app
@@ -90,7 +91,11 @@ final class MoaDeepSeekCoordinator: NSObject {
     }
     @objc private func applyAccount(_ sender: NSMenuItem) {
         guard let id = accountID(sender) else { return }
-        perform { _ = try self.controller.apply(id: id) }
+        applySavedAccount(id: id)
+    }
+
+    func applySavedAccount(id: UUID, onComplete: (() -> Void)? = nil) {
+        perform(onComplete: onComplete) { _ = try self.controller.apply(id: id) }
     }
     @objc private func openApp() { perform { try self.controller.open() } }
     @objc private func reopenApp() { perform { try self.controller.reopen() } }
@@ -105,7 +110,8 @@ final class MoaDeepSeekCoordinator: NSObject {
             DispatchQueue.main.async {
                 self.operationInFlight = false
                 self.rebuildMenu()
-                onComplete?()
+                if let onComplete { onComplete() }
+                else { self.app.accountManagerWindow.refreshIfVisible() }
                 switch result {
                 case .success: self.app.statusItemText.title = AppDelegate.statusTitle("DeepSeek updated")
                 case .failure(let error):

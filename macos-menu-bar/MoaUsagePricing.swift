@@ -36,6 +36,7 @@ enum MoaUsagePricing {
         var priorityOutputCostPerTokenAboveThreshold: Double? = nil
         var priorityCacheReadInputCostPerTokenAboveThreshold: Double? = nil
         var priorityCacheWriteInputCostPerTokenAboveThreshold: Double? = nil
+        var thresholdInclusive = false
     }
 
     private struct ClaudePricing {
@@ -48,6 +49,7 @@ enum MoaUsagePricing {
         let outputCostPerTokenAboveThreshold: Double?
         let cacheCreationInputCostPerTokenAboveThreshold: Double?
         let cacheReadInputCostPerTokenAboveThreshold: Double?
+        var thresholdInclusive = false
     }
 
     private struct ZCodePricing {
@@ -60,6 +62,7 @@ enum MoaUsagePricing {
         var outputCostPerTokenAboveThreshold: Double? = nil
         var cacheReadInputCostPerTokenAboveThreshold: Double? = nil
         var cacheCreationInputCostPerTokenAboveThreshold: Double? = nil
+        var thresholdInclusive = false
     }
 
     private static let codex: [String: CodexPricing] = [
@@ -150,13 +153,32 @@ enum MoaUsagePricing {
         // Share public USD reference prices, never edition-specific user overrides or usage.
         let source: MoaUsageSource = source == .workbuddyCN ? .workbuddy : source
         let key = MoaUsagePricingSeed.canonicalModel(model)
-        guard !MoaUsagePricingSeed.unpricedModels.contains(key) else { return nil }
         catalogStoreLock.lock()
         let store = suppliedStore ?? catalogStore
         catalogStoreLock.unlock()
         let seed = MoaUsagePricingSeed.price(source: source, model: key)
-        if let seed, MoaUsagePricingSeed.usesOfficialCorrection(source: source, model: key) { return seed }
-        return store.pricing(source: source, model: key, notBefore: seed == nil ? nil : MoaUsagePricingSeed.checkedAt) ?? seed
+        let raw = model.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let notBefore = seed == nil ? nil : MoaUsagePricingSeed.checkedAt
+        if let remote = store.pricing(source: source, model: raw, notBefore: notBefore)
+            ?? store.pricing(source: source, model: key, notBefore: notBefore) {
+            if MoaUsagePricingSeed.unpricedModels.contains(key), remote.inputUSDPerMillion == 0, remote.outputUSDPerMillion == 0 { return nil }
+            return remote
+        }
+        if key == "grok-4.7-build-fast", var base = catalogPricing(source: source, model: "grok-4.7", store: store)
+            ?? MoaUsagePricingSeed.price(source: .workbuddy, model: "grok-4.7") {
+            // Official Grok Build Fast multipliers: 2x standard context and
+            // 1.5x the long-context rates. An exact remote Fast entry wins above.
+            base.inputUSDPerMillion *= 2
+            base.outputUSDPerMillion *= 2
+            base.cacheReadUSDPerMillion = base.cacheReadUSDPerMillion.map { $0 * 2 }
+            base.cacheCreationUSDPerMillion = base.cacheCreationUSDPerMillion.map { $0 * 2 }
+            base.inputUSDPerMillionAboveThreshold = base.inputUSDPerMillionAboveThreshold.map { $0 * 1.5 }
+            base.outputUSDPerMillionAboveThreshold = base.outputUSDPerMillionAboveThreshold.map { $0 * 1.5 }
+            base.cacheReadUSDPerMillionAboveThreshold = base.cacheReadUSDPerMillionAboveThreshold.map { $0 * 1.5 }
+            base.cacheCreationUSDPerMillionAboveThreshold = base.cacheCreationUSDPerMillionAboveThreshold.map { $0 * 1.5 }
+            return base
+        }
+        return seed
     }
 
     private static func remotePricing(source: MoaUsageSource, model: String) -> MoaUsageRemotePricing? {
@@ -169,22 +191,23 @@ enum MoaUsagePricing {
         return CodexPricing(
             inputCostPerToken: perToken(remote.inputUSDPerMillion),
             outputCostPerToken: perToken(remote.outputUSDPerMillion),
-            cacheReadInputCostPerToken: remote.cacheReadUSDPerMillion.map(perToken) ?? builtIn?.cacheReadInputCostPerToken,
+            cacheReadInputCostPerToken: remote.cacheReadUSDPerMillion.map(perToken),
             displayLabel: builtIn?.displayLabel,
-            thresholdTokens: remote.thresholdTokens ?? builtIn?.thresholdTokens,
-            inputCostPerTokenAboveThreshold: remote.inputUSDPerMillionAboveThreshold.map(perToken) ?? builtIn?.inputCostPerTokenAboveThreshold,
-            outputCostPerTokenAboveThreshold: remote.outputUSDPerMillionAboveThreshold.map(perToken) ?? builtIn?.outputCostPerTokenAboveThreshold,
-            cacheReadInputCostPerTokenAboveThreshold: remote.cacheReadUSDPerMillionAboveThreshold.map(perToken) ?? builtIn?.cacheReadInputCostPerTokenAboveThreshold,
-            priorityInputCostPerToken: remote.priorityInputUSDPerMillion.map(perToken) ?? builtIn?.priorityInputCostPerToken,
-            priorityOutputCostPerToken: remote.priorityOutputUSDPerMillion.map(perToken) ?? builtIn?.priorityOutputCostPerToken,
-            priorityCacheReadInputCostPerToken: remote.priorityCacheReadUSDPerMillion.map(perToken) ?? builtIn?.priorityCacheReadInputCostPerToken,
-            cacheWriteInputCostPerToken: remote.cacheCreationUSDPerMillion.map(perToken) ?? builtIn?.cacheWriteInputCostPerToken,
-            cacheWriteInputCostPerTokenAboveThreshold: remote.cacheCreationUSDPerMillionAboveThreshold.map(perToken) ?? builtIn?.cacheWriteInputCostPerTokenAboveThreshold,
-            priorityCacheWriteInputCostPerToken: remote.priorityCacheCreationUSDPerMillion.map(perToken) ?? builtIn?.priorityCacheWriteInputCostPerToken,
-            priorityInputCostPerTokenAboveThreshold: remote.priorityInputUSDPerMillionAboveThreshold.map(perToken) ?? builtIn?.priorityInputCostPerTokenAboveThreshold,
-            priorityOutputCostPerTokenAboveThreshold: remote.priorityOutputUSDPerMillionAboveThreshold.map(perToken) ?? builtIn?.priorityOutputCostPerTokenAboveThreshold,
-            priorityCacheReadInputCostPerTokenAboveThreshold: remote.priorityCacheReadUSDPerMillionAboveThreshold.map(perToken) ?? builtIn?.priorityCacheReadInputCostPerTokenAboveThreshold,
-            priorityCacheWriteInputCostPerTokenAboveThreshold: remote.priorityCacheCreationUSDPerMillionAboveThreshold.map(perToken) ?? builtIn?.priorityCacheWriteInputCostPerTokenAboveThreshold
+            thresholdTokens: remote.thresholdTokens,
+            inputCostPerTokenAboveThreshold: remote.inputUSDPerMillionAboveThreshold.map(perToken),
+            outputCostPerTokenAboveThreshold: remote.outputUSDPerMillionAboveThreshold.map(perToken),
+            cacheReadInputCostPerTokenAboveThreshold: remote.cacheReadUSDPerMillionAboveThreshold.map(perToken),
+            priorityInputCostPerToken: remote.priorityInputUSDPerMillion.map(perToken),
+            priorityOutputCostPerToken: remote.priorityOutputUSDPerMillion.map(perToken),
+            priorityCacheReadInputCostPerToken: remote.priorityCacheReadUSDPerMillion.map(perToken),
+            cacheWriteInputCostPerToken: remote.cacheCreationUSDPerMillion.map(perToken),
+            cacheWriteInputCostPerTokenAboveThreshold: remote.cacheCreationUSDPerMillionAboveThreshold.map(perToken),
+            priorityCacheWriteInputCostPerToken: remote.priorityCacheCreationUSDPerMillion.map(perToken),
+            priorityInputCostPerTokenAboveThreshold: remote.priorityInputUSDPerMillionAboveThreshold.map(perToken),
+            priorityOutputCostPerTokenAboveThreshold: remote.priorityOutputUSDPerMillionAboveThreshold.map(perToken),
+            priorityCacheReadInputCostPerTokenAboveThreshold: remote.priorityCacheReadUSDPerMillionAboveThreshold.map(perToken),
+            priorityCacheWriteInputCostPerTokenAboveThreshold: remote.priorityCacheCreationUSDPerMillionAboveThreshold.map(perToken),
+            thresholdInclusive: remote.thresholdInclusive ?? false
         )
     }
 
@@ -194,13 +217,14 @@ enum MoaUsagePricing {
         return ClaudePricing(
             inputCostPerToken: perToken(remote.inputUSDPerMillion),
             outputCostPerToken: perToken(remote.outputUSDPerMillion),
-            cacheCreationInputCostPerToken: remote.cacheCreationUSDPerMillion.map(perToken) ?? builtIn?.cacheCreationInputCostPerToken ?? perToken(remote.inputUSDPerMillion),
-            cacheReadInputCostPerToken: remote.cacheReadUSDPerMillion.map(perToken) ?? builtIn?.cacheReadInputCostPerToken ?? perToken(remote.inputUSDPerMillion),
-            thresholdTokens: remote.thresholdTokens ?? builtIn?.thresholdTokens,
-            inputCostPerTokenAboveThreshold: remote.inputUSDPerMillionAboveThreshold.map(perToken) ?? builtIn?.inputCostPerTokenAboveThreshold,
-            outputCostPerTokenAboveThreshold: remote.outputUSDPerMillionAboveThreshold.map(perToken) ?? builtIn?.outputCostPerTokenAboveThreshold,
-            cacheCreationInputCostPerTokenAboveThreshold: remote.cacheCreationUSDPerMillionAboveThreshold.map(perToken) ?? builtIn?.cacheCreationInputCostPerTokenAboveThreshold,
-            cacheReadInputCostPerTokenAboveThreshold: remote.cacheReadUSDPerMillionAboveThreshold.map(perToken) ?? builtIn?.cacheReadInputCostPerTokenAboveThreshold
+            cacheCreationInputCostPerToken: remote.cacheCreationUSDPerMillion.map(perToken) ?? perToken(remote.inputUSDPerMillion),
+            cacheReadInputCostPerToken: remote.cacheReadUSDPerMillion.map(perToken) ?? perToken(remote.inputUSDPerMillion),
+            thresholdTokens: remote.thresholdTokens,
+            inputCostPerTokenAboveThreshold: remote.inputUSDPerMillionAboveThreshold.map(perToken),
+            outputCostPerTokenAboveThreshold: remote.outputUSDPerMillionAboveThreshold.map(perToken),
+            cacheCreationInputCostPerTokenAboveThreshold: remote.cacheCreationUSDPerMillionAboveThreshold.map(perToken),
+            cacheReadInputCostPerTokenAboveThreshold: remote.cacheReadUSDPerMillionAboveThreshold.map(perToken),
+            thresholdInclusive: remote.thresholdInclusive ?? false
         )
     }
 
@@ -211,13 +235,14 @@ enum MoaUsagePricing {
         return ZCodePricing(
             inputCostPerToken: perToken(remote.inputUSDPerMillion),
             outputCostPerToken: perToken(remote.outputUSDPerMillion),
-            cacheCreationInputCostPerToken: remote.cacheCreationUSDPerMillion.map(perToken) ?? builtIn?.cacheCreationInputCostPerToken ?? 0,
-            cacheReadInputCostPerToken: remote.cacheReadUSDPerMillion.map(perToken) ?? builtIn?.cacheReadInputCostPerToken ?? perToken(remote.inputUSDPerMillion),
+            cacheCreationInputCostPerToken: remote.cacheCreationUSDPerMillion.map(perToken) ?? perToken(remote.inputUSDPerMillion),
+            cacheReadInputCostPerToken: remote.cacheReadUSDPerMillion.map(perToken) ?? perToken(remote.inputUSDPerMillion),
             thresholdTokens: remote.thresholdTokens,
             inputCostPerTokenAboveThreshold: remote.inputUSDPerMillionAboveThreshold.map(perToken),
             outputCostPerTokenAboveThreshold: remote.outputUSDPerMillionAboveThreshold.map(perToken),
             cacheReadInputCostPerTokenAboveThreshold: remote.cacheReadUSDPerMillionAboveThreshold.map(perToken),
-            cacheCreationInputCostPerTokenAboveThreshold: remote.cacheCreationUSDPerMillionAboveThreshold.map(perToken)
+            cacheCreationInputCostPerTokenAboveThreshold: remote.cacheCreationUSDPerMillionAboveThreshold.map(perToken),
+            thresholdInclusive: remote.thresholdInclusive ?? false
         )
     }
 
@@ -336,7 +361,7 @@ enum MoaUsagePricing {
         outputTokens: Int) -> CostEstimate?
     {
         let normalized = normalizeCodexModel(model)
-        if MoaUsagePricingSeed.unpricedModels.contains(normalized) {
+        if MoaUsagePricingSeed.unpricedModels.contains(normalized), remotePricing(source: .codex, model: normalized) == nil {
             return CostEstimate(costUSD: 0, normalizedModel: normalized, pricingModel: "unpriced", usesFallbackPricing: true)
         }
         let usesFallback = codexPricing(model: normalized) == nil
@@ -361,7 +386,7 @@ enum MoaUsagePricing {
         let pricingModel = codexPricing(model: normalized) == nil ? fallbackCodexPricingModel : normalized
         guard let pricing = codexPricing(model: pricingModel) else { return nil }
         let baseRate = pricing.cacheReadInputCostPerToken ?? pricing.inputCostPerToken
-        let usesLongContextRates = pricing.thresholdTokens.map { max(0, inputTokens) > $0 } ?? false
+        let usesLongContextRates = pricing.thresholdTokens.map { pricing.thresholdInclusive ? max(0, inputTokens) >= $0 : max(0, inputTokens) > $0 } ?? false
         let rate = usesLongContextRates ? pricing.cacheReadInputCostPerTokenAboveThreshold ?? baseRate : baseRate
         return rate * 1_000_000
     }
@@ -370,7 +395,7 @@ enum MoaUsagePricing {
         let normalized = normalizeCodexModel(model)
         let pricingModel = codexPricing(model: normalized) == nil ? fallbackCodexPricingModel : normalized
         guard let pricing = codexPricing(model: pricingModel) else { return nil }
-        let longContext = pricing.thresholdTokens.map { max(0, inputTokens) > $0 } ?? false
+        let longContext = pricing.thresholdTokens.map { pricing.thresholdInclusive ? max(0, inputTokens) >= $0 : max(0, inputTokens) > $0 } ?? false
         let rate = longContext
             ? pricing.cacheWriteInputCostPerTokenAboveThreshold ?? pricing.inputCostPerTokenAboveThreshold ?? pricing.cacheWriteInputCostPerToken ?? pricing.inputCostPerToken
             : pricing.cacheWriteInputCostPerToken ?? pricing.inputCostPerToken
@@ -460,7 +485,7 @@ enum MoaUsagePricing {
         let normalized = normalizeClaudeModel(model)
         let pricingModel = claudePricing(model: normalized) == nil ? fallbackClaudePricingModel : normalized
         guard let pricing = claudePricing(model: pricingModel) else { return nil }
-        let usesLongContextRates = pricing.thresholdTokens.map { max(0, promptTokens) > $0 } ?? false
+        let usesLongContextRates = pricing.thresholdTokens.map { pricing.thresholdInclusive ? max(0, promptTokens) >= $0 : max(0, promptTokens) > $0 } ?? false
         let rate = usesLongContextRates ? pricing.cacheReadInputCostPerTokenAboveThreshold ?? pricing.cacheReadInputCostPerToken : pricing.cacheReadInputCostPerToken
         return rate * 1_000_000
     }
@@ -469,7 +494,7 @@ enum MoaUsagePricing {
         let normalized = normalizeClaudeModel(model)
         let pricingModel = claudePricing(model: normalized) == nil ? fallbackClaudePricingModel : normalized
         guard let pricing = claudePricing(model: pricingModel) else { return nil }
-        let usesLongContextRates = pricing.thresholdTokens.map { max(0, promptTokens) > $0 } ?? false
+        let usesLongContextRates = pricing.thresholdTokens.map { pricing.thresholdInclusive ? max(0, promptTokens) >= $0 : max(0, promptTokens) > $0 } ?? false
         let rate = usesLongContextRates ? pricing.cacheCreationInputCostPerTokenAboveThreshold ?? pricing.cacheCreationInputCostPerToken : pricing.cacheCreationInputCostPerToken
         return rate * 1_000_000
     }
@@ -503,7 +528,7 @@ enum MoaUsagePricing {
         let normalized = normalizeZCodeModel(model)
         let pricingModel = zcodePricing(model: normalized) == nil ? fallbackZCodePricingModel : normalized
         guard let pricing = zcodePricing(model: pricingModel) else { return nil }
-        let above = pricing.thresholdTokens.map { max(0, promptTokens) > $0 } ?? false
+        let above = pricing.thresholdTokens.map { pricing.thresholdInclusive ? max(0, promptTokens) >= $0 : max(0, promptTokens) > $0 } ?? false
         return (above ? pricing.cacheReadInputCostPerTokenAboveThreshold ?? pricing.cacheReadInputCostPerToken : pricing.cacheReadInputCostPerToken) * 1_000_000
     }
 
@@ -511,7 +536,7 @@ enum MoaUsagePricing {
         let normalized = normalizeZCodeModel(model)
         let pricingModel = zcodePricing(model: normalized) == nil ? fallbackZCodePricingModel : normalized
         guard let pricing = zcodePricing(model: pricingModel) else { return nil }
-        let above = pricing.thresholdTokens.map { max(0, promptTokens) > $0 } ?? false
+        let above = pricing.thresholdTokens.map { pricing.thresholdInclusive ? max(0, promptTokens) >= $0 : max(0, promptTokens) > $0 } ?? false
         return (above ? pricing.cacheCreationInputCostPerTokenAboveThreshold ?? pricing.cacheCreationInputCostPerToken : pricing.cacheCreationInputCostPerToken) * 1_000_000
     }
 
@@ -526,7 +551,7 @@ enum MoaUsagePricing {
         let cacheWrite = min(max(0, cacheWriteInputTokens), max(0, inputTokens - cached))
         let nonCached = max(0, inputTokens - cached - cacheWrite)
         let cachedRate = pricing.cacheReadInputCostPerToken ?? pricing.inputCostPerToken
-        let usesLongContextRates = pricing.thresholdTokens.map { max(0, inputTokens) > $0 } ?? false
+        let usesLongContextRates = pricing.thresholdTokens.map { pricing.thresholdInclusive ? max(0, inputTokens) >= $0 : max(0, inputTokens) > $0 } ?? false
         let inputRate = usesLongContextRates ? pricing.inputCostPerTokenAboveThreshold ?? pricing.inputCostPerToken : pricing.inputCostPerToken
         let cachedInputRate = usesLongContextRates ? pricing.cacheReadInputCostPerTokenAboveThreshold ?? cachedRate : cachedRate
         let outputRate = usesLongContextRates ? pricing.outputCostPerTokenAboveThreshold ?? pricing.outputCostPerToken : pricing.outputCostPerToken
@@ -553,7 +578,7 @@ enum MoaUsagePricing {
         let cacheCreation = max(0, cacheCreationInputTokens)
         let output = max(0, outputTokens)
         let promptTokens = input + cacheRead + cacheCreation
-        let usesLongContextRates = pricing.thresholdTokens.map { promptTokens > $0 } ?? false
+        let usesLongContextRates = pricing.thresholdTokens.map { pricing.thresholdInclusive ? promptTokens >= $0 : promptTokens > $0 } ?? false
         let inputRate = usesLongContextRates ? pricing.inputCostPerTokenAboveThreshold ?? pricing.inputCostPerToken : pricing.inputCostPerToken
         let cacheReadRate = usesLongContextRates ? pricing.cacheReadInputCostPerTokenAboveThreshold ?? pricing.cacheReadInputCostPerToken : pricing.cacheReadInputCostPerToken
         let cacheCreationRate = usesLongContextRates ? pricing.cacheCreationInputCostPerTokenAboveThreshold ?? pricing.cacheCreationInputCostPerToken : pricing.cacheCreationInputCostPerToken
@@ -573,7 +598,7 @@ enum MoaUsagePricing {
         outputTokens: Int) -> Double
     {
         let prompt = max(0, inputTokens) + max(0, cacheReadInputTokens) + max(0, cacheCreationInputTokens)
-        let above = pricing.thresholdTokens.map { prompt > $0 } ?? false
+        let above = pricing.thresholdTokens.map { pricing.thresholdInclusive ? prompt >= $0 : prompt > $0 } ?? false
         return Double(max(0, inputTokens)) * (above ? pricing.inputCostPerTokenAboveThreshold ?? pricing.inputCostPerToken : pricing.inputCostPerToken)
             + Double(max(0, cacheReadInputTokens)) * (above ? pricing.cacheReadInputCostPerTokenAboveThreshold ?? pricing.cacheReadInputCostPerToken : pricing.cacheReadInputCostPerToken)
             + Double(max(0, cacheCreationInputTokens)) * (above ? pricing.cacheCreationInputCostPerTokenAboveThreshold ?? pricing.cacheCreationInputCostPerToken : pricing.cacheCreationInputCostPerToken)

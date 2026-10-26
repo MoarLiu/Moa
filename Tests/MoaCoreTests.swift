@@ -74,7 +74,7 @@ enum MoaCoreTests {
             ("WorkBuddy aliases use API list prices without credit discounts", testWorkBuddyOriginalAPIPrices),
             ("GPT-6 Sol and Luna use current standard and Fast rates", testCurrentGPT6Prices),
             ("Claude current models apply correct context and cache prices", testCurrentClaudePrices),
-            ("official pricing corrections override stale and regional mirrors", testPricingCorrectionsAndPreview),
+            ("fresh remote prices replace seeds while stale mirrors cannot", testPricingCorrectionsAndPreview),
             ("ZCode context prices apply to requests before aggregation", testZCodeRequestPricingTiers),
             ("WorkBuddy editions have separate identities and state paths", testWorkBuddyEditionPaths),
             ("WorkBuddy China switching and recovery preserve the AI client", testWorkBuddyChinaSwitchIsolation),
@@ -102,7 +102,6 @@ enum MoaCoreTests {
             ("official no-account mode selects first direct config when none selected", testOfficialNoAccountSelectsFirstDirectConfigWhenNoneSelected),
             ("official no-account mode deduplicates current login by email", testOfficialNoAccountDeduplicatesCurrentLoginByEmail),
             ("official account list syncs selected account email", testOfficialAccountListSyncsSelectedAccountEmail),
-            ("LiteLLM preset no longer uses original Moa model name", testLiteLLMPresetName),
             ("updater compares versions and parses release feed", testUpdaterVersionComparisonAndFeedParsing),
             ("updater prunes old backups", testUpdaterBackupPruning),
             ("GPT-5.6 family uses current local pricing", testGPT56Pricing),
@@ -123,12 +122,14 @@ enum MoaCoreTests {
             ("Codex official account state rolls back together", testCodexOfficialAccountTransactionRollback),
             ("data packages round trip without temporary leaks", testDataPackageRoundTripAndCleanup),
             ("ZCode scanner drains large subprocess output", testZCodeUsageScannerLargeOutput)
-        ] + MoaReviewRegressionTests.tests + MoaOptimizationTests.tests
+        ] + MoaReviewRegressionTests.tests + MoaOptimizationTests.tests + DeepSeekTests.tests + PricingHotUpdateTests.tests
     }
 
     static func main() {
         var failures: [String] = []
         for (name, test) in tests {
+            let pricingHome = FileManager.default.temporaryDirectory.appendingPathComponent("moa-test-pricing-\(UUID().uuidString)")
+            MoaUsagePricing.useRemoteCatalogStoreForTesting(.init(environment: ["HOME": pricingHome.path]))
             do {
                 try test()
                 print("PASS \(name)")
@@ -136,6 +137,8 @@ enum MoaCoreTests {
                 failures.append("\(name): \(error)")
                 print("FAIL \(name): \(error)")
             }
+            MoaUsagePricing.resetRemoteCatalogStoreForTesting()
+            try? FileManager.default.removeItem(at: pricingHome)
         }
 
         if !failures.isEmpty {
@@ -606,10 +609,14 @@ enum MoaCoreTests {
         defer { try? FileManager.default.removeItem(at: home) }
         let store = MoaUsagePricingCatalogStore(environment: ["HOME": home.path])
         let wrong = MoaUsageRemotePricing(inputUSDPerMillion: 99, outputUSDPerMillion: 99)
-        _ = try store.merge(MoaUsagePricingCatalogSnapshot(sourceURL: "https://models.dev/api.json", fetchedAt: Date(timeIntervalSince1970: 1_900_000_000), models: ["workbuddy": ["step-5-preview": wrong, "hy3": wrong], "codex": ["gpt-5.6-sol": wrong]]))
+        _ = try store.merge(MoaUsagePricingCatalogSnapshot(sourceURL: "https://models.dev/api.json", fetchedAt: MoaUsagePricingSeed.checkedAt.addingTimeInterval(-1), models: ["workbuddy": ["step-5-preview": wrong, "hy3": wrong], "codex": ["gpt-5.6-sol": wrong]]))
         try expectClose(MoaUsagePricing.catalogPricing(source: .workbuddy, model: "step-5-preview", store: store)?.inputUSDPerMillion ?? -1, 1, "a currency-converted catalog must not override verified USD list prices")
         try expectClose(MoaUsagePricing.catalogPricing(source: .workbuddy, model: "hy3", store: store)?.inputUSDPerMillion ?? -1, 0.132, "free plan promotions must not replace Hy3's original API list price")
-        try expectClose(MoaUsagePricing.catalogPricing(source: .codex, model: "gpt-5.6-sol", store: store)?.inputUSDPerMillion ?? -1, 4, "the current official Sol price must take precedence over the mirror")
+        try expectClose(MoaUsagePricing.catalogPricing(source: .codex, model: "gpt-5.6-sol", store: store)?.inputUSDPerMillion ?? -1, 4, "the verified snapshot must take precedence over an older mirror")
+        let updated = MoaUsageRemotePricing(inputUSDPerMillion: 3, outputUSDPerMillion: 8)
+        _ = try store.merge(MoaUsagePricingCatalogSnapshot(sourceURL: "https://example.com/pricing", fetchedAt: Date(), models: ["workbuddy": ["step-5-preview": updated], "codex": ["gpt-5.6-sol": updated]]))
+        try expectClose(MoaUsagePricing.catalogPricing(source: .workbuddy, model: "step-5-preview", store: store)?.inputUSDPerMillion ?? -1, 3, "fresh downloads must replace formerly hardcoded corrections without an app release")
+        try expectClose(MoaUsagePricing.catalogPricing(source: .codex, model: "gpt-5.6-sol", store: store)?.inputUSDPerMillion ?? -1, 3, "all seeded models must remain hot-updatable")
         let preview = MoaUsagePricing.codexCostEstimate(model: "gpt-5.3-codex-spark", inputTokens: 1000, cachedInputTokens: 0, outputTokens: 100)
         try expect(preview?.pricingModel == "unpriced" && preview?.usesFallbackPricing == true, "a preview without a public API rate must not be labeled free")
     }
@@ -1640,12 +1647,6 @@ enum MoaCoreTests {
       "OPENAI_API_KEY": "null"
     }
     """ + "\n"
-
-    private static func testLiteLLMPresetName() throws {
-        let preset = MoaProviderPresets.responsesGateways.first { $0.id == "litellm-responses-gateway" }
-        try expect(preset?.model == "moa-codex", "LiteLLM sample model should be Moa scoped")
-        try expect(preset?.models == ["moa-codex"], "LiteLLM sample models should be Moa scoped")
-    }
 
     private static func testGPT56Pricing() throws {
         let home = try temporaryHome()

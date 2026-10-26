@@ -9,17 +9,20 @@ enum MoaSub2APIPricingParser {
                   let input = number(entry, "input_cost_per_token"),
                   let output = number(entry, "output_cost_per_token"),
                   let provider = entry["litellm_provider"] as? String,
-                  ["chat", "responses"].contains(entry["mode"] as? String ?? "chat") else { continue }
+                  ["chat", "responses", "completion"].contains(entry["mode"] as? String ?? "chat"),
+                  (entry["currency"] as? String ?? "USD").uppercased() == "USD" else { continue }
+            // Preserve cloud/region-specific SKUs in the raw table, but do not
+            // mistake them for direct-vendor token prices under an unqualified ID.
+            if ["bedrock", "azure", "azure_ai", "vertex_ai-language-models", "vertex_ai-embedding-models"].contains(provider) { continue }
             let sources: [MoaUsageSource]
             switch provider {
             case "openai": sources = [.codex, .workbuddy]
             case "anthropic": sources = [.claude, .workbuddy]
             case "zhipu", "zai": sources = [.zcode, .workbuddy]
             case "deepseek", "gemini", "xai", "moonshot", "minimax", "stepfun", "hunyuan", "tencent": sources = [.workbuddy]
-            default: continue // Cloud resellers and other currencies are not interchangeable SKUs.
+            default: sources = [] // New vendors remain usable via the shared catalog.
             }
             let key = id.lowercased()
-            guard !key.contains("/"), !["audio", "realtime", "embedding", "image"].contains(where: key.contains) else { continue }
             let thresholds = entry.keys.compactMap { key -> Int? in
                 guard let range = key.range(of: #"^input_cost_per_token_above_(\d+)k_tokens$"#, options: .regularExpression) else { return nil }
                 let text = key[range].dropFirst("input_cost_per_token_above_".count).dropLast("k_tokens".count)
@@ -59,11 +62,14 @@ enum MoaSub2APIPricingParser {
             price.priorityCacheReadUSDPerMillionAboveThreshold = rate("cache_read_input_token_cost", tier: true, priority: true)
             price.priorityCacheCreationUSDPerMillionAboveThreshold = rate("cache_creation_input_token_cost", tier: true, priority: true)
             if provider == "xai", threshold != nil { price.thresholdInclusive = true }
+            models["all", default: [:]][key] = price
             for source in sources { models[source.rawValue, default: [:]][key] = price }
         }
         guard (models["codex"]?.count ?? 0) >= 5, (models["claude"]?.count ?? 0) >= 3,
               (models["zcode"]?.count ?? 0) >= 1 else { throw MoaUsagePricingRemoteParser.ParseError.invalidCatalog }
-        return MoaUsagePricingCatalogSnapshot(sourceURL: sourceURL.absoluteString, fetchedAt: fetchedAt, models: models)
+        return MoaUsagePricingCatalogSnapshot(sourceURL: sourceURL.absoluteString, fetchedAt: fetchedAt, models: models,
+                                             rawCatalog: try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]),
+                                             downloadedModelCount: object.values.filter { $0 is [String: Any] }.count)
     }
 
     private static func number(_ entry: [String: Any], _ key: String) -> Double? {

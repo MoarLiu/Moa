@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Added one account-management window grouped by client, with save/enroll, rename, edit, delete, and switch actions for the appropriate account types.
+- Unified account-window and menu switching for WorkBuddy and DeepSeek; account-list reads wait until switching finishes, and menu switches refresh an open account window.
+- Added **Update Prices** to fetch and persist the complete Sub2API-reference catalog, apply new USD token prices without an app release, and refresh usage immediately. Failed downloads retain the previous catalog and custom prices remain independent.
+- Added Grok 4.7 Build log-name matching and separate Fast/context/cache pricing; newer remote entries override offline seeds and independent scanner caches invalidate immediately after a price update.
+- Added a DeepSeek menu for local DeepSeek Harness account enrollment, switching, rename/forget, and client launch helpers. Account-only credential edits preserve API keys and device/session data, coordinate writers, and roll back failed launches. Snapshots remain outside data exports and iCloud moves; real multi-account session validity requires manual verification.
+- Removed the remaining Responses provider preset menu and templates. Direct provider configurations can still be added manually.
+
 ## 1.3.2 - 2026-10-26
 
 - Removed Provider Bridge, including the local HTTP server, Responses-to-Chat Completions conversion, bridge presets, runtime controls, tokens, ports, and diagnostics.

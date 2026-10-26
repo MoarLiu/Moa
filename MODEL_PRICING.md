@@ -1,4 +1,4 @@
-# Moa 1.3.0 模型 API 原价表
+# Moa 模型 API 原价与热更新
 
 核对日期：2026-10-24。所有金额均为 **USD / 1,000,000 tokens**。本表是当前 API 标价估算基准，不按 WorkBuddy 积分、套餐倍率或免费额度折算。
 
@@ -9,8 +9,10 @@
 - 参考 [Sub2API pricing_service.go](https://github.com/Wei-Shaw/sub2api/blob/37067e8e340e9440d173a92b4faa05e8ce58368f/backend/internal/service/pricing_service.go) 的 LiteLLM 参数结构。默认自动更新源与其当前配置一致：[Wei-Shaw/model-price-repo](https://github.com/Wei-Shaw/model-price-repo)。上游按 USD/token 提供，Moa 只在导入时乘以一百万。
 - 离线快照以该目录为主要来源，使用 [models.dev](https://models.dev/api.json) 的直连供应商数据补齐缺项。两种数据格式都保留兼容解析；不会混用 Azure、Bedrock 等转售平台 SKU。
 - 人工核对项参考 [OpenAI 官方价格](https://developers.openai.com/api/docs/pricing)、[Claude 官方价格](https://platform.claude.com/docs/en/about-claude/pricing)、[DeepSeek 官方价格](https://api-docs.deepseek.com/quick_start/pricing/)、[腾讯云国际站新加坡价格](https://intl.cloud.tencent.com/zh/document/product/1300/78937)、[StepFun 国际站价格](https://platform.stepfun.ai/docs/en/guides/pricing/details)、[Z.AI 国际站价格](https://docs.z.ai/guides/overview/pricing) 和 [Grok 官方价格](https://docs.x.ai/developers/pricing)。
-- 优先级：用户自定义价格 → 经官网核对的修正项 → 不早于本次快照的远程目录 → 随应用打包的快照 → 旧模型安全回退表。修正项保留地区、币种、缓存价格与已公布的当前 API 优惠差异，需要下一次核价时显式复核，避免第三方目录将其覆盖。
-- 每天本地时间 00:20:01 更新；错过时启动补查。升级后若价源发生切换，会立即检查一次新目录。网络不可用不影响内置快照，自定义价格不会被自动更新覆盖。
+- 优先级：用户自定义价格 → 不早于内置核价快照的远程目录 → 随应用打包的快照及修正项 → 旧模型安全回退表。内置修正不再永久覆盖更新的远端费率，价格变化无需重新发布应用。
+- 主菜单「更新价格」立即拉取一次完整目录，不受每日检查时间限制。重复操作共用正在进行的下载；成功后刷新所有客户端摘要和已打开的用量明细。每天本地时间 00:20:01 自动更新仍保留，错过时启动补查。
+- 最新下载通过结构、数值、单位和目录完整性校验后原子保存到当前数据根的 `usage-pricing-catalog-v1.json`，重启后继续使用。原始完整目录也保存在同一快照内，包括当前 Token 估算未使用的图片、音频等计价字段。网络、格式、体积或完整性校验失败时保留原价格；自定义价格独立保存，不被覆盖。
+- 远端新增模型、厂商和包含 `/` 的型号无需修改固定名单即可进入共享 Token 价格目录。明确的转售平台/非美元报价保留在原始目录，不当作直连美元 Token 原价。新下载中出现的型号使用完整新记录，避免沿用已删除的旧 Fast/长上下文档位；暂缺型号仍保留最后一次已知价格及其原更新时间。
 - 同一批本地日志按当前价格重新估算，尚不提供按历史价格生效日期重建账单。
 
 本次下载文件校验值（仅公开价格数据，不包含凭证或会话）：
@@ -27,6 +29,10 @@
 | `hy4-preview-f` | `hy4-preview`；不会因为 WorkBuddy 显示免费而计为零 |
 | `deepseek-v4.1-flash` / `deepseek-v4.1-flash-sg` / `deepseek-v4.1-flash-1017` | `deepseek-flash` |
 | `deepseek-v4-flash` / `deepseek-v4-flash-vision-exp` | 官方已重定向至 `deepseek-flash`，采用当前 Flash 标价 |
+| `grok-4.7-build` | 默认对应 `grok-4.7`；远端发布同名独立价格后优先使用独立记录 |
+| `grok-4.7-build-fast` | 独立 Fast 档；远端未单独列价时，普通上下文按 `grok-4.7` 的 2 倍、长上下文按其长上下文费率的 1.5 倍计算 |
+
+Grok Build 当前回退参考价（输入 / 输出 / 缓存读，USD / 百万 tokens）：普通版 `<200K` 为 `2 / 6 / 0.5`，`≥200K` 为 `4 / 12 / 1`；Fast 版分别为 `4 / 12 / 1` 和 `6 / 18 / 1.5`。[官方 Fast 说明](https://docs.x.ai/developers/grok-4-7#fast-variant)于 2026-10-26 复核。Fast 不并入普通版；其独立远端报价优先于上述派生规则。
 
 - `default-model`、`auto`、`space-bunny` 等没有可确认底层模型的路由名称保留为未定价；`gpt-5.3-codex-spark` 没有可核对的公开 API 标价，也标为未定价。Token 仍统计，费用不伪装为免费。设置自定义价格后可纳入费用。
 - DeepSeek Flash / Pro 使用**高峰标准原价**作为统一基准：Flash 输入 0.30、输出 1.20、缓存命中 0.006；Pro 为 1.32、3.96、0.044。官方谷时为高峰的一半，周末及中国法定节假日也属谷时。本版本不依请求发生时段计算谷时折扣。

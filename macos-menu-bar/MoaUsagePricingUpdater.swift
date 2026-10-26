@@ -57,18 +57,31 @@ struct MoaUsagePricingCatalogSnapshot: Codable, Equatable, Sendable {
     var fetchedAt: Date
     var models: [String: [String: MoaUsageRemotePricing]]
     var modelFetchedAt: [String: [String: Date]]?
+    // Preserve the complete upstream table, including non-token pricing fields
+    // which current usage scanners do not consume. This travels atomically with
+    // the validated token-price projection, never as a partially updated sidecar.
+    var rawCatalog: Data?
+    var downloadedModelCount: Int?
+
+    var modelCount: Int {
+        downloadedModelCount ?? Set(models.values.flatMap { $0.keys }).count
+    }
 
     init(
         sourceURL: String,
         fetchedAt: Date,
         models: [String: [String: MoaUsageRemotePricing]],
-        modelFetchedAt: [String: [String: Date]]? = nil
+        modelFetchedAt: [String: [String: Date]]? = nil,
+        rawCatalog: Data? = nil,
+        downloadedModelCount: Int? = nil
     ) {
         version = Self.currentVersion
         self.sourceURL = sourceURL
         self.fetchedAt = fetchedAt
         self.models = models
         self.modelFetchedAt = modelFetchedAt ?? models.mapValues { $0.mapValues { _ in fetchedAt } }
+        self.rawCatalog = rawCatalog
+        self.downloadedModelCount = downloadedModelCount
     }
 }
 
@@ -84,6 +97,7 @@ enum MoaUsagePricingCatalogUpdate: Equatable, Sendable {
 
 final class MoaUsagePricingCatalogStore: @unchecked Sendable {
     static let shared = MoaUsagePricingCatalogStore()
+    static let didUpdate = Notification.Name("MoaUsagePricingCatalogDidUpdate")
 
     private struct UpdateState: Codable {
         var lastSuccessfulCheck: Date
@@ -100,6 +114,7 @@ final class MoaUsagePricingCatalogStore: @unchecked Sendable {
     private var cachedModifiedAt: Date?
     private var lastFileCheckAt: Date?
     private var cachedRevision: UInt64?
+    private var updateObserver: NSObjectProtocol?
 
     private var catalogURL: URL {
         MoaDataRoot.currentURL(environment: environment)
@@ -127,15 +142,30 @@ final class MoaUsagePricingCatalogStore: @unchecked Sendable {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         self.decoder = decoder
+        updateObserver = NotificationCenter.default.addObserver(forName: Self.didUpdate, object: nil, queue: nil) { [weak self] notification in
+            guard let self, let url = notification.object as? URL,
+                  url.standardizedFileURL == self.catalogURL.standardizedFileURL else { return }
+            self.lock.lock()
+            self.cachedSnapshot = nil
+            self.cachedURL = nil
+            self.lastFileCheckAt = nil
+            self.lock.unlock()
+        }
     }
+
+    deinit { if let updateObserver { NotificationCenter.default.removeObserver(updateObserver) } }
 
     func pricing(source: MoaUsageSource, model: String, notBefore: Date? = nil) -> MoaUsageRemotePricing? {
         lock.lock()
         defer { lock.unlock() }
         guard let snapshot = loadSnapshotIfNeeded() else { return nil }
-        let checkedAt = snapshot.modelFetchedAt?[source.rawValue]?[model.lowercased()] ?? snapshot.fetchedAt
-        guard notBefore.map({ checkedAt >= $0 }) ?? true else { return nil }
-        return snapshot.models[source.rawValue]?[model.lowercased()]
+        let key = model.lowercased()
+        return [source.rawValue, "all"].compactMap { group -> (MoaUsageRemotePricing, Date)? in
+            guard let price = snapshot.models[group]?[key] else { return nil }
+            let checkedAt = snapshot.modelFetchedAt?[group]?[key] ?? snapshot.fetchedAt
+            guard notBefore.map({ checkedAt >= $0 }) ?? true else { return nil }
+            return (price, checkedAt)
+        }.max(by: { $0.1 < $1.1 })?.0
     }
 
     func snapshot() -> MoaUsagePricingCatalogSnapshot? {
@@ -146,9 +176,13 @@ final class MoaUsagePricingCatalogStore: @unchecked Sendable {
 
     func merge(_ remote: MoaUsagePricingCatalogSnapshot) throws -> MoaUsagePricingCatalogUpdate {
         try dataAccess.lock()
-        defer { dataAccess.unlock() }
         lock.lock()
-        defer { lock.unlock() }
+        var writtenURL: URL?
+        defer {
+            lock.unlock()
+            dataAccess.unlock()
+            if let writtenURL { NotificationCenter.default.post(name: Self.didUpdate, object: writtenURL) }
+        }
 
         let current = loadSnapshotIfNeeded()
         var mergedModels = current?.models ?? [:]
@@ -170,7 +204,9 @@ final class MoaUsagePricingCatalogStore: @unchecked Sendable {
                     freshnessChanged = true
                 }
                 if let existing = mergedSource[model] {
-                    let mergedPricing = pricing.mergingMissingFields(from: existing)
+                    // A newer full download is authoritative for each present
+                    // model. Equal-date partial imports retain legacy merge behavior.
+                    let mergedPricing = remote.fetchedAt > previousDate ? pricing : pricing.mergingMissingFields(from: existing)
                     if existing != mergedPricing {
                         mergedSource[model] = mergedPricing
                         changed += 1
@@ -183,7 +219,8 @@ final class MoaUsagePricingCatalogStore: @unchecked Sendable {
             mergedModels[source] = mergedSource
         }
 
-        guard added > 0 || changed > 0 || freshnessChanged else {
+        let rawChanged = remote.rawCatalog.map { $0 != current?.rawCatalog } ?? false
+        guard added > 0 || changed > 0 || freshnessChanged || rawChanged else {
             return .unchanged
         }
 
@@ -191,7 +228,9 @@ final class MoaUsagePricingCatalogStore: @unchecked Sendable {
             sourceURL: remote.sourceURL,
             fetchedAt: max(remote.fetchedAt, current?.fetchedAt ?? .distantPast),
             models: mergedModels,
-            modelFetchedAt: modelDates
+            modelFetchedAt: modelDates,
+            rawCatalog: remote.rawCatalog ?? current?.rawCatalog,
+            downloadedModelCount: remote.downloadedModelCount ?? current?.downloadedModelCount
         )
         try write(merged, to: catalogURL)
         cachedSnapshot = merged
@@ -199,6 +238,7 @@ final class MoaUsagePricingCatalogStore: @unchecked Sendable {
         cachedModifiedAt = modificationDate(of: catalogURL)
         lastFileCheckAt = Date()
         cachedRevision = dataAccess.revision
+        writtenURL = catalogURL
         return added > 0 || changed > 0 ? .updated(added: added, changed: changed) : .unchanged
     }
 
@@ -274,7 +314,7 @@ enum MoaUsagePricingRemoteParser {
         case invalidCatalog
 
         var errorDescription: String? {
-            "The remote model pricing catalog is incomplete or invalid."
+            MoaL10n.text("The remote model pricing catalog is incomplete or invalid.")
         }
     }
 
@@ -342,7 +382,9 @@ enum MoaUsagePricingRemoteParser {
     static func parse(data: Data, sourceURL: URL, fetchedAt: Date) throws -> MoaUsagePricingCatalogSnapshot {
         if let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
            object.values.contains(where: { ($0 as? [String: Any])?["input_cost_per_token"] != nil }) {
-            return try MoaSub2APIPricingParser.parse(object, sourceURL: sourceURL, fetchedAt: fetchedAt)
+            var snapshot = try MoaSub2APIPricingParser.parse(object, sourceURL: sourceURL, fetchedAt: fetchedAt)
+            snapshot.rawCatalog = data
+            return snapshot
         }
         let providers = try JSONDecoder().decode([String: Provider].self, from: data)
         let mappings: [(provider: String, source: MoaUsageSource)] = [
@@ -355,7 +397,8 @@ enum MoaUsagePricingRemoteParser {
             ("zai", .workbuddy),
             ("moonshotai", .workbuddy),
             ("minimax", .workbuddy),
-            ("google", .workbuddy)
+            ("google", .workbuddy),
+            ("xai", .workbuddy)
         ]
         var result: [String: [String: MoaUsageRemotePricing]] = [:]
 
@@ -406,7 +449,9 @@ enum MoaUsagePricingRemoteParser {
         return MoaUsagePricingCatalogSnapshot(
             sourceURL: sourceURL.absoluteString,
             fetchedAt: fetchedAt,
-            models: result
+            models: result,
+            rawCatalog: data,
+            downloadedModelCount: providers.values.reduce(0) { $0 + $1.models.count }
         )
     }
 
@@ -420,13 +465,16 @@ final class MoaUsagePricingUpdater: Sendable {
     enum UpdateError: LocalizedError {
         case invalidResponse
         case payloadTooLarge
+        case stopped
 
         var errorDescription: String? {
             switch self {
             case .invalidResponse:
-                return "The model pricing server returned an invalid response."
+                return MoaL10n.text("The model pricing server returned an invalid response.")
             case .payloadTooLarge:
-                return "The model pricing response exceeded the allowed size."
+                return MoaL10n.text("The model pricing response exceeded the allowed size.")
+            case .stopped:
+                return MoaL10n.text("The model pricing update was canceled.")
             }
         }
     }
@@ -448,13 +496,14 @@ final class MoaUsagePricingUpdater: Sendable {
         self.session = session
     }
 
-    func refresh(completion: @escaping (Result<MoaUsagePricingCatalogUpdate, Error>) -> Void) {
+    @discardableResult
+    func refresh(completion: @escaping (Result<MoaUsagePricingCatalogUpdate, Error>) -> Void) -> URLSessionDataTask {
         var request = URLRequest(url: sourceURL)
         request.cachePolicy = .reloadIgnoringLocalCacheData
         request.timeoutInterval = 30
         request.setValue("application/json", forHTTPHeaderField: "Accept")
 
-        session.dataTask(with: request) { data, response, error in
+        let task = session.dataTask(with: request) { data, response, error in
             let result = Result<MoaUsagePricingCatalogUpdate, Error> {
                 if let error { throw error }
                 guard let http = response as? HTTPURLResponse,
@@ -473,16 +522,23 @@ final class MoaUsagePricingUpdater: Sendable {
                     fetchedAt: checkedAt
                 )
                 let update = try self.store.merge(snapshot)
-                try self.store.recordSuccessfulCheck(at: checkedAt)
+                // The catalog has committed successfully. A device-local cadence
+                // write failure must not report that successful download as failed.
+                do { try self.store.recordSuccessfulCheck(at: checkedAt) }
+                catch { NSLog("Moa could not save the pricing check schedule: \(error.localizedDescription)") }
                 return update
             }
             completion(result)
-        }.resume()
+        }
+        task.resume()
+        return task
     }
 }
 
 final class MoaUsagePricingUpdateCoordinator {
     var onCatalogUpdated: (() -> Void)?
+    var onRefreshStateChanged: ((Bool) -> Void)?
+    var isRefreshing: Bool { refreshInFlight }
 
     private let updater: MoaUsagePricingUpdater
     private let notificationCenter: NotificationCenter
@@ -491,6 +547,9 @@ final class MoaUsagePricingUpdateCoordinator {
     private var timeZoneObserver: NSObjectProtocol?
     private var started = false
     private var refreshInFlight = false
+    private var refreshGeneration = UUID()
+    private var task: URLSessionDataTask?
+    private var completions: [(Result<MoaUsagePricingCatalogUpdate, Error>) -> Void] = []
 
     init(
         updater: MoaUsagePricingUpdater = MoaUsagePricingUpdater(),
@@ -528,6 +587,14 @@ final class MoaUsagePricingUpdateCoordinator {
 
     func stop() {
         started = false
+        refreshGeneration = UUID()
+        task?.cancel()
+        task = nil
+        refreshInFlight = false
+        let callbacks = completions
+        completions.removeAll()
+        onRefreshStateChanged?(false)
+        callbacks.forEach { $0(.failure(MoaUsagePricingUpdater.UpdateError.stopped)) }
         timer?.invalidate()
         timer = nil
         if let timeZoneObserver {
@@ -536,6 +603,15 @@ final class MoaUsagePricingUpdateCoordinator {
         }
         onCatalogUpdated = nil
     }
+
+    /// Manual requests bypass the daily cadence, sharing any active download.
+    func refreshNow(completion: @escaping (Result<MoaUsagePricingCatalogUpdate, Error>) -> Void) {
+        guard started else { completion(.failure(MoaUsagePricingUpdater.UpdateError.stopped)); return }
+        completions.append(completion)
+        refresh()
+    }
+
+    var modelCount: Int { updater.store.snapshot()?.modelCount ?? 0 }
 
     static func shouldCheck(
         now: Date,
@@ -583,20 +659,30 @@ final class MoaUsagePricingUpdateCoordinator {
     private func refresh() {
         guard started, !refreshInFlight else { return }
         refreshInFlight = true
-        updater.refresh { [weak self] result in
+        onRefreshStateChanged?(true)
+        let generation = UUID()
+        refreshGeneration = generation
+        task = updater.refresh { [weak self] result in
             DispatchQueue.main.async {
-                guard let self else { return }
+                guard let self, self.refreshGeneration == generation else { return }
+                let callbacks = self.completions
+                self.completions.removeAll()
                 self.refreshInFlight = false
+                self.task = nil
+                self.onRefreshStateChanged?(false)
                 guard self.started else { return }
                 switch result {
                 case .success(let update):
                     if case .updated(let added, let changed) = update {
                         NSLog("Moa model pricing updated: %d added, %d changed", added, changed)
-                        self.onCatalogUpdated?()
                     }
+                    // A same-price download may make a formerly stale entry
+                    // eligible again; successful checks always reprice reports.
+                    self.onCatalogUpdated?()
                 case .failure(let error):
                     NSLog("Moa model pricing update failed: \(error.localizedDescription)")
                 }
+                callbacks.forEach { $0(result) }
             }
         }
     }

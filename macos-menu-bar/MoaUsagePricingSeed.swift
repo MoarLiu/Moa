@@ -8,11 +8,12 @@ enum MoaUsagePricingSeed {
     private static let aliases = [
         "hy4-preview-f": "hy4-preview", "deepseek-v4.1-flash": "deepseek-flash",
         "deepseek-v4.1-flash-sg": "deepseek-flash", "deepseek-v4.1-flash-1017": "deepseek-flash",
-        "deepseek-v4-flash": "deepseek-flash", "deepseek-v4-flash-vision-exp": "deepseek-flash"
+        "deepseek-v4-flash": "deepseek-flash", "deepseek-v4-flash-vision-exp": "deepseek-flash",
+        "grok-4.7-build": "grok-4.7"
     ]
     static func canonicalModel(_ raw: String) -> String {
         var model = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        for prefix in ["openai/", "anthropic/", "zhipu/", "zai/", "deepseek/", "stepfun/", "tencent/", "xai/", "google/", "moonshotai/", "minimax/"] where model.hasPrefix(prefix) {
+        for prefix in ["openai/", "anthropic/", "zhipu/", "zai/", "deepseek/", "stepfun/", "tencent/", "xai/", "x-ai/", "google/", "moonshotai/", "minimax/"] where model.hasPrefix(prefix) {
             model = String(model.dropFirst(prefix.count)); break
         }
         return aliases[model] ?? model
@@ -21,19 +22,10 @@ enum MoaUsagePricingSeed {
         let key = canonicalModel(model)
         if unpricedModels.contains(key) { return nil }
         if let exact = tables[source.rawValue]?[key] { return exact }
-        if source == .workbuddy {
-            for group in ["codex", "claude", "zcode"] {
-                if let price = tables[group]?[key] { return price }
-            }
+        for group in ["codex", "claude", "zcode", "workbuddy"] {
+            if let price = tables[group]?[key] { return price }
         }
         return nil
-    }
-    static func usesOfficialCorrection(source: MoaUsageSource, model: String) -> Bool {
-        let key = canonicalModel(model)
-        // These mirror entries use a different region/currency, a stale cache rate,
-        // or a free plan promotion instead of the supplier's USD API list price.
-        return ["gpt-5.6-sol", "hy3", "hy3-preview", "hy4-preview", "step-5-preview", "step-3.7-flash", "step-3.5-flash", "step-3.5-flash-2603", "claude-sonnet-4-6", "claude-sonnet-5-5", "gpt-5.4-pro", "gpt-5.5-pro", "kimi-k2.8-preview", "kimi-k3", "kimi-k2.6", "kimi-k2.7-code"].contains(key)
-            || ((source == .zcode || source == .workbuddy) && tables["zcode"]?[key] != nil)
     }
     private static let tables: [String: [String: MoaUsageRemotePricing]] = {
         // Generated from public pricing facts; not a copy of Sub2API service code.

@@ -53,6 +53,14 @@ final class MoaUsageCoordinator {
 
     private var pipelines: [MoaUsageSource: Pipeline] = [:]
     private let pricingUpdateCoordinator: MoaUsagePricingUpdateCoordinator
+    var onPricingUpdated: (() -> Void)?
+    var onPricingRefreshStateChanged: ((Bool) -> Void)?
+    var isUpdatingPrices: Bool { pricingUpdateCoordinator.isRefreshing }
+    var pricingModelCount: Int { pricingUpdateCoordinator.modelCount }
+
+    func updatePrices(completion: @escaping (Result<MoaUsagePricingCatalogUpdate, Error>) -> Void) {
+        pricingUpdateCoordinator.refreshNow(completion: completion)
+    }
     private var timer: Timer?
     private var running = false
     private var generation = UUID()
@@ -92,7 +100,11 @@ final class MoaUsageCoordinator {
         for source in MoaUsageSource.allCases {
             pipelines[source]?.refreshView.onRefresh = { [weak self] in self?.refresh(source, forceRefresh: true) }
         }
-        pricingUpdateCoordinator.onCatalogUpdated = { [weak self] in self?.refreshAll(forceRefresh: true) }
+        pricingUpdateCoordinator.onCatalogUpdated = { [weak self] in
+            self?.refreshAll(forceRefresh: true)
+            self?.onPricingUpdated?()
+        }
+        pricingUpdateCoordinator.onRefreshStateChanged = { [weak self] in self?.onPricingRefreshStateChanged?($0) }
         dataRootObserver = NotificationCenter.default.addObserver(forName: MoaDataRoot.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
             self?.refreshAll(forceRefresh: true)
         }

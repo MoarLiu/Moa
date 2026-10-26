@@ -31,40 +31,6 @@ final class MoaProviderActionCoordinator {
         }
     }
 
-    func addProviderPresetAction(_ sender: NSMenuItem) {
-        guard let presetID = sender.representedObject as? String,
-              let preset = MoaProviderPresets.preset(id: presetID)
-        else {
-            showError(MoaL10n.text("Provider preset not found."))
-            return
-        }
-        guard let input = MoaProviderProfilePanels.showAddCodexPresetProfile(preset) else {
-            return
-        }
-
-        addProviderPresetProfile(input, preset: preset)
-    }
-
-    func addProviderPresetProfile(
-        _ input: (name: String, baseURL: String, apiKey: String),
-        preset: MoaProviderPreset
-    ) {
-        do {
-            _ = try profileController.addProfile(
-                name: input.name,
-                baseURL: input.baseURL,
-                apiKey: input.apiKey,
-                model: preset.model,
-                testModel: preset.testModel,
-                models: preset.models
-            )
-            rebuildCodexProviderMenus()
-            statusItemText.title = AppDelegate.statusTitle("Added %@", input.name)
-        } catch {
-            showError(error.localizedDescription)
-        }
-    }
-
     func testCodexActiveProviderAction() {
         guard let profile = try? profileController.selectedProfile() else {
             showError(MoaL10n.text("Select a configuration before testing."))
