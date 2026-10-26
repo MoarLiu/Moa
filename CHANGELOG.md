@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.1 - 2026-10-26
+
+- Fixed glass-form clicks. Save, Cancel, toggles, and pickers now activate, while clicking empty space still drags the borderless panel.
+
 ## 1.4.0 - 2026-10-26
 
 - Matched Codex account deletion against the actual client login, preserving unsaved and signed-out sessions when deleting stale selections. Profile edits recheck and apply the current selection under the store lock, with live-edit confirmation based on the current state.
