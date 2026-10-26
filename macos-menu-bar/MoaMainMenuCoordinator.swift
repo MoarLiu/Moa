@@ -205,30 +205,16 @@ final class MoaMainMenuCoordinator {
             }
         }
         app.codexOfficialMenu.addItem(NSMenuItem.separator())
-        let addOfficialTitle: String
-        let canAddOfficialAccount: Bool
         if let savedAccountName = currentOfficialLoginSaveStatus.savedAccountName {
-            addOfficialTitle = MoaL10n.format("Current Login Saved as %@", savedAccountName)
-            canAddOfficialAccount = false
-        } else if currentOfficialLoginSaveStatus.hasLogin {
-            addOfficialTitle = MoaL10n.text("Add Current Login as Account")
-            canAddOfficialAccount = true
-        } else {
-            addOfficialTitle = MoaL10n.text("No Current Official Login")
-            canAddOfficialAccount = false
+            let savedItem = NSMenuItem(title: MoaL10n.format("Current Login Saved as %@", savedAccountName), action: nil, keyEquivalent: "")
+            savedItem.isEnabled = false
+            app.codexOfficialMenu.addItem(savedItem)
+        } else if !currentOfficialLoginSaveStatus.hasLogin {
+            let noneItem = NSMenuItem(title: MoaL10n.text("No Current Official Login"), action: nil, keyEquivalent: "")
+            noneItem.isEnabled = false
+            app.codexOfficialMenu.addItem(noneItem)
         }
-        let addOfficialAccountItem = NSMenuItem(title: addOfficialTitle, action: #selector(AppDelegate.addCodexOfficialAccountAction), keyEquivalent: "")
-        addOfficialAccountItem.target = app
-        addOfficialAccountItem.isEnabled = canAddOfficialAccount
-        app.codexOfficialMenu.addItem(addOfficialAccountItem)
-        let renameOfficialAccountItem = NSMenuItem(title: MoaL10n.text("Rename Current Account"), action: #selector(AppDelegate.renameCodexOfficialAccountAction), keyEquivalent: "")
-        renameOfficialAccountItem.target = app
-        renameOfficialAccountItem.isEnabled = selectedOfficialAccountID != nil
-        app.codexOfficialMenu.addItem(renameOfficialAccountItem)
-        let deleteOfficialAccountItem = NSMenuItem(title: MoaL10n.text("Delete Current Account"), action: #selector(AppDelegate.deleteCodexOfficialAccountAction), keyEquivalent: "")
-        deleteOfficialAccountItem.target = app
-        deleteOfficialAccountItem.isEnabled = selectedOfficialAccountID != nil
-        app.codexOfficialMenu.addItem(deleteOfficialAccountItem)
+        app.codexOfficialMenu.addItem(manageAccountsItem(.codexOfficial))
         app.codexProfilesMenu.addItem(app.codexOfficialItem)
 
         if profiles.isEmpty {
@@ -246,28 +232,7 @@ final class MoaMainMenuCoordinator {
         }
 
         app.codexProfilesMenu.addItem(NSMenuItem.separator())
-        app.codexProfilesMenu.addItem(NSMenuItem(title: MoaL10n.text("Add Config"), action: #selector(AppDelegate.addProfileAction), keyEquivalent: ""))
-        app.codexProfilesMenu.addItem(providerPresetSubmenuItem(
-            title: MoaL10n.text("Add Responses Preset"),
-            presets: MoaProviderPresets.responsesNative + MoaProviderPresets.responsesGateways
-        ))
-        app.importProfilesItem.target = app
-        app.importProfilesItem.title = MoaL10n.text("Import Config")
-        app.codexProfilesMenu.addItem(app.importProfilesItem)
-        app.exportProfilesItem.target = app
-        app.exportProfilesItem.title = MoaL10n.text("Export Config")
-        app.exportProfilesItem.isEnabled = !profiles.isEmpty
-        app.codexProfilesMenu.addItem(app.exportProfilesItem)
-        app.editProfileItem.target = app
-        app.editProfileItem.title = MoaL10n.text("Edit Selected Config")
-        app.editProfileItem.isEnabled = selectedID != nil && profiles.contains { $0.id == selectedID }
-        app.editProfileItem.representedObject = selectedID
-        app.codexProfilesMenu.addItem(app.editProfileItem)
-        app.deleteProfileItem.target = app
-        app.deleteProfileItem.title = MoaL10n.text("Delete Selected Config")
-        app.deleteProfileItem.isEnabled = app.editProfileItem.isEnabled
-        app.deleteProfileItem.representedObject = selectedID
-        app.codexProfilesMenu.addItem(app.deleteProfileItem)
+        app.codexProfilesMenu.addItem(manageAccountsItem(.codexConfig))
         app.codexProfilesMenu.addItem(NSMenuItem.separator())
 
         app.fastModeItem.target = app
@@ -286,19 +251,6 @@ final class MoaMainMenuCoordinator {
         app.codexProfilesMenu.addItem(NSMenuItem.separator())
         app.codexProfilesMenu.addItem(NSMenuItem(title: MoaL10n.text("Open Moa Folder"), action: #selector(AppDelegate.openMoaFolderAction), keyEquivalent: ""))
         app.codexProfilesMenu.addItem(NSMenuItem(title: MoaL10n.text("Open Codex Folder"), action: #selector(AppDelegate.openCodexFolderAction), keyEquivalent: ""))
-    }
-
-    func providerPresetSubmenuItem(title: String, presets: [MoaProviderPreset]) -> NSMenuItem {
-        let parent = NSMenuItem(title: title, action: nil, keyEquivalent: "")
-        let submenu = NSMenu(title: title)
-        for preset in presets {
-            let item = NSMenuItem(title: preset.name, action: #selector(AppDelegate.addProviderPresetAction(_:)), keyEquivalent: "")
-            item.target = app
-            item.representedObject = preset.id
-            submenu.addItem(item)
-        }
-        parent.submenu = submenu
-        return parent
     }
 
     func rebuildClaudeDesktopProfilesMenu() {
@@ -341,32 +293,19 @@ final class MoaMainMenuCoordinator {
         }
 
         app.claudeDesktopProfilesMenu.addItem(NSMenuItem.separator())
-        app.claudeDesktopProfilesMenu.addItem(NSMenuItem(title: MoaL10n.text("Add Provider"), action: #selector(AppDelegate.addClaudeDesktopProviderAction), keyEquivalent: ""))
-        app.importClaudeDesktopProviderItem.target = app
-        app.importClaudeDesktopProviderItem.title = MoaL10n.text("Import Provider")
-        app.claudeDesktopProfilesMenu.addItem(app.importClaudeDesktopProviderItem)
-        app.exportClaudeDesktopProviderItem.target = app
-        app.exportClaudeDesktopProviderItem.title = MoaL10n.text("Export Provider")
-        app.exportClaudeDesktopProviderItem.isEnabled = !profiles.isEmpty
-        app.claudeDesktopProfilesMenu.addItem(app.exportClaudeDesktopProviderItem)
-
-        app.editClaudeDesktopProviderItem.target = app
-        app.editClaudeDesktopProviderItem.title = MoaL10n.text("Edit Selected Provider")
-        app.editClaudeDesktopProviderItem.isEnabled = selectedID != nil && profiles.contains { $0.id == selectedID }
-        app.editClaudeDesktopProviderItem.representedObject = selectedID
-        app.claudeDesktopProfilesMenu.addItem(app.editClaudeDesktopProviderItem)
-
-        app.deleteClaudeDesktopProviderItem.target = app
-        app.deleteClaudeDesktopProviderItem.title = MoaL10n.text("Delete Selected Provider")
-        app.deleteClaudeDesktopProviderItem.isEnabled = app.editClaudeDesktopProviderItem.isEnabled
-        app.deleteClaudeDesktopProviderItem.representedObject = selectedID
-        app.claudeDesktopProfilesMenu.addItem(app.deleteClaudeDesktopProviderItem)
-
+        app.claudeDesktopProfilesMenu.addItem(manageAccountsItem(.claude))
         app.claudeDesktopProfilesMenu.addItem(NSMenuItem.separator())
         app.claudeDesktopProfilesMenu.addItem(NSMenuItem(title: MoaL10n.text("Open Claude Desktop"), action: #selector(AppDelegate.openClaudeDesktopAction), keyEquivalent: ""))
         app.claudeDesktopProfilesMenu.addItem(NSMenuItem(title: MoaL10n.text("Reopen Claude Desktop"), action: #selector(AppDelegate.reopenClaudeDesktopAction), keyEquivalent: ""))
         app.claudeDesktopProfilesMenu.addItem(NSMenuItem(title: MoaL10n.text("Open Claude Folder"), action: #selector(AppDelegate.openClaudeDesktopFolderAction), keyEquivalent: ""))
         app.claudeDesktopProfilesMenu.addItem(NSMenuItem(title: MoaL10n.text("Open 3P Profile Folder"), action: #selector(AppDelegate.openClaudeDesktop3PFolderAction), keyEquivalent: ""))
+    }
+
+    private func manageAccountsItem(_ group: MoaAccountGroup) -> NSMenuItem {
+        let item = NSMenuItem(title: MoaL10n.text("Manage Accounts…"), action: #selector(AppDelegate.showAccountManagerAction(_:)), keyEquivalent: "")
+        item.target = app
+        item.representedObject = group.rawValue
+        return item
     }
 
     private func showDataLoadFailure(_ error: Error, source: String, in menu: NSMenu) {

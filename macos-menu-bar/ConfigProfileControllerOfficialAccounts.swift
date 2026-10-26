@@ -228,6 +228,16 @@ extension ConfigProfileController {
 
     @discardableResult
     func renameSelectedOfficialAccount(name: String) throws -> CodexOfficialAccount {
+        guard let selectedID = try loadOfficialAccountDatabase().selectedAccountID else {
+            throw CodexOfficialAccountError.noSelectedAccount
+        }
+        return try renameOfficialAccount(id: selectedID, name: name)
+    }
+
+    /// Renames one saved account without touching the live Codex login, so a
+    /// display-name change never restarts Codex.
+    @discardableResult
+    func renameOfficialAccount(id: String, name: String) throws -> CodexOfficialAccount {
         try stateLock.withLock {
             try ensureStore()
 
@@ -237,10 +247,7 @@ extension ConfigProfileController {
             }
 
             var database = try loadOfficialAccountDatabaseHydratingEmails()
-            guard let selectedID = database.selectedAccountID else {
-                throw CodexOfficialAccountError.noSelectedAccount
-            }
-            guard let index = database.accounts.firstIndex(where: { $0.id == selectedID }) else {
+            guard let index = database.accounts.firstIndex(where: { $0.id == id }) else {
                 throw CodexOfficialAccountError.accountNotFound
             }
 
@@ -258,6 +265,17 @@ extension ConfigProfileController {
 
     @discardableResult
     func deleteSelectedOfficialAccount() throws -> DeletedOfficialAccountResult {
+        guard let selectedID = try loadOfficialAccountDatabase().selectedAccountID else {
+            throw CodexOfficialAccountError.noSelectedAccount
+        }
+        return try deleteOfficialAccount(id: selectedID)
+    }
+
+    /// Removes one saved login. Only deleting the login Codex is actually using
+    /// changes the live session, and then the next saved account takes over;
+    /// deleting any other account leaves Codex signed in exactly as it was.
+    @discardableResult
+    func deleteOfficialAccount(id: String) throws -> DeletedOfficialAccountResult {
         try stateLock.withLock {
             try ensureStore()
             return try withCodexStateTransaction(
@@ -266,12 +284,10 @@ extension ConfigProfileController {
             ) {
                 try syncMoaAuthSessionFromCodex(updateSelectedOfficialAccount: true)
                 var database = try loadOfficialAccountDatabaseHydratingEmails()
-                guard let selectedID = database.selectedAccountID else {
-                    throw CodexOfficialAccountError.noSelectedAccount
-                }
-                guard let index = database.accounts.firstIndex(where: { $0.id == selectedID }) else {
+                guard let index = database.accounts.firstIndex(where: { $0.id == id }) else {
                     throw CodexOfficialAccountError.accountNotFound
                 }
+                let deletesLiveLogin = database.selectedAccountID == id
 
                 try backupCodexFiles()
                 let deleted = database.accounts.remove(at: index)
@@ -279,10 +295,7 @@ extension ConfigProfileController {
                 try? fileManager.removeItem(at: deletedAuthURL)
 
                 let activated: CodexOfficialAccount?
-                if database.accounts.isEmpty {
-                    database.selectedAccountID = nil
-                    activated = nil
-                } else {
+                if deletesLiveLogin, !database.accounts.isEmpty {
                     let nextIndex = min(index, database.accounts.count - 1)
                     var next = database.accounts[nextIndex]
                     next.lastUsedAt = Self.isoTimestamp()
@@ -292,6 +305,11 @@ extension ConfigProfileController {
                     try copyFile(from: nextAuthURL, to: moaAuthURL)
                     try copyFile(from: nextAuthURL, to: codexAuthURL)
                     activated = next
+                } else {
+                    if deletesLiveLogin {
+                        database.selectedAccountID = nil
+                    }
+                    activated = nil
                 }
 
                 try saveOfficialAccountDatabase(database)

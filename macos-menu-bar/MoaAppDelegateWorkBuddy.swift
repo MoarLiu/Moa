@@ -70,17 +70,10 @@ final class MoaWorkBuddyCoordinator: NSObject {
             menu.addItem(item)
         }
         menu.addItem(NSMenuItem.separator())
-        menu.addItem(menuItem("Save Current WorkBuddy AI Account…", #selector(saveWorkBuddyAccountAction)))
-        menu.addItem(menuItem("Add Another WorkBuddy AI Account…", #selector(addWorkBuddyAccountAction)))
-        for (title, action) in [
-            ("Rename Current Account", #selector(renameWorkBuddyAccountAction(_:))),
-            ("Delete Current Account", #selector(deleteWorkBuddyAccountAction(_:)))
-        ] {
-            let item = menuItem(title, action)
-            item.representedObject = current?.id.uuidString
-            item.isEnabled = current != nil
-            menu.addItem(item)
-        }
+        let manageItem = menuItem("Manage Accounts…", #selector(AppDelegate.showAccountManagerAction(_:)))
+        manageItem.target = app
+        manageItem.representedObject = (edition == .china ? MoaAccountGroup.workbuddyCN : .workbuddy).rawValue
+        menu.addItem(manageItem)
         menu.addItem(NSMenuItem.separator())
         menu.addItem(menuItem("Open WorkBuddy AI", #selector(openWorkBuddyAction)))
         menu.addItem(menuItem("Reopen WorkBuddy AI", #selector(reopenWorkBuddyAction)))
@@ -98,24 +91,24 @@ final class MoaWorkBuddyCoordinator: NSObject {
         rebuildMenu()
     }
 
-    @objc func saveWorkBuddyAccountAction() {
+    func saveCurrentAccount(onComplete: (() -> Void)? = nil) {
         guard !operationInFlight,
               let name = app.showOfficialAccountNamePanel(
                 title: edition.localized("Save WorkBuddy AI Account"),
                 message: edition.localized("WorkBuddy AI will quit normally, save its latest login on this Mac, and reopen. Finish active tasks first. Do not use Log Out."),
                 buttonTitle: edition.localized("Save"), initialName: edition.title
               ) else { return }
-        performWorkBuddyOperation { _ = try self.controller.saveCurrent(name: name) }
+        performWorkBuddyOperation(onComplete: onComplete) { _ = try self.controller.saveCurrent(name: name) }
     }
 
-    @objc func addWorkBuddyAccountAction() {
+    func addAnotherAccount(onComplete: (() -> Void)? = nil) {
         guard !operationInFlight,
               MoaNonBlockingAlert.confirm(
                 messageText: edition.localized("Add Another WorkBuddy AI Account?"),
                 informativeText: edition.localized("Moa saves the current login, quits WorkBuddy AI, and opens a fresh login. Sign in with the other account, then choose Save Current WorkBuddy AI Account. Existing sessions stay on this Mac. Finish active tasks first; do not use Log Out."),
                 primaryButtonTitle: edition.localized("Continue"), tone: .warning
               ) else { return }
-        performWorkBuddyOperation { try self.controller.prepareNewLogin() }
+        performWorkBuddyOperation(onComplete: onComplete) { try self.controller.prepareNewLogin() }
     }
 
     @objc func applyWorkBuddyAccountAction(_ sender: NSMenuItem) {
@@ -123,31 +116,10 @@ final class MoaWorkBuddyCoordinator: NSObject {
         performWorkBuddyOperation { _ = try self.controller.apply(id: id) }
     }
 
-    @objc func renameWorkBuddyAccountAction(_ sender: NSMenuItem) {
-        guard !operationInFlight, let text = sender.representedObject as? String,
-              let id = UUID(uuidString: text),
-              let account = try? controller.accounts().first(where: { $0.id == id }),
-              let name = app.showOfficialAccountNamePanel(
-                title: edition.localized("Rename WorkBuddy AI Account"), message: edition.localized("Update the saved account's display name."),
-                buttonTitle: edition.localized("Save"), initialName: account.name
-              ) else { return }
-        performWorkBuddyOperation { try self.controller.rename(id: id, name: name) }
-    }
-
-    @objc func deleteWorkBuddyAccountAction(_ sender: NSMenuItem) {
-        guard !operationInFlight, let text = sender.representedObject as? String,
-              let id = UUID(uuidString: text), MoaNonBlockingAlert.confirm(
-                messageText: edition.localized("Delete Saved WorkBuddy AI Account?"),
-                informativeText: edition.localized("Only Moa's saved copy is deleted. WorkBuddy AI stays signed in and its local sessions are kept."),
-                primaryButtonTitle: edition.localized("Delete"), tone: .danger
-              ) else { return }
-        performWorkBuddyOperation { try self.controller.delete(id: id) }
-    }
-
     @objc func openWorkBuddyAction() { performWorkBuddyOperation { try self.controller.open() } }
     @objc func reopenWorkBuddyAction() { performWorkBuddyOperation { try self.controller.reopen() } }
 
-    private func performWorkBuddyOperation(_ operation: @escaping () throws -> Void) {
+    private func performWorkBuddyOperation(onComplete: (() -> Void)? = nil, _ operation: @escaping () throws -> Void) {
         guard !operationInFlight else { return }
         operationInFlight = true
         app.statusItemText.title = self.statusTitle("Updating WorkBuddy AI…")
@@ -157,6 +129,7 @@ final class MoaWorkBuddyCoordinator: NSObject {
             DispatchQueue.main.async {
                 self.operationInFlight = false
                 self.rebuildMenu()
+                onComplete?()
                 if self.edition == .china {
                     self.app.usageCoordinator.refreshWorkBuddyCN(forceRefresh: true)
                 } else {

@@ -14,6 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     lazy var mainMenuCoordinator = MoaMainMenuCoordinator(app: self)
     lazy var providerActionCoordinator = MoaProviderActionCoordinator(app: self)
     lazy var profileActionCoordinator = MoaProfileActionCoordinator(app: self)
+    lazy var accountManagerWindow = MoaAccountManagerWindowController(app: self)
     lazy var usageInsightsWindow = MoaUsageInsightsWindowController(
         codexScanner: usageCoordinator.codexScanner,
         claudeScanner: usageCoordinator.claudeScanner,

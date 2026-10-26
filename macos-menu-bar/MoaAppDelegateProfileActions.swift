@@ -34,6 +34,11 @@ extension AppDelegate {
     @objc func restoreCodexOfficialAction() { profileActionCoordinator.restoreCodexOfficialAction() }
     @objc func applyCodexOfficialNoAccountAction() { profileActionCoordinator.applyCodexOfficialNoAccountAction() }
     @objc func applyCodexOfficialAccountAction(_ sender: NSMenuItem) { profileActionCoordinator.applyCodexOfficialAccountAction(sender) }
+    @objc func showAccountManagerAction(_ sender: NSMenuItem) {
+        let group = (sender.representedObject as? String).flatMap(MoaAccountGroup.init(rawValue:))
+        accountManagerWindow.show(group: group)
+    }
+
     @objc func addCodexOfficialAccountAction() { profileActionCoordinator.addCodexOfficialAccountAction() }
     @objc func renameCodexOfficialAccountAction() { profileActionCoordinator.renameCodexOfficialAccountAction() }
     @objc func deleteCodexOfficialAccountAction() { profileActionCoordinator.deleteCodexOfficialAccountAction() }
