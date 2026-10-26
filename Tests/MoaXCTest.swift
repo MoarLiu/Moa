@@ -81,7 +81,6 @@ final class MoaXCTest: XCTestCase {
             "legacy nested iCloud directories merge recursively",
             "recursive migration does not follow destination symlinks",
             "TOML multiline strings survive structural edits",
-            "Fast state TOML edits preserve multiline strings",
             "official restore keeps selected provider identity",
             "official restore strips selected direct provider credentials",
             "Codex session provider migration requires current provider",
@@ -98,7 +97,7 @@ final class MoaXCTest: XCTestCase {
             "updater prunes old backups",
             "GPT-5.6 family uses current local pricing",
             "ChatGPT application override respects renamed bundles",
-            "Fast mode updates desktop and root config safely",
+            "Codex client helpers preserve settings and account state",
             "provider switching preserves live desktop and unrelated tables",
             "TOML scalar updates respect quoted keys and arrays",
             "Codex new records deduplicate mirrored legacy events",
@@ -283,10 +282,6 @@ final class MoaXCTest: XCTestCase {
         try run("TOML multiline strings survive structural edits")
     }
 
-    func testFastStateTOMLEditsPreserveMultilineStrings() throws {
-        try run("Fast state TOML edits preserve multiline strings")
-    }
-
     func testOfficialRestoreKeepsSelectedProviderIdentity() throws {
         try run("official restore keeps selected provider identity")
     }
@@ -351,8 +346,8 @@ final class MoaXCTest: XCTestCase {
         try run("ChatGPT application override respects renamed bundles")
     }
 
-    func testFastModeUpdatesDesktopAndRootConfigSafely() throws {
-        try run("Fast mode updates desktop and root config safely")
+    func testCodexClientHelpersPreserveSettingsAndAccountState() throws {
+        try run("Codex client helpers preserve settings and account state")
     }
 
     func testProviderSwitchingPreservesLiveDesktopAndUnrelatedTables() throws {

@@ -12,7 +12,7 @@ final class MoaProfileActionCoordinator {
     var profileController: ConfigProfileController { app.profileController }
     var claudeDesktopProfileController: ClaudeDesktopProfileController { app.claudeDesktopProfileController }
     var zcodeController: ZCodeController { app.zcodeController }
-    var controller: FastStateController { app.controller }
+    var controller: CodexAppController { app.controller }
     var statusItemText: NSMenuItem { app.statusItemText }
     var usageInsightsWindow: MoaUsageInsightsWindowController { app.usageInsightsWindow }
 
@@ -103,6 +103,7 @@ final class MoaProfileActionCoordinator {
         )
     }
     func editProfileAction(_ sender: NSMenuItem) {
+        guard app.accountOperations.active[.codex] == nil else { return }
         guard let profile = try? profileController.selectedProfile() else {
             showError(MoaL10n.text("Select a configuration before editing."))
             return
@@ -114,6 +115,7 @@ final class MoaProfileActionCoordinator {
 
         statusItemText.title = AppDelegate.statusTitle("Saving %@...", input.name)
 
+        guard let token = app.accountOperations.begin(.codex, message: MoaL10n.text("Saving…")) else { return }
         DispatchQueue.global(qos: .userInitiated).async {
             let result = Result {
                 let updated = try self.profileController.updateProfile(
@@ -133,6 +135,8 @@ final class MoaProfileActionCoordinator {
             }
 
             DispatchQueue.main.async {
+                self.app.accountOperations.finish(.codex, id: token)
+                self.app.accountManagerWindow.refreshIfVisible()
                 switch result {
                 case .success(let updated):
                     self.rebuildCodexProviderMenus()
@@ -198,6 +202,7 @@ final class MoaProfileActionCoordinator {
     }
 
     func migrateCodexSessionModelProviderAction() {
+        guard app.accountOperations.active[.codex] == nil else { return }
         let providerID: String
         do {
             providerID = try profileController.currentCodexRootModelProvider()
@@ -222,6 +227,7 @@ final class MoaProfileActionCoordinator {
         }
 
         statusItemText.title = AppDelegate.statusTitle("Migrating Codex history...")
+        guard let token = app.accountOperations.begin(.codex, message: MoaL10n.text("Migrating Codex history...")) else { return }
         DispatchQueue.global(qos: .userInitiated).async {
             let result = Result {
                 try self.controller.quitCodex()
@@ -229,6 +235,8 @@ final class MoaProfileActionCoordinator {
             }
 
             DispatchQueue.main.async {
+                self.app.accountOperations.finish(.codex, id: token)
+                self.app.accountManagerWindow.refreshIfVisible()
                 switch result {
                 case .success(let migration):
                     self.statusItemText.title = AppDelegate.statusTitle("Codex history migrated")
@@ -270,6 +278,7 @@ final class MoaProfileActionCoordinator {
     }
 
     func editClaudeDesktopProviderAction(_ sender: NSMenuItem) {
+        guard app.accountOperations.active[.claude] == nil else { return }
         guard let profile = try? claudeDesktopProfileController.selectedProfile() else {
             showError(MoaL10n.text("Select a Claude Desktop provider before editing."))
             return
@@ -281,6 +290,7 @@ final class MoaProfileActionCoordinator {
 
         statusItemText.title = AppDelegate.statusTitle("Saving %@...", input.name)
 
+        guard let token = app.accountOperations.begin(.claude, message: MoaL10n.text("Saving…")) else { return }
         DispatchQueue.global(qos: .userInitiated).async {
             let result = Result {
                 let updated = try self.claudeDesktopProfileController.updateProfile(
@@ -297,6 +307,8 @@ final class MoaProfileActionCoordinator {
             }
 
             DispatchQueue.main.async {
+                self.app.accountOperations.finish(.claude, id: token)
+                self.app.accountManagerWindow.refreshIfVisible()
                 switch result {
                 case .success(let updated):
                     self.rebuildClaudeProviderMenus()
@@ -393,9 +405,11 @@ final class MoaProfileActionCoordinator {
     }
 
     func applyClaudeDesktopProviderAction(_ sender: NSMenuItem) {
+        guard app.accountOperations.active[.claude] == nil else { return }
         guard let id = sender.representedObject as? String else { return }
         statusItemText.title = AppDelegate.statusTitle("Switching Claude Desktop...")
 
+        guard let token = app.accountOperations.begin(.claude, message: MoaL10n.text("Switching…")) else { return }
         DispatchQueue.global(qos: .userInitiated).async {
             let result = Result {
                 let profile = try self.claudeDesktopProfileController.applyProfile(id: id)
@@ -404,6 +418,8 @@ final class MoaProfileActionCoordinator {
             }
 
             DispatchQueue.main.async {
+                self.app.accountOperations.finish(.claude, id: token)
+                self.app.accountManagerWindow.refreshIfVisible()
                 switch result {
                 case .success(let profile):
                     self.rebuildClaudeProviderMenus()
@@ -418,8 +434,10 @@ final class MoaProfileActionCoordinator {
     }
 
     func restoreClaudeDesktopOfficialAction() {
+        guard app.accountOperations.active[.claude] == nil else { return }
         statusItemText.title = AppDelegate.statusTitle("Restoring Claude Desktop...")
 
+        guard let token = app.accountOperations.begin(.claude, message: MoaL10n.text("Switching…")) else { return }
         DispatchQueue.global(qos: .userInitiated).async {
             let result = Result {
                 try self.claudeDesktopProfileController.restoreOfficial()
@@ -427,6 +445,8 @@ final class MoaProfileActionCoordinator {
             }
 
             DispatchQueue.main.async {
+                self.app.accountOperations.finish(.claude, id: token)
+                self.app.accountManagerWindow.refreshIfVisible()
                 switch result {
                 case .success:
                     self.rebuildClaudeProviderMenus()
@@ -465,8 +485,10 @@ final class MoaProfileActionCoordinator {
     }
 
     func restoreCodexOfficialAction() {
+        guard app.accountOperations.active[.codex] == nil else { return }
         statusItemText.title = AppDelegate.statusTitle("Restoring Codex...")
 
+        guard let token = app.accountOperations.begin(.codex, message: MoaL10n.text("Switching…")) else { return }
         DispatchQueue.global(qos: .userInitiated).async {
             let result = Result {
                 try self.profileController.restoreOfficial()
@@ -481,6 +503,8 @@ final class MoaProfileActionCoordinator {
             }
 
             DispatchQueue.main.async {
+                self.app.accountOperations.finish(.codex, id: token)
+                self.app.accountManagerWindow.refreshIfVisible()
                 switch result {
                 case .success(let accountName):
                     self.rebuildCodexProviderMenus()
@@ -500,8 +524,10 @@ final class MoaProfileActionCoordinator {
     }
 
     func applyCodexOfficialNoAccountAction() {
+        guard app.accountOperations.active[.codex] == nil else { return }
         statusItemText.title = AppDelegate.statusTitle("Switching Codex Official...")
 
+        guard let token = app.accountOperations.begin(.codex, message: MoaL10n.text("Switching…")) else { return }
         DispatchQueue.global(qos: .userInitiated).async {
             let result = Result {
                 try self.profileController.applyOfficialNoAccountMode()
@@ -515,6 +541,8 @@ final class MoaProfileActionCoordinator {
             }
 
             DispatchQueue.main.async {
+                self.app.accountOperations.finish(.codex, id: token)
+                self.app.accountManagerWindow.refreshIfVisible()
                 switch result {
                 case .success(let account):
                     self.rebuildCodexProviderMenus()
@@ -534,9 +562,11 @@ final class MoaProfileActionCoordinator {
     }
 
     func applyCodexOfficialAccountAction(_ sender: NSMenuItem) {
+        guard app.accountOperations.active[.codex] == nil else { return }
         guard let id = sender.representedObject as? String else { return }
         statusItemText.title = AppDelegate.statusTitle("Switching Codex Official...")
 
+        guard let token = app.accountOperations.begin(.codex, message: MoaL10n.text("Switching…")) else { return }
         DispatchQueue.global(qos: .userInitiated).async {
             let result = Result {
                 try self.profileController.applyOfficialAccount(id: id)
@@ -550,6 +580,8 @@ final class MoaProfileActionCoordinator {
             }
 
             DispatchQueue.main.async {
+                self.app.accountOperations.finish(.codex, id: token)
+                self.app.accountManagerWindow.refreshIfVisible()
                 switch result {
                 case .success:
                     self.rebuildCodexProviderMenus()
@@ -565,6 +597,7 @@ final class MoaProfileActionCoordinator {
     }
 
     func addCodexOfficialAccountAction() {
+        guard app.accountOperations.active[.codex] == nil else { return }
         guard let name = showOfficialAccountNamePanel(
             title: MoaL10n.text("Add Codex Official Account"),
             message: MoaL10n.text("Save the current Codex official login as a switchable account."),
@@ -575,12 +608,15 @@ final class MoaProfileActionCoordinator {
         }
 
         statusItemText.title = AppDelegate.statusTitle("Adding Codex Official account...")
+        guard let token = app.accountOperations.begin(.codex, message: MoaL10n.text("Saving…")) else { return }
         DispatchQueue.global(qos: .userInitiated).async {
             let result = Result {
                 try self.profileController.addOfficialAccountFromCurrentLogin(name: name)
             }
 
             DispatchQueue.main.async {
+                self.app.accountOperations.finish(.codex, id: token)
+                self.app.accountManagerWindow.refreshIfVisible()
                 switch result {
                 case .success(let account):
                     self.rebuildCodexProviderMenus()
@@ -621,6 +657,7 @@ final class MoaProfileActionCoordinator {
     }
 
     func deleteCodexOfficialAccountAction() {
+        guard app.accountOperations.active[.codex] == nil else { return }
         guard let account = try? profileController.selectedOfficialAccount() else {
             showError(MoaL10n.text("Select a Codex official account first."))
             return
@@ -636,6 +673,7 @@ final class MoaProfileActionCoordinator {
         }
 
         statusItemText.title = AppDelegate.statusTitle("Deleting %@...", account.displayTitle)
+        guard let token = app.accountOperations.begin(.codex, message: MoaL10n.text("Deleting…")) else { return }
         DispatchQueue.global(qos: .userInitiated).async {
             let result = Result {
                 try self.profileController.deleteSelectedOfficialAccount()
@@ -649,6 +687,8 @@ final class MoaProfileActionCoordinator {
             }
 
             DispatchQueue.main.async {
+                self.app.accountOperations.finish(.codex, id: token)
+                self.app.accountManagerWindow.refreshIfVisible()
                 switch result {
                 case .success(let result):
                     self.rebuildCodexProviderMenus()
@@ -668,9 +708,11 @@ final class MoaProfileActionCoordinator {
     }
 
     func applyProfileAction(_ sender: NSMenuItem) {
+        guard app.accountOperations.active[.codex] == nil else { return }
         guard let id = sender.representedObject as? String else { return }
         statusItemText.title = AppDelegate.statusTitle("Switching config...")
 
+        guard let token = app.accountOperations.begin(.codex, message: MoaL10n.text("Switching…")) else { return }
         DispatchQueue.global(qos: .userInitiated).async {
             let result = Result {
                 try self.profileController.applyProfile(id: id)
@@ -684,6 +726,8 @@ final class MoaProfileActionCoordinator {
             }
 
             DispatchQueue.main.async {
+                self.app.accountOperations.finish(.codex, id: token)
+                self.app.accountManagerWindow.refreshIfVisible()
                 switch result {
                 case .success(let profile):
                     self.rebuildCodexProviderMenus()

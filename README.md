@@ -6,7 +6,7 @@ It intentionally excludes the original Moa Companion surface: no desktop pet, AI
 
 ## Features
 
-- ChatGPT / Codex controls: Fast Mode, a remote connection settings shortcut, official account switching, provider profile import/export, and client reopen helpers.
+- ChatGPT / Codex controls: official account switching, provider profile import/export, and client reopen helpers.
 - Claude Desktop profiles: write Claude Desktop 3P gateway profiles and copy Claude Code environment snippets.
 - Account management: **Manage Accounts…** opens one window grouped by client. Rename, edit, or delete saved entries there; selecting an account in the menu still switches immediately.
 - WorkBuddy / WorkBuddy AI International: separate account menus and usage tabs, local logins, account enrollment and switching, rename/forget actions, and client launch helpers.
@@ -15,6 +15,14 @@ It intentionally excludes the original Moa Companion surface: no desktop pet, AI
 - Moa Data: export/import data packages, export redacted diagnostics, and optionally switch the active data root to iCloud Drive.
 - Updates: check GitHub Releases from the main menu, then download, verify, and install the matching macOS DMG.
 - Model prices: choose **Update Prices** in the main menu to download the complete public price table used as Sub2API's reference. Supported USD token rates take effect immediately, refresh open usage reports, and persist across restarts. Failed downloads keep the previous table; custom prices take precedence. Daily automatic checks remain enabled.
+
+## 1.5.0 Interface and Interaction
+
+- The version/build row is first in the main menu. Top-level **Accounts…** and **Usage Overview…** entries provide shared windows. Client menus retain usage summaries, refresh, and one-click switching; launch and folder helpers appear directly at the bottom of each client submenu.
+- Account windows and menus share per-client progress. Switch remains the primary row action; rename, edit, and delete are available in the actions menu.
+- Success and informational feedback do not steal focus. Long forms scroll while Save and Cancel remain visible, and usage insights adapt to narrower windows.
+- Shortcuts: **Command-U** opens usage overview, **Command-Shift-A** opens accounts, and **Command-R** refreshes the current usage window or all menu usage sources.
+- Maintenance actions, including price updates, update checks, and data management, are grouped under **Moa** in the main menu.
 
 ## Upgrading to 1.4.0
 
@@ -30,9 +38,7 @@ If you used Provider Bridge, select an existing Responses profile in the Codex m
 
 Moa locates the client by its `com.openai.codex` bundle identifier, supporting both `ChatGPT.app` and legacy `Codex.app` installations. `CODEX_APP` can override the application location. Configuration and credentials remain under `~/.codex`, or the directory selected by `CODEX_HOME`.
 
-For current clients, Fast Mode reads and writes `desktop.default-service-tier` in `config.toml`, recognizes both `priority` and `fast`, and synchronizes the root `service_tier`. Legacy Codex retains its JSON state path. Provider switching starts from the live client configuration, preserving other settings, unknown fields, and unrelated provider definitions.
-
-The remote connection menu opens `codex://settings/connections`; ChatGPT manages the connections itself. The old `MoaApplyRemoteConnections` headless command returns migration guidance. Use `MoaOpenRemoteConnections=1` to open the settings page.
+Moa 1.5.0 removes Fast Mode and remote connection settings controls, including their legacy headless commands. Manage these preferences in ChatGPT itself. Existing preferences remain untouched. Provider switching starts from the live client configuration, preserving other settings, unknown fields, and unrelated provider definitions.
 
 Usage scanning supports both `token_usage_record` and legacy `token_count` events without counting both, and retains cache reads, cache writes, and request boundaries. Long-context prices apply per request. Version 1.3.0 includes API prices checked on 2026-10-24 for OpenAI, Claude, GLM, and WorkBuddy models, including cache and Fast parameters. See the [complete model price and source table](MODEL_PRICING.md). These are standard API price estimates for local Codex tasks, not ChatGPT subscription invoices.
 

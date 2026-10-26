@@ -89,7 +89,6 @@ enum MoaCoreTests {
             ("legacy nested iCloud directories merge recursively", testLegacyNestedICloudDirectoryMigration),
             ("recursive migration does not follow destination symlinks", testRecursiveMigrationRejectsDestinationSymlinks),
             ("TOML multiline strings survive structural edits", testTomlMultilineStringsSurviveStructuralEdits),
-            ("Fast state TOML edits preserve multiline strings", testFastStateTomlMultilineStrings),
             ("official restore keeps selected provider identity", testOfficialRestoreKeepsSelectedProviderIdentity),
             ("official restore strips selected direct provider credentials", testOfficialRestoreStripsSelectedDirectProviderCredentials),
             ("Codex session provider migration requires current provider", testCodexSessionProviderMigrationRequiresCurrentProvider),
@@ -107,7 +106,7 @@ enum MoaCoreTests {
             ("updater prunes old backups", testUpdaterBackupPruning),
             ("GPT-5.6 family uses current local pricing", testGPT56Pricing),
             ("ChatGPT application override respects renamed bundles", testChatGPTApplicationOverride),
-            ("Fast mode updates desktop and root config safely", testChatGPTFastMode),
+            ("Codex client helpers preserve settings and account state", testCodexClientLifecyclePreservesSettings),
             ("provider switching preserves live desktop and unrelated tables", testLiveConfigPreservation),
             ("TOML scalar updates respect quoted keys and arrays", testDesktopTomlScalarStyles),
             ("Codex new records deduplicate mirrored legacy events", testCodexNewUsageRecords),
@@ -1054,7 +1053,7 @@ enum MoaCoreTests {
         )
         let generated = controller.generateConfig(config, selecting: profile)
         try expect(generated.contains(multilineBlock), "profile generation must preserve multiline basic and literal strings byte-for-byte")
-        try expect(generated.contains(featureMultilineBlock), "feature normalization must preserve multiline content and blank lines")
+        try expect(generated.contains(featureMultilineBlock), "provider generation must preserve feature multiline content and blank lines")
         try expect(!generated.contains("https://one.example/v1"), "profile generation should still replace the real provider table")
 
         let restored = MoaCodexConfigEditor.restoringOfficialMode(from: config)
@@ -1063,38 +1062,8 @@ enum MoaCoreTests {
         try expect(restored.contains("keep-inside-basic-string"), "official restore should preserve managed-looking keys inside basic multiline strings")
         try expect(restored.contains("keep-inside-literal-string"), "official restore should preserve managed-looking keys inside literal multiline strings")
 
-        let remoteConnectionsRemoved = controller.setRemoteConnections(false, in: config)
-        try expect(remoteConnectionsRemoved.contains(featureMultilineBlock), "disabling remote connections must preserve same-named keys inside feature multiline strings")
-        try expect(!remoteConnectionsRemoved.contains("remote_connections = true"), "disabling remote connections should remove the real feature key")
-    }
-
-    private static func testFastStateTomlMultilineStrings() throws {
-        let controller = FastStateController(environment: ["HOME": "/tmp/moa-fast-state-test"])
-        let multilineBlock = #"""
-        instructions = """
-        [features]
-        remote_connections = false
-        remote_control = false
-        """
-        literal = '''
-        [features]
-        remote_connections = true
-        '''
-        """#
-        let config = multilineBlock + #"""
-
-        [features]
-        remote_connections = true
-        remote_control = true
-        """#
-
-        let disabled = controller.setRemoteConnections(false, in: config)
-        try expect(disabled.contains(multilineBlock), "FastStateController must preserve table-like content inside multiline strings")
-        try expect(controller.remoteConnectionsEnabled(in: disabled) == false, "FastStateController should remove the real remote feature keys")
-
-        let enabled = controller.setRemoteConnections(true, in: disabled)
-        try expect(enabled.contains(multilineBlock), "enabling remote connections must also preserve multiline strings")
-        try expect(controller.remoteConnectionsEnabled(in: enabled), "FastStateController should restore both real remote feature keys")
+        try expect(generated.contains("remote_connections = true"), "provider selection must preserve client-owned connection preferences")
+        try expect(restored.contains("remote_control = true"), "official restore must preserve client-owned connection preferences")
     }
 
     private static func testOfficialRestoreKeepsSelectedProviderIdentity() throws {
@@ -1751,34 +1720,24 @@ enum MoaCoreTests {
         try expect(CodexDesktopApplication.applicationURL(environment: ["HOME": home.path, "CODEX_APP": home.appendingPathComponent("Missing.app").path]) == nil, "missing explicit app must not fall back to a real running client")
     }
 
-    private static func testChatGPTFastMode() throws {
+    private static func testCodexClientLifecyclePreservesSettings() throws {
         let home = try temporaryHome()
         defer { try? FileManager.default.removeItem(at: home) }
         let codex = home.appendingPathComponent(".codex")
-        let moa = home.appendingPathComponent(".moa")
-        for directory in [codex, moa] { try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true) }
+        try FileManager.default.createDirectory(at: codex, withIntermediateDirectories: true)
         let config = codex.appendingPathComponent("config.toml")
-        let mirror = moa.appendingPathComponent("config.toml")
         let state = codex.appendingPathComponent(".codex-global-state.json")
-        let originalState = #"{"electron-persisted-atom-state":{"default-service-tier":"fast","unrelated":true}}"#
-        try originalState.write(to: state, atomically: true, encoding: .utf8)
-        let initial = "service_tier = \"default\"\n[desktop]\ndefault-service-tier = \"priority\"\nappearanceTheme = \"dark\"\n"
-        try initial.write(to: config, atomically: true, encoding: .utf8)
-        try initial.write(to: mirror, atomically: true, encoding: .utf8)
-        let controller = FastStateController(environment: ["HOME": home.path, "CODEX_APP": home.appendingPathComponent("Missing.app").path])
-        try expect(controller.isFastEnabled(), "desktop priority must report Fast enabled")
-        try controller.applyFastMode(false)
-        try expect(!controller.isFastEnabled(), "explicit desktop default must override legacy fast")
-        let disabled = try String(contentsOf: config, encoding: .utf8)
-        try expect(MoaTomlEditor.stringValue(in: disabled, table: "", key: "service_tier") == "default", "disabling Fast must clear the root fallback")
-        try expect(MoaTomlEditor.stringValue(in: disabled, table: "desktop", key: "appearanceTheme") == "dark", "unrelated preferences must survive")
-        let mirrored = try String(contentsOf: mirror, encoding: .utf8)
-        try expect(mirrored == disabled, "Moa mirror must follow the speed change")
-        let savedState = try String(contentsOf: state, encoding: .utf8)
-        try expect(savedState == originalState, "modern changes must not rewrite legacy JSON")
-        try controller.applyFastMode(true)
-        try expect(controller.isFastEnabled(), "enabling Fast must update the current desktop setting")
-        try expect(FileManager.default.fileExists(atPath: codex.appendingPathComponent("fast-toggle-backups").path), "Fast changes must create recovery backups")
+        let settings = "service_tier = \"priority\"\n[desktop]\ndefault-service-tier = \"fast\"\n[features]\nremote_connections = true\nremote_control = false\n"
+        let accountState = #"{"electron-persisted-atom-state":{"default-service-tier":"fast","unrelated":true}}"#
+        try settings.write(to: config, atomically: true, encoding: .utf8)
+        try accountState.write(to: state, atomically: true, encoding: .utf8)
+        let controller = CodexAppController(environment: ["HOME": home.path, "CODEX_APP": home.appendingPathComponent("Missing.app").path])
+        controller.openCodex()
+        try controller.quitCodex()
+        controller.reopenCodex()
+        try expect(String(contentsOf: config, encoding: .utf8) == settings, "client helpers must not rewrite Codex preferences")
+        try expect(String(contentsOf: state, encoding: .utf8) == accountState, "client helpers must not rewrite account state")
+        try expect(!FileManager.default.fileExists(atPath: codex.appendingPathComponent("fast-toggle-backups").path), "client helpers must not create removed feature backups")
     }
 
     private static func testLiveConfigPreservation() throws {

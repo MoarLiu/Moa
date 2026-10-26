@@ -187,50 +187,30 @@ final class CodexUsageSummaryMenuView: NSView {
     }
 }
 
-final class CodexUsageRefreshMenuView: NSView {
-    private static let menuWidth: CGFloat = 300
-    private static let menuHeight: CGFloat = 28
-    var onRefresh: (() -> Void)?
-    private let titleLabel = NSTextField(labelWithString: MoaL10n.text("Refresh Status"))
-    private var isRefreshing = false
+/// A real menu item preserves keyboard navigation, highlighting and VoiceOver.
+final class MoaUsageRefreshMenuItem: NSMenuItem {
+    var onRefresh: (() -> Void)? { didSet { updateAvailability() } }
+    private var refreshing = false
 
-    override init(frame frameRect: NSRect) {
-        super.init(frame: NSRect(origin: .zero, size: NSSize(width: Self.menuWidth, height: Self.menuHeight)))
-        titleLabel.font = .menuFont(ofSize: 0)
-        titleLabel.textColor = .labelColor
-        titleLabel.lineBreakMode = .byTruncatingTail
-        addSubview(titleLabel)
+    init() {
+        super.init(title: MoaL10n.text("Refresh Status"), action: #selector(refresh), keyEquivalent: "")
+        target = self
+        image = NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: nil)
+        updateAvailability()
     }
 
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
+    required init(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    override var intrinsicContentSize: NSSize {
-        NSSize(width: Self.menuWidth, height: Self.menuHeight)
-    }
-
-    override func layout() {
-        super.layout()
-        titleLabel.frame = NSRect(x: 22, y: 6, width: max(0, bounds.width - 34), height: 17)
-    }
-
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        bounds.contains(point) ? self : nil
-    }
-
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
-        true
-    }
-
-    override func mouseDown(with event: NSEvent) {
-        guard !isRefreshing else { return }
+    @objc private func refresh() {
+        guard isEnabled else { return }
         onRefresh?()
     }
 
-    func setRefreshing(_ refreshing: Bool) {
-        isRefreshing = refreshing
-        titleLabel.stringValue = refreshing ? MoaL10n.text("Refreshing Status...") : MoaL10n.text("Refresh Status")
-        titleLabel.textColor = refreshing ? .secondaryLabelColor : .labelColor
+    func setRefreshing(_ value: Bool) {
+        refreshing = value
+        title = MoaL10n.text(value ? "Refreshing Status..." : "Refresh Status")
+        updateAvailability()
     }
+
+    private func updateAvailability() { isEnabled = !refreshing && onRefresh != nil }
 }

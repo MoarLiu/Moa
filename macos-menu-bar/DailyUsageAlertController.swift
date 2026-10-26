@@ -50,40 +50,44 @@ struct DailyUsageAlertFormView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        MoaModalForm {
             MoaModalHeader(
                 icon: "bell.badge.fill",
                 title: title,
                 message: MoaL10n.text("Moa alerts you when today's local estimated cost reaches the threshold. This is only a local estimate, not an official bill.")
             )
+        } fields: {
+            VStack(alignment: .leading, spacing: 16) {
+                Toggle(MoaL10n.text("Enable Daily Usage Alert"), isOn: $enabled)
+                    .toggleStyle(.checkbox)
+                    .font(.system(size: 13))
 
-            Toggle(MoaL10n.text("Enable Daily Usage Alert"), isOn: $enabled)
-                .toggleStyle(.checkbox)
-                .font(.system(size: 13))
+                VStack(alignment: .leading, spacing: 7) {
+                    MoaModalFieldLabel(text: MoaL10n.text("Daily Alert Threshold (USD)"))
+                    TextField(MoaL10n.text("Example: 10"), text: $thresholdText)
+                        .moaModalFieldChrome()
+                        .accessibilityLabel(MoaL10n.text("Daily Alert Threshold (USD)"))
+                        .focused($thresholdFocused)
+                        .disabled(!enabled)
+                        .opacity(enabled ? 1 : 0.5)
+                        .onSubmit(save)
+                }
 
-            VStack(alignment: .leading, spacing: 7) {
-                MoaModalFieldLabel(text: MoaL10n.text("Daily Alert Threshold (USD)"))
-                TextField(MoaL10n.text("Example: 10"), text: $thresholdText)
-                    .moaModalFieldChrome()
-                    .focused($thresholdFocused)
-                    .disabled(!enabled)
-                    .opacity(enabled ? 1 : 0.5)
-                    .onSubmit(save)
+                Text(statusText.isEmpty ? " " : statusText)
+                    .id("moa-form-status")
+                    .preference(key: MoaFormStatusPreferenceKey.self, value: statusText)
+                    .font(.system(size: 12))
+                    .foregroundStyle(MoaTheme.coral)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(minHeight: 16, alignment: .leading)
             }
-
-            Text(statusText.isEmpty ? " " : statusText)
-                .font(.system(size: 12))
-                .foregroundStyle(MoaTheme.coral)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(minHeight: 16, alignment: .leading)
-
+        } footer: {
             HStack(spacing: 10) {
                 Spacer()
-                MoaModalButton(title: MoaL10n.text("Close"), action: onCancel)
+                MoaModalButton(title: MoaL10n.text("Cancel"), action: onCancel)
                 MoaModalButton(title: MoaL10n.text("Save"), prominence: .prominent, keyEquivalent: "\r", action: save)
             }
         }
-        .moaModalFormBody()
         .onAppear {
             if enabled {
                 thresholdFocused = true

@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 
 /// Which group the account window opens scrolled to. The window itself is one
@@ -34,6 +35,16 @@ enum MoaAccountGroup: String, CaseIterable, Identifiable {
         }
     }
 
+    var client: MoaAccountClient {
+        switch self {
+        case .codexOfficial, .codexConfig: return .codex
+        case .claude: return .claude
+        case .workbuddy: return .workbuddy
+        case .workbuddyCN: return .workbuddyCN
+        case .deepseek: return .deepseek
+        }
+    }
+
     /// Login snapshots can only be renamed; API configs also have credentials to edit.
     var supportsEditing: Bool {
         switch self {
@@ -55,6 +66,7 @@ struct MoaAccountSection: Identifiable, Equatable {
     let group: MoaAccountGroup
     var rows: [MoaAccountRow]
     var canAddCurrentLogin: Bool
+    var currentLoginMessage: String? = nil
 
     var id: String { group.id }
 }
@@ -83,7 +95,9 @@ enum MoaAccountCatalog {
                 rows: accounts.map {
                     MoaAccountRow(group: .codexOfficial, id: $0.id, name: $0.name, detail: $0.email ?? "", active: $0.id == selected)
                 },
-                canAddCurrentLogin: status.hasLogin && status.savedAccountName == nil
+                canAddCurrentLogin: status.hasLogin && status.savedAccountName == nil,
+                currentLoginMessage: status.savedAccountName.map { MoaL10n.format("Current Login Saved as %@", $0) }
+                    ?? (status.hasLogin ? nil : MoaL10n.text("Sign in to Codex, then save the current login here."))
             )
         }
 
@@ -157,7 +171,8 @@ final class MoaAccountManagerWindowController {
 
     func show(group: MoaAccountGroup? = nil) {
         let window = existingOrNewWindow()
-        if let group { model?.focus = group }
+        model?.focus = group
+        model?.focusRequest = UUID()
         model?.reload()
         NSApp.activate(ignoringOtherApps: true)
         if !window.isVisible { window.center() }
@@ -189,12 +204,21 @@ final class MoaAccountManagerWindowController {
 final class MoaAccountManagerModel: ObservableObject {
     @Published var sections: [MoaAccountSection] = []
     @Published var failures: [String] = []
-    @Published var busy = false
     @Published var focus: MoaAccountGroup?
-
+    @Published var focusRequest = UUID()
+    let operations: MoaAccountOperationState
+    private var operationObserver: AnyCancellable?
     private unowned let app: AppDelegate
 
-    init(app: AppDelegate) { self.app = app }
+    var busy: Bool { !operations.active.isEmpty }
+    func isBusy(_ group: MoaAccountGroup) -> Bool { operations.active[group.client] != nil }
+    func progress(_ group: MoaAccountGroup) -> String? { operations.active[group.client]?.message }
+
+    init(app: AppDelegate) {
+        self.app = app
+        operations = app.accountOperations
+        operationObserver = operations.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }
+    }
 
     func reload() {
         // Client account controllers hold their lock while graceful quit/launch
@@ -213,6 +237,7 @@ final class MoaAccountManagerModel: ObservableObject {
     }
 
     func add(_ group: MoaAccountGroup) {
+        guard !isBusy(group) else { return }
         let refresh: () -> Void = { [weak self] in self?.reload() }
         // API configs save synchronously inside their own panel. Login
         // snapshots quit and relaunch an app in the background, so the list
@@ -237,23 +262,29 @@ final class MoaAccountManagerModel: ObservableObject {
     }
 
     func addAnotherLogin(_ group: MoaAccountGroup) {
+        guard !isBusy(group) else { return }
         let refresh: () -> Void = { [weak self] in self?.reload() }
         switch group {
-        case .workbuddy: app.workbuddyCoordinator.addAnotherAccount(onComplete: refresh)
-        case .workbuddyCN: app.workbuddyCNCoordinator.addAnotherAccount(onComplete: refresh)
-        case .deepseek: app.deepseekCoordinator.addAnotherAccount(onComplete: refresh)
-        case .codexOfficial, .codexConfig, .claude: break
+        case .workbuddy:
+            app.workbuddyCoordinator.addAnotherAccount(onComplete: refresh)
+        case .workbuddyCN:
+            app.workbuddyCNCoordinator.addAnotherAccount(onComplete: refresh)
+        case .deepseek:
+            app.deepseekCoordinator.addAnotherAccount(onComplete: refresh)
+        case .codexOfficial, .codexConfig, .claude:
+            break
         }
     }
 
     func rename(_ row: MoaAccountRow) {
+        guard !isBusy(row.group) else { return }
         guard let name = app.showOfficialAccountNamePanel(
             title: MoaL10n.text("Rename"),
             message: MoaL10n.format("Update the display name for \"%@\". This does not switch accounts or reopen anything.", row.name),
             buttonTitle: MoaL10n.text("Save"),
             initialName: row.name
         ) else { return }
-        run(MoaL10n.text("Saving…")) {
+        run(row.group, MoaL10n.text("Saving…")) {
             switch row.group {
             case .codexOfficial:
                 _ = try self.app.profileController.renameOfficialAccount(id: row.id, name: name)
@@ -280,6 +311,7 @@ final class MoaAccountManagerModel: ObservableObject {
     }
 
     func edit(_ row: MoaAccountRow) {
+        guard !isBusy(row.group) else { return }
         switch row.group {
         case .codexConfig:
             guard let profile = try? app.profileController.profiles().first(where: { $0.id == row.id }),
@@ -290,7 +322,7 @@ final class MoaAccountManagerModel: ObservableObject {
             let id = row.id
             let applyToCurrent = (try? app.profileController.selectedProfileID()) == id
             guard !applyToCurrent || confirmLiveEdit(row, MoaL10n.text("Codex quits and reopens, so finish active tasks first.")) else { return }
-            run(MoaL10n.text("Saving…")) {
+            run(row.group, MoaL10n.text("Saving…")) {
                 let applied = try self.app.profileController.updateProfileApplyingIfSelected(
                     id: id, name: input.name, baseURL: input.baseURL, apiKey: input.apiKey, applyToCurrent: applyToCurrent)
                 if applied { self.app.controller.reopenCodex() }
@@ -301,7 +333,7 @@ final class MoaAccountManagerModel: ObservableObject {
             let id = row.id
             let applyToCurrent = (try? app.claudeDesktopProfileController.selectedProfileID()) == id
             guard !applyToCurrent || confirmLiveEdit(row, MoaL10n.text("Claude Desktop quits and reopens, so finish active tasks first.")) else { return }
-            run(MoaL10n.text("Saving…")) {
+            run(row.group, MoaL10n.text("Saving…")) {
                 let applied = try self.app.claudeDesktopProfileController.updateProfileApplyingIfSelected(
                     id: id, name: input.name, baseURL: input.baseURL, apiKey: input.apiKey,
                     models: input.models, oneMModels: input.oneMModels, applyToCurrent: applyToCurrent
@@ -314,13 +346,14 @@ final class MoaAccountManagerModel: ObservableObject {
     }
 
     func delete(_ row: MoaAccountRow) {
+        guard !isBusy(row.group) else { return }
         guard MoaNonBlockingAlert.confirm(
             messageText: MoaL10n.format("Delete \"%@\"?", row.name),
             informativeText: deleteExplanation(row),
             primaryButtonTitle: MoaL10n.text("Delete"),
             tone: .danger
         ) else { return }
-        run(MoaL10n.text("Deleting…")) {
+        run(row.group, MoaL10n.text("Deleting…")) {
             switch row.group {
             case .codexOfficial:
                 let result = try self.app.profileController.deleteOfficialAccount(id: row.id)
@@ -343,7 +376,7 @@ final class MoaAccountManagerModel: ObservableObject {
     }
 
     func activate(_ row: MoaAccountRow) {
-        guard !row.active else { return }
+        guard !isBusy(row.group), !row.active else { return }
         guard MoaNonBlockingAlert.confirm(
             messageText: MoaL10n.format("Switch to \"%@\"?", row.name),
             informativeText: switchExplanation(row.group),
@@ -367,7 +400,7 @@ final class MoaAccountManagerModel: ObservableObject {
         case .codexOfficial, .codexConfig, .claude:
             break
         }
-        run(MoaL10n.text("Switching…")) {
+        run(row.group, MoaL10n.text("Switching…")) {
             switch row.group {
             case .codexOfficial:
                 _ = try self.app.profileController.applyOfficialAccount(id: row.id)
@@ -425,14 +458,13 @@ final class MoaAccountManagerModel: ObservableObject {
         }
     }
 
-    private func run(_ status: String, _ operation: @escaping () throws -> Void) {
-        guard !busy else { return }
-        busy = true
+    private func run(_ group: MoaAccountGroup, _ status: String, _ operation: @escaping () throws -> Void) {
+        guard let token = operations.begin(group.client, message: status) else { return }
         app.statusItemText.title = AppDelegate.statusTitle(status)
         DispatchQueue.global(qos: .userInitiated).async {
             let result = Result { try operation() }
             DispatchQueue.main.async {
-                self.busy = false
+                self.operations.finish(group.client, id: token)
                 self.reload()
                 switch result {
                 case .success:
@@ -454,7 +486,7 @@ struct MoaAccountManagerView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    header
+                    header.id("accounts-header")
                     if !model.failures.isEmpty {
                         Text(model.failures.joined(separator: "\n"))
                             .font(.system(size: 12))
@@ -462,17 +494,25 @@ struct MoaAccountManagerView: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     ForEach(model.sections) { section in
-                        MoaAccountSectionView(section: section, busy: model.busy, model: model)
-                            .id(section.id)
+                        MoaAccountSectionView(
+                            section: section,
+                            busy: model.isBusy(section.group),
+                            progress: model.progress(section.group),
+                            model: model
+                        )
+                        .id(section.id)
                     }
                 }
                 .padding(24)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .background(MoaLiquidWindowBackground())
-            .onChange(of: model.focus) { group in
-                guard let group else { return }
-                withAnimation { proxy.scrollTo(group.id, anchor: .top) }
+            .moaFeedbackBanner()
+            .onAppear {
+                proxy.scrollTo(model.focus?.id ?? "accounts-header", anchor: .top)
+            }
+            .onChange(of: model.focusRequest) { _ in
+                withAnimation { proxy.scrollTo(model.focus?.id ?? "accounts-header", anchor: .top) }
             }
         }
     }
@@ -492,6 +532,7 @@ struct MoaAccountManagerView: View {
 private struct MoaAccountSectionView: View {
     let section: MoaAccountSection
     let busy: Bool
+    let progress: String?
     @ObservedObject var model: MoaAccountManagerModel
 
     var body: some View {
@@ -501,13 +542,25 @@ private struct MoaAccountSectionView: View {
                     .foregroundStyle(MoaTheme.tint)
                 Text(section.group.title)
                     .font(.system(size: 15, weight: .semibold))
+                // 长耗时操作(切换账号要等客户端正常退出)必须在这一组上可见,
+                // 否则用户只能看到按钮变灰, 分不清"在跑"还是"卡死"。
+                if let progress {
+                    ProgressView()
+                        .controlSize(.small)
+                        .scaleEffect(0.75)
+                    Text(progress)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(MoaTheme.tint)
+                }
                 Spacer()
                 Text(MoaL10n.format("%lld saved", section.rows.count))
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
             }
             if section.rows.isEmpty {
-                Text(MoaL10n.text("Nothing saved yet."))
+                Text(MoaL10n.text(section.group.supportsEditing
+                    ? "Add a configuration to save its URL and API key."
+                    : "Sign in to the client, then choose Save Current Login."))
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
                     .padding(.vertical, 6)
@@ -516,6 +569,10 @@ private struct MoaAccountSectionView: View {
                 MoaAccountRowView(row: row, busy: busy, model: model)
             }
             addButtons
+            if let message = section.currentLoginMessage {
+                Text(message).font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .padding(16)
         .moaGlassSurface(radius: 18)
@@ -576,13 +633,25 @@ private struct MoaAccountRowView: View {
                 }
             }
             Spacer(minLength: 8)
-            rowButton(MoaL10n.text("Switch")) { model.activate(row) }
-                .disabled(row.active)
-            rowButton(MoaL10n.text("Rename")) { model.rename(row) }
-            if row.group.supportsEditing {
-                rowButton(MoaL10n.text("Edit")) { model.edit(row) }
+            if !row.active {
+                Button(MoaL10n.text("Switch")) { model.activate(row) }
+                    .buttonStyle(.bordered).controlSize(.small)
+                    .help(MoaL10n.text("Switching quits and reopens the client."))
             }
-            rowButton(MoaL10n.text("Delete")) { model.delete(row) }
+            Menu {
+                Button(MoaL10n.text("Rename")) { model.rename(row) }
+                if row.group.supportsEditing {
+                    Button(MoaL10n.text("Edit")) { model.edit(row) }
+                }
+                Divider()
+                Button(role: .destructive) { model.delete(row) } label: { Text(MoaL10n.text("Delete")) }
+            } label: {
+                Label(MoaL10n.text("Account Actions"), systemImage: "ellipsis").labelStyle(.iconOnly)
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .help(MoaL10n.text("Account Actions"))
+            .accessibilityLabel(MoaL10n.format("Actions for %@", row.name.isEmpty ? row.detail : row.name))
         }
         .disabled(busy)
         .padding(.horizontal, 12)
@@ -590,9 +659,4 @@ private struct MoaAccountRowView: View {
         .background(MoaTheme.glassFieldFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
-    private func rowButton(_ title: String, action: @escaping () -> Void) -> some View {
-        Button(title, action: action)
-            .buttonStyle(.borderless)
-            .controlSize(.small)
-    }
 }

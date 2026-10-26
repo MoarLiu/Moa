@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.5.0 - 2026-10-26
+
+- Kept the version/build row first in the main menu and added top-level account management and usage overview entries. Client menus retain usage summaries and one-click account switching, with launch, folder, and migration helpers listed directly at the bottom. Maintenance actions are grouped under Moa.
+- Removed Fast Mode and remote connection settings controls, their preference-editing implementations, and legacy headless commands. Client launch/quit helpers remain independent; existing client preferences and usage-price calculations are preserved.
+- Shared per-client operation state between account windows and menu actions, with visible progress, duplicate-operation protection, and recovery after completion or failure. Reopening account management from a client always locates that client's group.
+- Kept Switch as the primary account-row action and grouped rename, edit, and delete under an accessible actions menu. Added guidance for empty account lists and unavailable login-saving actions.
+- Replaced custom usage-refresh rows with native menu items supporting highlighting, keyboard navigation, and a clear refreshing state. Added Command-U for usage overview, Command-Shift-A for accounts, and Command-R for usage refresh.
+- Replaced informational and success dialogs with inline feedback or a nonactivating menu-bar banner. Confirmations and important failures retain explicit dialogs.
+- Made glass forms readable in dark appearance, shared semantic button colors and disabled styling, and kept form headers and action buttons visible while long content scrolls. Validation messages scroll into view.
+- Adapted the usage window to smaller screens with a compact source picker, two-row toolbar, wrapping summary cards, and a horizontally scrollable detail table.
+- Separated current storage/mode status from the actions that change it. Kept menu account switching immediate.
+- Built app bundles in isolated staging directories, retained the previous app until promotion succeeds, and restored it after a failed replacement. Failed restores preserve a recoverable backup.
+
 ## 1.4.1 - 2026-10-26
 
 - Fixed glass-form buttons. Save, Cancel, and the other modal actions now run immediately. Borderless glass forms no longer drag from the background, because that drag handling swallowed button clicks.

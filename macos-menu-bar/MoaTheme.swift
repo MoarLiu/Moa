@@ -6,6 +6,8 @@ enum MoaTheme {
     static let smallRadius: CGFloat = 6
     static let glassRadius: CGFloat = 30
     static let glassControlRadius: CGFloat = 17
+    static let formInset: CGFloat = 24
+    static let formRadius: CGFloat = 24
 
     static let tint = adaptiveColor(
         light: NSColor(calibratedRed: 0.16, green: 0.52, blue: 0.45, alpha: 1),
@@ -15,6 +17,13 @@ enum MoaTheme {
         light: NSColor.white,
         dark: NSColor(calibratedWhite: 0.08, alpha: 1)
     )
+    /// onTint 的 AppKit 版本。AppKit 控件(如 MoaModalButton)不能直接用 Color,
+    /// 而 NSColor(Color) 在动态色上不保证保留随外观解析的能力, 因此单独提供。
+    static let onTintAppKit = NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            ? NSColor(calibratedWhite: 0.08, alpha: 1)
+            : NSColor.white
+    }
     static let coral = adaptiveColor(
         light: NSColor(calibratedRed: 0.86, green: 0.32, blue: 0.33, alpha: 1),
         dark: NSColor(calibratedRed: 1.00, green: 0.52, blue: 0.54, alpha: 1)
@@ -172,12 +181,18 @@ enum MoaGlassButtonTone: Equatable {
 }
 
 struct MoaGlassButtonStyle: ButtonStyle {
+    // ButtonStyle 不参与 View 的布局, 但 SwiftUI 仍会把环境值注入进来。
+    // 没有这一行时, 被 .disabled() 的玻璃按钮外观与可点击时完全一致,
+    // 用户只能靠"点了没反应"来判断它不可用。
+    @Environment(\.isEnabled) private var isEnabled
+
     var tone: MoaGlassButtonTone = .neutral
     var minWidth: CGFloat = 76
     var height: CGFloat = 34
 
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label
+        let pressed = configuration.isPressed && isEnabled
+        return configuration.label
             .font(.system(size: 13, weight: tone == .neutral ? .medium : .semibold))
             .foregroundStyle(tone.foreground)
             .lineLimit(1)
@@ -187,14 +202,20 @@ struct MoaGlassButtonStyle: ButtonStyle {
             .background(
                 Capsule(style: .continuous)
                     .fill(tone.fill)
-                    .shadow(color: MoaTheme.softShadow.opacity(tone == .neutral ? 0.45 : 0.6), radius: 12, x: 0, y: 7)
+                    .shadow(
+                        color: isEnabled ? MoaTheme.softShadow.opacity(tone == .neutral ? 0.45 : 0.6) : .clear,
+                        radius: 12,
+                        x: 0,
+                        y: 7
+                    )
             )
             .overlay(
                 Capsule(style: .continuous)
                     .stroke(MoaTheme.glassHairline, lineWidth: 1)
             )
-            .scaleEffect(configuration.isPressed ? 0.97 : 1)
-            .opacity(configuration.isPressed ? 0.88 : 1)
+            .scaleEffect(pressed ? 0.97 : 1)
+            .opacity(isEnabled ? (pressed ? 0.88 : 1) : 0.4)
+            .saturation(isEnabled ? 1 : 0)
     }
 }
 
@@ -277,7 +298,9 @@ struct MoaGlassPanelBackground: View {
 
     var body: some View {
         RoundedRectangle(cornerRadius: radius, style: .continuous)
-            .fill(Color.white)
+            // 必须跟随外观: 暗色下弹窗内文字是 .primary(白), 纯白底会让标题和
+            // 字段标签完全不可见(对比度 1.00:1)。这里复用 glassPanelFill 令牌。
+            .fill(MoaTheme.glassPanelFill)
             .overlay(
                 RoundedRectangle(cornerRadius: radius, style: .continuous)
                     .stroke(MoaTheme.subtleBorder, lineWidth: 1)

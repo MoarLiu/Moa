@@ -62,3 +62,4 @@ RELEASE_*_DRAFT.md
 
 # Local design drafts and generated design plugin outputs
 design/
+.moa-build.*

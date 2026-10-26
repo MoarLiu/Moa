@@ -1,8 +1,10 @@
 import AppKit
+import Combine
 import Foundation
 
 final class MoaMainMenuCoordinator {
     unowned let app: AppDelegate
+    private var observers = Set<AnyCancellable>()
 
     init(app: AppDelegate) {
         self.app = app
@@ -11,44 +13,88 @@ final class MoaMainMenuCoordinator {
     func configureMenu() {
         app.menu.delegate = app
         app.menu.autoenablesItems = false
-
+        app.menu.removeAllItems()
         app.versionItem.title = AppDelegate.versionTitle()
         app.versionItem.isEnabled = false
         app.menu.addItem(app.versionItem)
+        app.menu.addItem(.separator())
         app.statusItemText.isEnabled = false
+        app.statusItemText.isHidden = true
         app.menu.addItem(app.statusItemText)
-        app.menu.addItem(NSMenuItem.separator())
 
-        app.codexProfilesItem.submenu = app.codexProfilesMenu
-        app.menu.addItem(app.codexProfilesItem)
-        app.claudeDesktopProfilesItem.submenu = app.claudeDesktopProfilesMenu
-        app.menu.addItem(app.claudeDesktopProfilesItem)
-        app.zcodeItem.submenu = app.zcodeMenu
-        app.menu.addItem(app.zcodeItem)
-        app.workbuddyCNItem.submenu = app.workbuddyCNMenu
-        app.menu.addItem(app.workbuddyCNItem)
-        app.workbuddyItem.submenu = app.workbuddyMenu
-        app.menu.addItem(app.workbuddyItem)
-        app.deepseekCoordinator.item.submenu = app.deepseekCoordinator.menu
-        app.menu.addItem(app.deepseekCoordinator.item)
-        app.menu.addItem(NSMenuItem.separator())
+        for (item, submenu) in [
+            (app.codexProfilesItem, app.codexProfilesMenu),
+            (app.claudeDesktopProfilesItem, app.claudeDesktopProfilesMenu),
+            (app.zcodeItem, app.zcodeMenu),
+            (app.workbuddyCNItem, app.workbuddyCNMenu),
+            (app.workbuddyItem, app.workbuddyMenu),
+            (app.deepseekCoordinator.item, app.deepseekCoordinator.menu)
+        ] {
+            submenu.autoenablesItems = false
+            item.submenu = submenu
+            app.menu.addItem(item)
+        }
+        app.menu.addItem(.separator())
+        let accountsItem = actionItem("Accounts…", #selector(AppDelegate.showAllAccountsAction), key: "a")
+        accountsItem.keyEquivalentModifierMask = [.command, .shift]
+        app.menu.addItem(accountsItem)
+        app.menu.addItem(actionItem("Usage Overview…", #selector(AppDelegate.showUsageOverviewAction), key: "u"))
+        app.menu.addItem(.separator())
 
+        let utilities = NSMenu(title: "Moa")
+        utilities.autoenablesItems = false
         app.moaDataItem.submenu = app.moaDataMenu
         configureMoaDataMenu()
-        app.menu.addItem(app.moaDataItem)
-        app.menu.addItem(NSMenuItem.separator())
-
+        utilities.addItem(app.moaDataItem)
         app.updatePricesItem.target = app
-        app.menu.addItem(app.updatePricesItem)
-        let checkUpdateItem = NSMenuItem(title: MoaL10n.text("Check Update"), action: #selector(AppDelegate.checkUpdateAction), keyEquivalent: "")
-        checkUpdateItem.target = app
-        app.menu.addItem(checkUpdateItem)
-        app.menu.addItem(NSMenuItem.separator())
+        utilities.addItem(app.updatePricesItem)
+        utilities.addItem(actionItem("Check Update", #selector(AppDelegate.checkUpdateAction)))
+        let utilitiesItem = NSMenuItem(title: "Moa", action: nil, keyEquivalent: "")
+        utilitiesItem.submenu = utilities
+        app.menu.addItem(utilitiesItem)
+        app.menu.addItem(actionItem("Quit Moa", #selector(AppDelegate.quitAction), key: "q"))
 
-        app.menu.addItem(NSMenuItem(title: MoaL10n.text("Quit Moa"), action: #selector(AppDelegate.quitAction), keyEquivalent: "q"))
+        MoaFeedbackCenter.shared.anchorRect = { [weak app] in
+            guard let button = app?.statusItem.button, let window = button.window else { return nil }
+            return window.convertToScreen(button.convert(button.bounds, to: nil))
+        }
+        observers.removeAll()
+        app.accountOperations.$active.sink { [weak self] _ in
+            DispatchQueue.main.async {
+                self?.app.lastMenuRefreshAt = .distantPast
+                self?.updateVisibleStatus()
+            }
+        }.store(in: &observers)
+        MoaFeedbackCenter.shared.$message.sink { [weak self] _ in
+            DispatchQueue.main.async { self?.updateVisibleStatus() }
+        }.store(in: &observers)
+    }
+
+    private func actionItem(_ title: String, _ action: Selector, key: String = "") -> NSMenuItem {
+        let item = NSMenuItem(title: MoaL10n.text(title), action: action, keyEquivalent: key)
+        item.target = app
+        return item
+    }
+
+    func updateVisibleStatus() {
+        if let operation = app.accountOperations.active.values.first {
+            app.statusItemText.title = AppDelegate.statusTitle(operation.message)
+            app.statusItemText.isHidden = false
+        } else if app.dataPackageController.isDataOperationInProgress {
+            app.statusItemText.isHidden = false
+        } else if app.usageCoordinator.isUpdatingPrices {
+            app.statusItemText.title = AppDelegate.statusTitle("Updating Prices…")
+            app.statusItemText.isHidden = false
+        } else if let message = MoaFeedbackCenter.shared.message {
+            app.statusItemText.title = message.title
+            app.statusItemText.isHidden = false
+        } else {
+            app.statusItemText.isHidden = true
+        }
     }
 
     func menuWillOpen(_ menu: NSMenu) {
+        updateVisibleStatus()
         // Keep the existing menus responsive; their write actions are guarded
         // by the shared store coordinator until the data operation finishes.
         guard !app.dataPackageController.isDataOperationInProgress else { return }
@@ -97,14 +143,14 @@ final class MoaMainMenuCoordinator {
         app.toggleICloudStorageItem.title = iCloudEnabled
             ? MoaL10n.text("Move Data Back to This Mac")
             : MoaL10n.text("Store Data in iCloud")
-        app.toggleICloudStorageItem.state = iCloudEnabled ? .on : .off
+        app.toggleICloudStorageItem.state = .off
+        let location = NSMenuItem(title: MoaL10n.text(iCloudEnabled ? "Data Location: iCloud" : "Data Location: This Mac"), action: nil, keyEquivalent: "")
+        location.isEnabled = false
+        app.moaDataMenu.insertItem(location, at: 0)
+        app.moaDataMenu.insertItem(.separator(), at: 1)
     }
 
     func refreshStatus() {
-        let isFast = app.controller.isFastEnabled()
-        app.fastModeItem.state = isFast ? .on : .off
-        app.remoteConnectionsItem.state = .off
-
         if let button = app.statusItem.button {
             button.toolTip = MoaL10n.text("Moa - Codex, Claude, ZCode, WorkBuddy, WorkBuddy AI, DeepSeek")
         }
@@ -127,6 +173,11 @@ final class MoaMainMenuCoordinator {
         let zcodeOfficialItem = NSMenuItem(title: MoaL10n.text("ZCode Official Mode"), action: #selector(AppDelegate.applyZCodeOfficialModeAction), keyEquivalent: "")
         zcodeOfficialItem.target = app
         zcodeOfficialItem.state = .on
+        let currentMode = NSMenuItem(title: MoaL10n.text("Current Mode: Official"), action: nil, keyEquivalent: "")
+        currentMode.isEnabled = false
+        app.zcodeMenu.addItem(currentMode)
+        zcodeOfficialItem.title = MoaL10n.text("Reapply Official Configuration…")
+        zcodeOfficialItem.state = .off
         app.zcodeMenu.addItem(zcodeOfficialItem)
         app.zcodeMenu.addItem(NSMenuItem.separator())
 
@@ -145,6 +196,13 @@ final class MoaMainMenuCoordinator {
 
     func rebuildProfileMenu() {
         app.codexProfilesMenu.removeAllItems()
+        if let operation = app.accountOperations.active[.codex] {
+            let item = NSMenuItem(title: operation.message, action: nil, keyEquivalent: "")
+            item.isEnabled = false
+            app.codexProfilesMenu.addItem(item)
+            app.codexProfilesMenu.addItem(manageAccountsItem(.codexConfig))
+            return
+        }
         app.codexProfilesMenu.autoenablesItems = false
 
         let selectedID: String?
@@ -189,7 +247,11 @@ final class MoaMainMenuCoordinator {
         useOfficialModeItem.target = app
         useOfficialModeItem.state = selectedID == nil ? .on : .off
         useOfficialModeItem.isEnabled = !isNoOfficialAccountMode
+        useOfficialModeItem.toolTip = isNoOfficialAccountMode ? MoaL10n.text("Choose a saved official account, or open Codex to sign in.") : nil
         app.codexOfficialMenu.addItem(useOfficialModeItem)
+        if isNoOfficialAccountMode {
+            app.codexOfficialMenu.addItem(actionItem("Open Codex to Sign In…", #selector(AppDelegate.openCodexAction)))
+        }
         app.codexOfficialMenu.addItem(NSMenuItem.separator())
 
         let noAccountItem = NSMenuItem(title: MoaL10n.text("Do Not Use Account"), action: #selector(AppDelegate.applyCodexOfficialNoAccountAction), keyEquivalent: "")
@@ -241,14 +303,6 @@ final class MoaMainMenuCoordinator {
         app.codexProfilesMenu.addItem(manageAccountsItem(.codexConfig))
         app.codexProfilesMenu.addItem(NSMenuItem.separator())
 
-        app.fastModeItem.target = app
-        app.fastModeItem.title = MoaL10n.text("Fast Mode")
-        app.codexProfilesMenu.addItem(app.fastModeItem)
-        app.remoteConnectionsItem.target = app
-        app.remoteConnectionsItem.title = MoaL10n.text("Remote Connection Settings…")
-        app.codexProfilesMenu.addItem(app.remoteConnectionsItem)
-        app.codexProfilesMenu.addItem(NSMenuItem.separator())
-
         app.codexProfilesMenu.addItem(NSMenuItem(title: MoaL10n.text("Open Codex"), action: #selector(AppDelegate.openCodexAction), keyEquivalent: ""))
         app.codexProfilesMenu.addItem(NSMenuItem(title: MoaL10n.text("Reopen Codex"), action: #selector(AppDelegate.reopenCodexAction), keyEquivalent: ""))
         let migrateHistoryProviderItem = NSMenuItem(title: MoaL10n.text("Migrate History model_provider"), action: #selector(AppDelegate.migrateCodexSessionModelProviderAction), keyEquivalent: "")
@@ -261,6 +315,13 @@ final class MoaMainMenuCoordinator {
 
     func rebuildClaudeDesktopProfilesMenu() {
         app.claudeDesktopProfilesMenu.removeAllItems()
+        if let operation = app.accountOperations.active[.claude] {
+            let item = NSMenuItem(title: operation.message, action: nil, keyEquivalent: "")
+            item.isEnabled = false
+            app.claudeDesktopProfilesMenu.addItem(item)
+            app.claudeDesktopProfilesMenu.addItem(manageAccountsItem(.claude))
+            return
+        }
 
         let selectedID: String?
         let profiles: [ClaudeDesktopProviderProfile]

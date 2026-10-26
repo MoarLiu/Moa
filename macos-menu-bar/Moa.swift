@@ -2,7 +2,8 @@ import AppKit
 import Foundation
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
-    let controller = FastStateController()
+    let accountOperations = MoaAccountOperationState()
+    let controller = CodexAppController()
     let profileController = ConfigProfileController()
     let claudeDesktopProfileController = ClaudeDesktopProfileController()
     let zcodeController = ZCodeController()
@@ -57,8 +58,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let codexUsageDetailsItem = NSMenuItem(title: MoaL10n.text("Usage Details"), action: #selector(showCodexUsageDetailsAction), keyEquivalent: "")
     let claudeUsageDetailsItem = NSMenuItem(title: MoaL10n.text("Usage Details"), action: #selector(showClaudeUsageDetailsAction), keyEquivalent: "")
     let zcodeUsageDetailsItem = NSMenuItem(title: MoaL10n.text("Usage Details"), action: #selector(showZCodeUsageDetailsAction), keyEquivalent: "")
-    let fastModeItem = NSMenuItem(title: MoaL10n.text("Fast Mode"), action: #selector(toggleFastModeAction(_:)), keyEquivalent: "")
-    let remoteConnectionsItem = NSMenuItem(title: MoaL10n.text("Remote Connection Settings…"), action: #selector(openRemoteConnectionsSettingsAction), keyEquivalent: "")
     let codexOfficialItem = NSMenuItem(title: MoaL10n.text("Codex Official"), action: nil, keyEquivalent: "")
     let codexOfficialMenu = NSMenu(title: MoaL10n.text("Codex Official"))
     let editProfileItem = NSMenuItem(title: MoaL10n.text("Edit Selected Config"), action: #selector(editProfileAction(_:)), keyEquivalent: "")
@@ -97,6 +96,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         usageCoordinator.onPricingRefreshStateChanged = { [weak self] updating in
             self?.updatePricesItem.title = MoaL10n.text(updating ? "Updating Prices…" : "Update Prices")
             self?.updatePricesItem.isEnabled = !updating
+            self?.mainMenuCoordinator.updateVisibleStatus()
         }
         usageCoordinator.needsFrequentRefresh = { [weak self] source in
             let alertEnabled = DailyUsageAlertKind(rawValue: source.rawValue).flatMap { DailyUsageAlertController.threshold(for: $0) } != nil
@@ -139,6 +139,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let appMenuItem = NSMenuItem()
         let appMenu = NSMenu()
         appMenu.addItem(NSMenuItem(title: MoaL10n.text("Close Window"), action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w"))
+        let accounts = NSMenuItem(title: MoaL10n.text("Accounts…"), action: #selector(showAllAccountsAction), keyEquivalent: "a")
+        accounts.keyEquivalentModifierMask = [.command, .shift]
+        accounts.target = self
+        appMenu.addItem(accounts)
+        let usage = NSMenuItem(title: MoaL10n.text("Usage Overview…"), action: #selector(showUsageOverviewAction), keyEquivalent: "u")
+        usage.target = self
+        appMenu.addItem(usage)
+        let refresh = NSMenuItem(title: MoaL10n.text("Refresh"), action: #selector(refreshUsageAction), keyEquivalent: "r")
+        refresh.target = self
+        appMenu.addItem(refresh)
         appMenu.addItem(NSMenuItem.separator())
         appMenu.addItem(NSMenuItem(title: MoaL10n.text("Quit Moa"), action: #selector(quitAction), keyEquivalent: "q"))
         appMenuItem.submenu = appMenu
@@ -237,33 +247,5 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         image.size = NSSize(width: 19, height: 19)
         image.accessibilityDescription = "Moa"
         return image
-    }
-
-    func applyFastMode(_ enabled: Bool) {
-        fastModeItem.isEnabled = false
-        fastModeItem.state = enabled ? .on : .off
-        statusItemText.title = enabled ? Self.statusTitle("Turning Fast on...") : Self.statusTitle("Turning Fast off...")
-
-        let controller = controller
-        DispatchQueue.global(qos: .userInitiated).async {
-            let result = Result {
-                try controller.applyFastMode(enabled)
-            }
-
-            DispatchQueue.main.async {
-                switch result {
-                case .success:
-                    self.refreshStatus()
-                case .failure(let error):
-                    NSSound.beep()
-                    self.fastModeItem.state = self.controller.isFastEnabled() ? .on : .off
-                    self.fastModeItem.isEnabled = true
-                    self.statusItemText.title = Self.statusTitle("Failed")
-                    self.showError(error.localizedDescription)
-                }
-
-                self.fastModeItem.isEnabled = true
-            }
-        }
     }
 }

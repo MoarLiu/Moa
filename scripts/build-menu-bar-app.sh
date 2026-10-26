@@ -10,7 +10,31 @@ source "$ROOT/scripts/sources.env"
 
 APP_NAME="Moa"
 APP="$ROOT/$APP_NAME.app"
-CONTENTS="$APP/Contents"
+# Build into a staging bundle and swap it in only after a successful compile and
+# codesign. Compiling straight into $APP required deleting it first, so any
+# failure (missing toolchain, SwiftUI macro plugin error, signature problem)
+# left the workspace with an empty or missing Moa.app.
+BUILD_WORKSPACE="$(mktemp -d "$ROOT/.moa-build.XXXXXX")"
+STAGING="$BUILD_WORKSPACE/$APP_NAME.app"
+BACKUP="$BUILD_WORKSPACE/previous.app"
+cleanup() {
+  local result=$?
+  trap - EXIT
+  if [[ -e "$BACKUP" ]]; then
+    if [[ ! -e "$APP" ]] && mv "$BACKUP" "$APP"; then
+      echo "Restored previous $APP_NAME.app after failed replacement." >&2
+    else
+      echo "Previous app preserved at $BACKUP; automatic restore could not complete." >&2
+      exit 1
+    fi
+  fi
+  rm -rf "$BUILD_WORKSPACE"
+  exit "$result"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+CONTENTS="$STAGING/Contents"
 MACOS="$CONTENTS/MacOS"
 RESOURCES="$CONTENTS/Resources"
 EXECUTABLE="$MACOS/$APP_NAME"
@@ -83,7 +107,6 @@ done
 
 resolve_swiftc
 
-rm -rf "$APP"
 mkdir -p "$MACOS" "$RESOURCES"
 
 MACOSX_DEPLOYMENT_TARGET="$MACOS_DEPLOYMENT_TARGET" "$SWIFTC_BIN" \
@@ -167,10 +190,17 @@ if command -v codesign >/dev/null 2>&1; then
   fi
 
   if [[ "$CODE_SIGN_IDENTITY" == "-" ]]; then
-    /usr/bin/codesign --force --deep --timestamp=none --sign "$CODE_SIGN_IDENTITY" "$APP" >/dev/null
+    /usr/bin/codesign --force --deep --timestamp=none --sign "$CODE_SIGN_IDENTITY" "$STAGING" >/dev/null
   else
-    /usr/bin/codesign --force --deep --timestamp --options runtime --sign "$CODE_SIGN_IDENTITY" "$APP" >/dev/null
+    /usr/bin/codesign --force --deep --timestamp --options runtime --sign "$CODE_SIGN_IDENTITY" "$STAGING" >/dev/null
   fi
+  /usr/bin/codesign --verify --deep --strict "$STAGING"
 fi
+
+# Keep the previous bundle until promotion succeeds. The EXIT trap restores it
+# on a failed move or interruption, and preserves the backup if restore fails.
+if [[ -e "$APP" ]]; then mv "$APP" "$BACKUP"; fi
+mv "$STAGING" "$APP"
+rm -rf "$BACKUP"
 
 echo "Built: $APP"

@@ -39,6 +39,12 @@ final class MoaUsageInsightsWindowController {
 
     var isVisible: Bool { window?.isVisible == true }
 
+    func refreshIfKey() -> Bool {
+        guard window?.isKeyWindow == true else { return false }
+        model?.refresh(forceRefresh: true)
+        return true
+    }
+
     func refreshAfterPricingUpdate() {
         if isVisible { model?.refresh(forceRefresh: true) }
     }
@@ -74,9 +80,7 @@ final class MoaUsageInsightsWindowController {
 
     private func existingOrNewWindow(initialSource: MoaUsageSource?) -> NSWindow {
         if let window {
-            if let initialSource {
-                model?.selectedSource = initialSource
-            }
+            model?.selectedSource = initialSource
             model?.refresh(forceRefresh: false)
             return window
         }
@@ -94,13 +98,15 @@ final class MoaUsageInsightsWindowController {
         )
         self.model = model
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 1120, height: 700),
+            contentRect: NSRect(x: 0, y: 0,
+                                width: min(1120, (NSScreen.main?.visibleFrame.width ?? 1200) - 64),
+                                height: min(700, (NSScreen.main?.visibleFrame.height ?? 800) - 64)),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
         window.title = MoaL10n.text("Usage Insights")
-        window.minSize = NSSize(width: 1100, height: 600)
+        window.minSize = NSSize(width: 760, height: 480)
         window.isReleasedWhenClosed = false
         window.isMovableByWindowBackground = true
         let hostingView = MoaInteractiveHostingView(rootView: MoaUsageInsightsView(model: model))
@@ -346,67 +352,73 @@ private struct MoaUsageInsightsView: View {
     @ObservedObject var model: MoaUsageInsightsViewModel
 
     var body: some View {
-        VStack(spacing: 0) {
-            toolbar
-            Divider()
-            content
+        GeometryReader { geometry in
+            VStack(spacing: 0) {
+                toolbar(compact: geometry.size.width < 1000)
+                Divider()
+                ScrollView { content(width: geometry.size.width) }
+            }
+            .background(MoaLiquidWindowBackground())
+            .moaFeedbackBanner()
         }
-        .background(MoaLiquidWindowBackground())
     }
 
-    private var toolbar: some View {
-        HStack(spacing: 12) {
-            Picker("", selection: Binding(
-                get: { model.selectedSource?.rawValue ?? "all" },
-                set: { raw in model.selectedSource = MoaUsageSource(rawValue: raw) }
-            )) {
-                Text(MoaL10n.text("All Sources")).tag("all")
-                ForEach(MoaUsageSource.allCases, id: \.rawValue) { source in
-                    Text(source.tabTitle).tag(source.rawValue)
-                }
+    private var sourcePicker: some View {
+        Picker(MoaL10n.text("Usage Source"), selection: Binding(
+            get: { model.selectedSource?.rawValue ?? "all" },
+            set: { model.selectedSource = MoaUsageSource(rawValue: $0) }
+        )) {
+            Text(MoaL10n.text("All Sources")).tag("all")
+            ForEach(MoaUsageSource.allCases, id: \.rawValue) { source in
+                Text(source.tabTitle).tag(source.rawValue)
             }
-            .pickerStyle(.segmented)
-            .frame(width: 560)
+        }.labelsHidden().accessibilityLabel(MoaL10n.text("Usage Source"))
+    }
 
-            Picker("", selection: $model.recentDays) {
-                Text("7d").tag(7)
-                Text("30d").tag(30)
-            }
-            .pickerStyle(.segmented)
-            .frame(width: 110)
+    private var rangePicker: some View {
+        Picker(MoaL10n.text("Date Range"), selection: $model.recentDays) {
+            Text("7d").tag(7)
+            Text("30d").tag(30)
+        }.pickerStyle(.segmented).labelsHidden().frame(width: 110)
+            .accessibilityLabel(MoaL10n.text("Date Range"))
+    }
 
-            Spacer()
-
-            if model.isLoading {
-                ProgressView()
-                    .controlSize(.small)
-            }
-
-            Button {
-                model.refresh(forceRefresh: true)
-            } label: {
+    private var toolbarActions: some View {
+        HStack(spacing: 10) {
+            if model.isLoading { ProgressView().controlSize(.small) }
+            Button { model.refresh(forceRefresh: true) } label: {
                 Label(MoaL10n.text("Refresh"), systemImage: "arrow.clockwise")
             }
-
-            Button {
-                model.exportCSV()
-            } label: {
-                Label("CSV", systemImage: "tablecells")
-            }
-
-            Button {
-                model.exportMarkdown()
-            } label: {
-                Label("MD", systemImage: "doc.plaintext")
-            }
+            Button { model.exportCSV() } label: { Label("CSV", systemImage: "tablecells") }
+            Button { model.exportMarkdown() } label: { Label("MD", systemImage: "doc.plaintext") }
         }
+        .disabled(model.isLoading)
         .buttonStyle(MoaGlassButtonStyle(tone: .neutral, minWidth: 0, height: 32))
-        .padding(16)
     }
 
-    private var content: some View {
+    @ViewBuilder private func toolbar(compact: Bool) -> some View {
+        if compact {
+            VStack(spacing: 12) {
+                HStack {
+                    sourcePicker.pickerStyle(.menu).frame(maxWidth: 320, alignment: .leading)
+                    Spacer()
+                    rangePicker
+                }
+                HStack { Spacer(); toolbarActions }
+            }.padding(16)
+        } else {
+            HStack(spacing: 12) {
+                sourcePicker.pickerStyle(.segmented).frame(maxWidth: 560)
+                rangePicker
+                Spacer(minLength: 0)
+                toolbarActions
+            }.padding(16)
+        }
+    }
+
+    private func content(width: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: 14) {
-            summary
+            summary(width: width)
             if model.selectedSource == nil || model.selectedSource?.workBuddyEdition != nil {
                 Text(model.workBuddyScopeNote)
                     .font(.system(size: 12)).foregroundStyle(.secondary)
@@ -418,14 +430,20 @@ private struct MoaUsageInsightsView: View {
                     .font(.system(size: 12))
                     .foregroundStyle(MoaTheme.coral)
             }
-            table
+            if width < 956 {
+                Text(MoaL10n.text("Scroll horizontally for additional columns and price settings."))
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            ScrollView(.horizontal) {
+                table.frame(width: max(920, width - 36))
+            }
             fallbackPanel
         }
         .padding(18)
     }
 
-    private var summary: some View {
-        HStack(spacing: 12) {
+    private func summary(width: CGFloat) -> some View {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: width >= 900 ? 5 : 3), alignment: .leading, spacing: 12) {
             metric(title: MoaL10n.text("Estimated Cost"), value: MoaUsageReportExporter.currency(model.filteredReport.totalCostUSD))
             metric(title: MoaL10n.text("Tokens"), value: Self.compactTokens(model.filteredReport.totalTokens))
                 .help(Self.exactTokens(model.filteredReport.totalTokens))
@@ -517,7 +535,7 @@ private struct MoaUsageInsightsView: View {
                 }
             }
         }
-        .frame(minHeight: 280)
+        .frame(height: 320)
         .background(MoaTheme.elevatedSurface, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
@@ -632,32 +650,52 @@ private struct CustomPriceFormView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        MoaModalForm {
             MoaModalHeader(
                 icon: "dollarsign.circle.fill",
                 title: title,
                 message: MoaL10n.text("Custom prices only affect local estimates. They do not change original logs or official billing.")
             )
+        } fields: {
+            VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 7) {
+                    MoaModalFieldLabel(text: MoaL10n.text("Input USD / 1M tokens"))
+                    TextField("0.00", text: $inputText)
+                        .moaModalFieldChrome()
+                        .focused($focusedField, equals: .input)
+                        .accessibilityLabel(MoaL10n.text("Input USD / 1M tokens"))
+                }
+                VStack(alignment: .leading, spacing: 7) {
+                    MoaModalFieldLabel(text: MoaL10n.text("Output USD / 1M tokens"))
+                    TextField("0.00", text: $outputText)
+                        .moaModalFieldChrome()
+                        .focused($focusedField, equals: .output)
+                        .accessibilityLabel(MoaL10n.text("Output USD / 1M tokens"))
+                }
+                VStack(alignment: .leading, spacing: 7) {
+                    MoaModalFieldLabel(text: MoaL10n.text("Cache read USD / 1M tokens"))
+                    TextField("0.00", text: $cacheReadText)
+                        .moaModalFieldChrome()
+                        .focused($focusedField, equals: .cacheRead)
+                        .accessibilityLabel(MoaL10n.text("Cache read USD / 1M tokens"))
+                }
+                VStack(alignment: .leading, spacing: 7) {
+                    MoaModalFieldLabel(text: MoaL10n.text("Cache creation USD / 1M tokens"))
+                    TextField("0.00", text: $cacheCreationText)
+                        .moaModalFieldChrome()
+                        .focused($focusedField, equals: .cacheCreation)
+                        .accessibilityLabel(MoaL10n.text("Cache creation USD / 1M tokens"))
+                }
 
-            TextField(MoaL10n.text("Input USD / 1M tokens"), text: $inputText)
-                .moaModalFieldChrome()
-                .focused($focusedField, equals: .input)
-            TextField(MoaL10n.text("Output USD / 1M tokens"), text: $outputText)
-                .moaModalFieldChrome()
-                .focused($focusedField, equals: .output)
-            TextField(MoaL10n.text("Cache read USD / 1M tokens"), text: $cacheReadText)
-                .moaModalFieldChrome()
-                .focused($focusedField, equals: .cacheRead)
-            TextField(MoaL10n.text("Cache creation USD / 1M tokens"), text: $cacheCreationText)
-                .moaModalFieldChrome()
-                .focused($focusedField, equals: .cacheCreation)
-
-            Text(statusText.isEmpty ? " " : statusText)
-                .font(.system(size: 12))
-                .foregroundStyle(MoaTheme.coral)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(minHeight: 16, alignment: .leading)
-
+                Text(statusText.isEmpty ? " " : statusText)
+                    .id("moa-form-status")
+                    .preference(key: MoaFormStatusPreferenceKey.self, value: statusText)
+                    .font(.system(size: 12))
+                    .foregroundStyle(MoaTheme.coral)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(minHeight: 16, alignment: .leading)
+            }
+        } footer: {
             HStack(spacing: 10) {
                 if canRemove {
                     MoaModalButton(title: MoaL10n.text("Remove"), action: requestRemove)
@@ -667,7 +705,6 @@ private struct CustomPriceFormView: View {
                 MoaModalButton(title: MoaL10n.text("Save"), prominence: .prominent, keyEquivalent: "\r", action: requestSave)
             }
         }
-        .moaModalFormBody()
         .onSubmit(requestSave)
         .onAppear { focusedField = .input }
     }

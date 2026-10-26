@@ -134,7 +134,6 @@
 "Failed to update Codex SQLite history index: %@" = "Failed to update Codex SQLite history index: %@";
 "Fallback Models" = "Fallback Models";
 "Fallback Pricing Models" = "Fallback Pricing Models";
-"Fast Mode" = "Fast Mode";
 "Fill API Base URL and API Key before testing the connection." = "Fill API Base URL and API Key before testing the connection.";
 "Fill API Base URL first." = "Fill API Base URL first.";
 "Fill API Key first." = "Fill API Key first.";
@@ -208,7 +207,6 @@
 "Refresh Status" = "Refresh Status";
 "Refreshing Status..." = "Refreshing Status...";
 "Remote APIs must use https://. Only localhost, 127.0.0.1, and ::1 may use http://; local HTTP sends API keys in plaintext, so connect only to trusted local services." = "Remote APIs must use https://. Only localhost, 127.0.0.1, and ::1 may use http://; local HTTP sends API keys in plaintext, so connect only to trusted local services.";
-"Remote Connections" = "Remote Connections";
 "Remove" = "Remove";
 "Rename Codex Official Account" = "Rename Codex Official Account";
 "Rename Current Account" = "Rename Current Account";
@@ -300,7 +298,6 @@
 "Load Failed" = "Load Failed";
 "Unable to load %@ data: %@" = "Unable to load %@ data: %@";
 
-"Remote Connection Settings…" = "Remote Connection Settings…";
 "ChatGPT could not be closed. Finish the active task and try again." = "ChatGPT could not be closed. Finish the active task and try again.";
 
 "WorkBuddy AI did not quit. Finish active tasks and quit it, then try again." = "WorkBuddy AI did not quit. Finish active tasks and quit it, then try again.";
@@ -351,6 +348,7 @@
 "Only direct Responses-compatible Codex profiles are supported. Add a Responses endpoint or select Codex Official Mode." = "Only direct Responses-compatible Codex profiles are supported. Add a Responses endpoint or select Codex Official Mode.";
 
 "%@ daily usage reached threshold" = "%@ daily usage reached threshold";
+"Working…" = "Working…";
 "Added %@" = "Added %@";
 "Adding Codex Official account..." = "Adding Codex Official account...";
 "Claude Desktop Official · Reopened" = "Claude Desktop Official · Reopened";
@@ -391,8 +389,6 @@
 "Switching Codex Official..." = "Switching Codex Official...";
 "Switching config..." = "Switching config...";
 "Testing %@..." = "Testing %@...";
-"Turning Fast off..." = "Turning Fast off...";
-"Turning Fast on..." = "Turning Fast on...";
 "Updated %@" = "Updated %@";
 "Updated %@ daily usage alert" = "Updated %@ daily usage alert";
 "Using %@" = "Using %@";
@@ -443,3 +439,23 @@
 "The remote model pricing catalog is incomplete or invalid." = "The remote model pricing catalog is incomplete or invalid.";
 "Update Prices" = "Update Prices";
 "Updating Prices…" = "Updating Prices…";
+
+"Account Actions" = "Account Actions";
+"Accounts…" = "Accounts…";
+"Actions for %@" = "Actions for %@";
+"Choose a saved official account, or open Codex to sign in." = "Choose a saved official account, or open Codex to sign in.";
+"Current Mode: Official" = "Current Mode: Official";
+"Date Range" = "Date Range";
+"Dismiss" = "Dismiss";
+"Reapply Official Configuration…" = "Reapply Official Configuration…";
+"Sign in to Codex, then save the current login here." = "Sign in to Codex, then save the current login here.";
+"Switching quits and reopens the client." = "Switching quits and reopens the client.";
+"Usage Overview…" = "Usage Overview…";
+"Usage Source" = "Usage Source";
+"Data Location: iCloud" = "Data Location: iCloud";
+"Data Location: This Mac" = "Data Location: This Mac";
+"Open Codex to Sign In…" = "Open Codex to Sign In…";
+"Add a configuration to save its URL and API key." = "Add a configuration to save its URL and API key.";
+"Sign in to the client, then choose Save Current Login." = "Sign in to the client, then choose Save Current Login.";
+
+"Scroll horizontally for additional columns and price settings." = "Scroll horizontally for additional columns and price settings.";

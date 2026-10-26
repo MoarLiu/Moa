@@ -134,7 +134,6 @@
 "Failed to update Codex SQLite history index: %@" = "更新 Codex SQLite 历史索引失败：%@";
 "Fallback Models" = "回退模型";
 "Fallback Pricing Models" = "回退计价模型";
-"Fast Mode" = "快速模式";
 "Fill API Base URL and API Key before testing the connection." = "测试连接前，请先填写 API Base URL 和 API Key。";
 "Fill API Base URL first." = "请先填写 API Base URL。";
 "Fill API Key first." = "请先填写 API Key。";
@@ -208,7 +207,6 @@
 "Refresh Status" = "刷新状态";
 "Refreshing Status..." = "正在刷新状态...";
 "Remote APIs must use https://. Only localhost, 127.0.0.1, and ::1 may use http://; local HTTP sends API keys in plaintext, so connect only to trusted local services." = "远程 API 必须使用 https://。仅 localhost、127.0.0.1、::1 可使用 http://；本地 http 会明文传输 API Key，请只连接可信本机服务。";
-"Remote Connections" = "远程连接";
 "Remove" = "移除";
 "Rename Codex Official Account" = "重命名 Codex 官方账号";
 "Rename Current Account" = "重命名当前账号";
@@ -233,7 +231,7 @@
 "Set %@ Daily Usage Alert" = "设置 %@ 今日用量提醒";
 "Set Alert" = "设置提醒";
 "Set Price" = "设置价格";
-"Source" = "原文";
+"Source" = "来源";
 "Status: %@" = "状态：%@";
 "Store Data in iCloud" = "数据存储到 iCloud";
 "Store Moa Data in iCloud?" = "将 Moa 数据存储到 iCloud？";
@@ -300,7 +298,6 @@
 "Load Failed" = "加载失败";
 "Unable to load %@ data: %@" = "无法加载 %@ 数据：%@";
 
-"Remote Connection Settings…" = "远程连接设置…";
 "ChatGPT could not be closed. Finish the active task and try again." = "无法关闭 ChatGPT。请结束正在运行的任务后重试。";
 
 "WorkBuddy AI did not quit. Finish active tasks and quit it, then try again." = "WorkBuddy AI 尚未退出。请结束正在运行的任务并退出客户端，然后重试。";
@@ -351,6 +348,8 @@
 "Only direct Responses-compatible Codex profiles are supported. Add a Responses endpoint or select Codex Official Mode." = "仅支持直连 Responses 的 Codex 配置。请添加 Responses 端点或选择 Codex 官方模式。";
 
 "%@ daily usage reached threshold" = "%@ 今日用量已达到阈值";
+
+"Working…" = "处理中…";
 "Added %@" = "已添加 %@";
 "Adding Codex Official account..." = "正在添加 Codex 官方账号...";
 "Claude Desktop Official · Reopened" = "Claude Desktop 官方模式 · 已重启";
@@ -391,8 +390,6 @@
 "Switching Codex Official..." = "正在切换 Codex 官方模式...";
 "Switching config..." = "正在切换配置...";
 "Testing %@..." = "正在测试 %@...";
-"Turning Fast off..." = "正在关闭快速模式...";
-"Turning Fast on..." = "正在开启快速模式...";
 "Updated %@" = "已更新 %@";
 "Updated %@ daily usage alert" = "已更新 %@ 今日用量提醒";
 "Using %@" = "正在使用 %@";
@@ -443,3 +440,23 @@
 "The remote model pricing catalog is incomplete or invalid." = "远端模型价格目录不完整或格式无效。";
 "Update Prices" = "更新价格";
 "Updating Prices…" = "正在更新价格…";
+
+"Account Actions" = "账号操作";
+"Accounts…" = "账号管理…";
+"Actions for %@" = "%@ 的操作";
+"Choose a saved official account, or open Codex to sign in." = "请选择已保存的官方账号，或打开 Codex 登录。";
+"Current Mode: Official" = "当前模式：官方";
+"Date Range" = "时间范围";
+"Dismiss" = "关闭提示";
+"Reapply Official Configuration…" = "重新应用官方配置…";
+"Sign in to Codex, then save the current login here." = "请先在 Codex 中登录，然后在这里保存当前登录。";
+"Switching quits and reopens the client." = "切换会退出并重新打开客户端。";
+"Usage Overview…" = "用量总览…";
+"Usage Source" = "用量来源";
+"Data Location: iCloud" = "数据位置：iCloud";
+"Data Location: This Mac" = "数据位置：本机";
+"Open Codex to Sign In…" = "打开 Codex 登录…";
+"Add a configuration to save its URL and API key." = "添加配置以保存服务地址与 API Key。";
+"Sign in to the client, then choose Save Current Login." = "请先在客户端中登录，再选择“保存当前登录”。";
+
+"Scroll horizontally for additional columns and price settings." = "横向滚动可查看其余列和价格设置。";

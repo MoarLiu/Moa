@@ -7,8 +7,8 @@ final class MoaWorkBuddyCoordinator: NSObject {
     let controller: WorkBuddyController
     let item: NSMenuItem
     let menu: NSMenu
-    private var operationInFlight = false
-    var isUpdatingAccounts: Bool { operationInFlight }
+    private var accountClient: MoaAccountClient { edition == .china ? .workbuddyCN : .workbuddy }
+    var isUpdatingAccounts: Bool { app.accountOperations.active[accountClient] != nil }
 
     init(app: AppDelegate, edition: WorkBuddyEdition) {
         self.app = app
@@ -40,7 +40,7 @@ final class MoaWorkBuddyCoordinator: NSObject {
         alertItem.title = DailyUsageAlertController.menuTitle(for: edition.alertKind)
         menu.addItem(alertItem)
         menu.addItem(NSMenuItem.separator())
-        if operationInFlight {
+        if isUpdatingAccounts {
             let item = NSMenuItem(title: edition.localized("Updating WorkBuddy AI…"), action: nil, keyEquivalent: "")
             item.isEnabled = false
             menu.addItem(item)
@@ -93,7 +93,7 @@ final class MoaWorkBuddyCoordinator: NSObject {
     }
 
     func saveCurrentAccount(onComplete: (() -> Void)? = nil) {
-        guard !operationInFlight,
+        guard !isUpdatingAccounts,
               let name = app.showOfficialAccountNamePanel(
                 title: edition.localized("Save WorkBuddy AI Account"),
                 message: edition.localized("WorkBuddy AI will quit normally, save its latest login on this Mac, and reopen. Finish active tasks first. Do not use Log Out."),
@@ -103,7 +103,7 @@ final class MoaWorkBuddyCoordinator: NSObject {
     }
 
     func addAnotherAccount(onComplete: (() -> Void)? = nil) {
-        guard !operationInFlight,
+        guard !isUpdatingAccounts,
               MoaNonBlockingAlert.confirm(
                 messageText: edition.localized("Add Another WorkBuddy AI Account?"),
                 informativeText: edition.localized("Moa saves the current login, quits WorkBuddy AI, and opens a fresh login. Sign in with the other account, then choose Save Current WorkBuddy AI Account. Existing sessions stay on this Mac. Finish active tasks first; do not use Log Out."),
@@ -125,14 +125,13 @@ final class MoaWorkBuddyCoordinator: NSObject {
     @objc func reopenWorkBuddyAction() { performWorkBuddyOperation { try self.controller.reopen() } }
 
     private func performWorkBuddyOperation(onComplete: (() -> Void)? = nil, _ operation: @escaping () throws -> Void) {
-        guard !operationInFlight else { return }
-        operationInFlight = true
+        guard let token = app.accountOperations.begin(accountClient, message: self.edition.localized("Updating WorkBuddy AI…")) else { return }
         app.statusItemText.title = self.statusTitle("Updating WorkBuddy AI…")
         rebuildMenu()
         DispatchQueue.global(qos: .userInitiated).async {
             let result = Result { try operation() }
             DispatchQueue.main.async {
-                self.operationInFlight = false
+                self.app.accountOperations.finish(self.accountClient, id: token)
                 self.rebuildMenu()
                 if let onComplete { onComplete() }
                 else { self.app.accountManagerWindow.refreshIfVisible() }

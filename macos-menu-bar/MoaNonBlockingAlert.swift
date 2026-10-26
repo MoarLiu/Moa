@@ -5,6 +5,10 @@ enum MoaNonBlockingAlert {
     static func present(messageText: String, informativeText: String, tone: MoaAlertTone = .info) {
         guard !MoaRuntimeMode.suppressesUserInteraction else { return }
         DispatchQueue.main.async {
+            if tone == .success || tone == .info {
+                MoaFeedbackCenter.shared.show(title: messageText, detail: informativeText)
+                return
+            }
             let alert = NSAlert()
             alert.messageText = messageText
             alert.informativeText = informativeText
@@ -106,7 +110,21 @@ enum MoaNonBlockingAlert {
 }
 
 enum MoaModalPanelStyle {
-    static let whiteBackplateColor = NSColor(calibratedWhite: 1.0, alpha: 1.0)
+    /// 弹窗背板。必须随外观解析: 弹窗内的 SwiftUI 文字使用 .primary / .secondary,
+    /// 暗色下解析为白色, 若背板恒为纯白, 标题与字段标签会完全消失(1.00:1)。
+    static func backplateColor(for appearance: NSAppearance) -> NSColor {
+        let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        return isDark
+            ? NSColor(calibratedRed: 0.145, green: 0.153, blue: 0.161, alpha: 1)
+            : NSColor(calibratedWhite: 1.0, alpha: 1.0)
+    }
+
+    static func borderColor(for appearance: NSAppearance) -> NSColor {
+        let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        return isDark
+            ? NSColor(calibratedWhite: 1.0, alpha: 0.12)
+            : NSColor(calibratedWhite: 0.0, alpha: 0.08)
+    }
 
     static func applyPopupWindowChrome(to window: NSWindow) {
         window.backgroundColor = .clear
@@ -138,23 +156,15 @@ enum MoaModalPanelStyle {
     }
 
     static func installGlassContent(_ content: NSView, in panel: NSPanel, cornerRadius: CGFloat = 24) {
+        // MoaModalChromeView 自己负责画背板(并在外观变化时重绘),
+        // 这里不再叠一层固定颜色的 background, 否则暗色下会被白底覆盖。
         let container = MoaModalChromeView(cornerRadius: cornerRadius)
-        let background = NSView()
-
-        background.translatesAutoresizingMaskIntoConstraints = false
-        background.wantsLayer = true
-        background.layer?.backgroundColor = whiteBackplateColor.cgColor
-        container.addSubview(background)
 
         content.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(content)
         panel.contentView = container
 
         NSLayoutConstraint.activate([
-            background.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            background.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            background.topAnchor.constraint(equalTo: container.topAnchor),
-            background.bottomAnchor.constraint(equalTo: container.bottomAnchor),
             content.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             content.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             content.topAnchor.constraint(equalTo: container.topAnchor),
@@ -257,8 +267,8 @@ private final class MoaModalChromeView: NSView {
     }
 
     private func updateLayerStyle() {
-        layer?.backgroundColor = MoaModalPanelStyle.whiteBackplateColor.cgColor
-        layer?.borderColor = NSColor(calibratedWhite: 0.0, alpha: 0.08).cgColor
+        layer?.backgroundColor = MoaModalPanelStyle.backplateColor(for: effectiveAppearance).cgColor
+        layer?.borderColor = MoaModalPanelStyle.borderColor(for: effectiveAppearance).cgColor
     }
 }
 

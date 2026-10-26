@@ -32,9 +32,8 @@ final class MoaUsageCoordinator {
 
     private final class Pipeline {
         let summaryItem = NSMenuItem()
-        let refreshItem = NSMenuItem()
+        let refreshItem = MoaUsageRefreshMenuItem()
         let summaryView = CodexUsageSummaryMenuView()
-        let refreshView = CodexUsageRefreshMenuView()
         let queue: DispatchQueue
         var load: (Bool) throws -> CodexUsageSummary
         var summary: CodexUsageSummary?
@@ -46,7 +45,6 @@ final class MoaUsageCoordinator {
             queue = DispatchQueue(label: "com.moarliu.moa.\(source.rawValue)-usage", qos: .utility)
             self.load = load
             summaryItem.view = summaryView
-            refreshItem.view = refreshView
             summaryView.apply(.idle)
         }
     }
@@ -98,7 +96,7 @@ final class MoaUsageCoordinator {
         guard !running else { return }
         running = true
         for source in MoaUsageSource.allCases {
-            pipelines[source]?.refreshView.onRefresh = { [weak self] in self?.refresh(source, forceRefresh: true) }
+            pipelines[source]?.refreshItem.onRefresh = { [weak self] in self?.refresh(source, forceRefresh: true) }
         }
         pricingUpdateCoordinator.onCatalogUpdated = { [weak self] in
             self?.refreshAll(forceRefresh: true)
@@ -125,9 +123,9 @@ final class MoaUsageCoordinator {
         if let dataRootObserver { NotificationCenter.default.removeObserver(dataRootObserver) }
         dataRootObserver = nil
         for pipeline in pipelines.values {
-            pipeline.refreshView.onRefresh = nil
+            pipeline.refreshItem.onRefresh = nil
             pipeline.pendingForceRefresh = false
-            pipeline.refreshView.setRefreshing(false)
+            pipeline.refreshItem.setRefreshing(false)
         }
     }
 
@@ -136,6 +134,8 @@ final class MoaUsageCoordinator {
     func refreshZCode(forceRefresh: Bool) { refresh(.zcode, forceRefresh: forceRefresh) }
     func refreshWorkBuddy(forceRefresh: Bool) { refresh(.workbuddy, forceRefresh: forceRefresh) }
     func refreshWorkBuddyCN(forceRefresh: Bool) { refresh(.workbuddyCN, forceRefresh: forceRefresh) }
+
+    func refreshAllUsage() { refreshAll(forceRefresh: true) }
 
     func refreshForPresentation() {
         refreshAll(forceRefresh: false, minimumInterval: 5)
@@ -167,7 +167,7 @@ final class MoaUsageCoordinator {
         }
         pipeline.inFlight = true
         pipeline.lastStartedAt = now
-        pipeline.refreshView.setRefreshing(true)
+        pipeline.refreshItem.setRefreshing(true)
         pipeline.summaryView.apply(.loading(pipeline.summary))
         let startedAt = Date()
         let refreshGeneration = generation
@@ -182,7 +182,7 @@ final class MoaUsageCoordinator {
                     self.refresh(source, forceRefresh: true)
                     return
                 }
-                pipeline.refreshView.setRefreshing(false)
+                pipeline.refreshItem.setRefreshing(false)
                 switch result {
                 case .success(let summary):
                     pipeline.summary = summary

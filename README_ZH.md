@@ -6,7 +6,7 @@ Moa 是一个支持 ChatGPT（原 Codex Desktop）、Claude Desktop、ZCode、Wo
 
 ## 功能范围
 
-- ChatGPT / Codex 控制：Fast Mode、远程连接设置入口、官方账号切换、provider profile 导入导出、重新打开客户端。
+- ChatGPT / Codex 控制：官方账号切换、provider profile 导入导出、重新打开客户端。
 - Claude Desktop profile：写入 Claude Desktop 3P gateway profile，并复制 Claude Code 环境变量片段。
 - 账号管理：各客户端菜单的「管理账号…」打开同一个按客户端分组的窗口，在其中重命名、编辑或删除已保存条目；菜单里点击账号仍会立即切换。
 - WorkBuddy / WorkBuddy AI 国际版：各有独立菜单和用量 Tab，分别保存本机登录态、添加和切换账号、重命名或删除已保存账号，并正常退出和重启对应客户端。
@@ -15,6 +15,14 @@ Moa 是一个支持 ChatGPT（原 Codex Desktop）、Claude Desktop、ZCode、Wo
 - Moa 数据：导出/导入完整数据包、导出脱敏诊断包，并可把数据根切换到 iCloud Drive。
 - 更新检查：可从主菜单检查 GitHub Releases，下载、校验并安装匹配当前 Mac 的 DMG。
 - 价格热更新：主菜单点击「更新价格」，即可获取 Sub2API 参考的完整公开价格目录。支持的美元 Token 价格立即生效，自动刷新已打开的用量明细，并在重启后保留。下载失败继续使用原价格，自定义价格始终优先；每天自动检查仍保留。
+
+## 1.5.0 界面与交互改进
+
+- 主菜单顶部显示版本和构建号，并提供“账号管理…”和“用量总览…”，各客户端仍保留用量摘要、刷新和一键切换；打开客户端、文件夹等辅助动作直接列在各客户端二级菜单底部，不再折叠。
+- 账号操作在菜单与窗口共享进行中状态；账号行保留“切换”，重命名、编辑、删除归入操作菜单。
+- 成功与普通信息使用不抢焦点的提示，长表单正文可滚动且保存、取消始终可见；用量窗口支持较窄窗口。
+- 快捷键：`⌘U` 用量总览、`⌘⇧A` 账号管理、`⌘R` 刷新当前用量窗口（其他场景刷新各来源用量）。
+- 维护入口位于主菜单的“Moa”子菜单，包括价格更新、更新检查与数据管理。
 
 ## 1.4.0 升级说明
 
@@ -30,9 +38,7 @@ Moa 是一个支持 ChatGPT（原 Codex Desktop）、Claude Desktop、ZCode、Wo
 
 客户端通过 `com.openai.codex` Bundle ID 定位，兼容 `ChatGPT.app` 和旧版 `Codex.app`，也支持 `CODEX_APP` 指定安装位置。内部配置和登录数据仍位于 `~/.codex`，或 `CODEX_HOME` 指定的目录。
 
-新版 Fast Mode 读写 `config.toml` 的 `desktop.default-service-tier`，识别 `priority` 和 `fast`，并同步根级 `service_tier`。旧版 Codex 仍保留 JSON 状态兼容路径。切换服务商以客户端当前配置为基础，保留其他设置、未知字段和其他服务商配置。
-
-远程连接由 ChatGPT 自己管理；菜单打开 `codex://settings/connections`，不再通过旧 feature flags 开关。旧无界面命令 `MoaApplyRemoteConnections` 会返回迁移提示；使用 `MoaOpenRemoteConnections=1` 可打开设置页。
+Moa 1.5.0 移除了快速模式和远程连接设置入口、对应实现及旧无界面命令。这些偏好由 ChatGPT 自己管理；已有设置保留。切换服务商以客户端当前配置为基础，保留其他设置、未知字段和其他服务商配置。
 
 用量读取兼容 `token_usage_record` 和旧 `token_count`，避免双重计数，分别保留缓存读取、缓存写入和每次请求的用量。费用按单次请求判断长上下文档位；1.3.0 使用 2026-10-24 核对的 API 价格快照，覆盖 OpenAI、Claude、GLM 及 WorkBuddy 模型，并保留缓存与 Fast 参数；详见[完整模型价格与来源](MODEL_PRICING.md)。这些是本地 Codex 任务的 API 标准价格估算，不是 ChatGPT 订阅账单。
 

@@ -181,22 +181,27 @@ private struct CodexOfficialAccountNameFormView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        MoaModalForm {
             MoaModalHeader(icon: "person.crop.circle.badge.checkmark", title: title, message: message)
+        } fields: {
+            VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 7) {
+                    MoaModalFieldLabel(text: MoaL10n.text("Account Name"))
+                    TextField(MoaL10n.text("Example: OpenAI Personal"), text: $name)
+                        .moaModalFieldChrome()
+                        .accessibilityLabel(MoaL10n.text("Account Name"))
+                        .focused($nameFocused)
+                }
 
-            VStack(alignment: .leading, spacing: 7) {
-                MoaModalFieldLabel(text: MoaL10n.text("Account Name"))
-                TextField(MoaL10n.text("Example: OpenAI Personal"), text: $name)
-                    .moaModalFieldChrome()
-                    .focused($nameFocused)
+                Text(statusText.isEmpty ? " " : statusText)
+                    .id("moa-form-status")
+                    .preference(key: MoaFormStatusPreferenceKey.self, value: statusText)
+                    .font(.system(size: 12))
+                    .foregroundStyle(statusTone.color)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(minHeight: 16, alignment: .leading)
             }
-
-            Text(statusText.isEmpty ? " " : statusText)
-                .font(.system(size: 12))
-                .foregroundStyle(statusTone.color)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(minHeight: 16, alignment: .leading)
-
+        } footer: {
             HStack(spacing: 10) {
                 Spacer()
                 MoaModalButton(title: MoaL10n.text("Cancel")) {
@@ -207,7 +212,6 @@ private struct CodexOfficialAccountNameFormView: View {
                     .frame(minWidth: 88)
             }
         }
-        .moaModalFormBody()
         .onAppear { nameFocused = true }
     }
 
@@ -285,42 +289,49 @@ private struct CodexProfileFormView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        MoaModalForm {
             MoaModalHeader(icon: "gearshape.fill", title: title, message: message)
+        } fields: {
+            VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 7) {
+                    MoaModalFieldLabel(text: MoaL10n.text("Config Name"))
+                    TextField(MoaL10n.text("Example: One"), text: $name)
+                        .moaModalFieldChrome()
+                        .accessibilityLabel(MoaL10n.text("Config Name"))
+                        .focused($nameFocused)
+                }
 
-            VStack(alignment: .leading, spacing: 7) {
-                MoaModalFieldLabel(text: MoaL10n.text("Config Name"))
-                TextField(MoaL10n.text("Example: One"), text: $name)
-                    .moaModalFieldChrome()
-                    .focused($nameFocused)
-            }
+                VStack(alignment: .leading, spacing: 7) {
+                    MoaModalFieldLabel(text: MoaL10n.text("API Key"))
+                    SecureField(MoaL10n.text("Paste your API key"), text: $apiKey)
+                        .moaModalFieldChrome()
+                        .accessibilityLabel(MoaL10n.text("API Key"))
+                }
 
-            VStack(alignment: .leading, spacing: 7) {
-                MoaModalFieldLabel(text: MoaL10n.text("API Key"))
-                SecureField(MoaL10n.text("Paste your API key"), text: $apiKey)
-                    .moaModalFieldChrome()
-            }
+                VStack(alignment: .leading, spacing: 7) {
+                    MoaModalFieldLabel(text: MoaL10n.text("API Base URL"))
+                    TextField("https://your-api-endpoint.com/v1", text: $baseURL)
+                        .moaModalFieldChrome()
+                        .accessibilityLabel(MoaL10n.text("API Base URL"))
+                    Text(MoaProviderBaseURLPolicy.visibleGuidance)
+                        .font(.system(size: 12))
+                        .foregroundStyle(MoaTheme.amber)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(MoaL10n.text("Use an endpoint compatible with OpenAI Responses format."))
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
 
-            VStack(alignment: .leading, spacing: 7) {
-                MoaModalFieldLabel(text: MoaL10n.text("API Base URL"))
-                TextField("https://your-api-endpoint.com/v1", text: $baseURL)
-                    .moaModalFieldChrome()
-                Text(MoaProviderBaseURLPolicy.visibleGuidance)
+                Text(statusText.isEmpty ? " " : statusText)
+                    .id("moa-form-status")
+                    .preference(key: MoaFormStatusPreferenceKey.self, value: statusText)
                     .font(.system(size: 12))
-                    .foregroundStyle(MoaTheme.amber)
+                    .foregroundStyle(statusTone.color)
                     .fixedSize(horizontal: false, vertical: true)
-                Text(MoaL10n.text("Use an endpoint compatible with OpenAI Responses format."))
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(minHeight: 16, alignment: .leading)
             }
-
-            Text(statusText.isEmpty ? " " : statusText)
-                .font(.system(size: 12))
-                .foregroundStyle(statusTone.color)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(minHeight: 16, alignment: .leading)
-
+        } footer: {
             HStack(spacing: 10) {
                 Spacer()
                 MoaModalButton(title: MoaL10n.text("Cancel"), action: onCancel)
@@ -331,7 +342,6 @@ private struct CodexProfileFormView: View {
                     .frame(minWidth: 88)
             }
         }
-        .moaModalFormBody()
         .onAppear { nameFocused = true }
     }
 
@@ -461,48 +471,56 @@ private struct ClaudeProviderFormView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        MoaModalForm {
             MoaModalHeader(icon: "sparkles", title: title, message: message)
+        } fields: {
+            VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 7) {
+                    MoaModalFieldLabel(text: MoaL10n.text("Provider Name"))
+                    TextField(MoaL10n.text("Example: Anthropic Compatible"), text: $name)
+                        .moaModalFieldChrome()
+                        .accessibilityLabel(MoaL10n.text("Provider Name"))
+                        .focused($nameFocused)
+                }
 
-            VStack(alignment: .leading, spacing: 7) {
-                MoaModalFieldLabel(text: MoaL10n.text("Provider Name"))
-                TextField(MoaL10n.text("Example: Anthropic Compatible"), text: $name)
-                    .moaModalFieldChrome()
-                    .focused($nameFocused)
-            }
+                VStack(alignment: .leading, spacing: 7) {
+                    MoaModalFieldLabel(text: MoaL10n.text("API Key"))
+                    SecureField(MoaL10n.text("Paste your Anthropic-compatible bearer token"), text: $apiKey)
+                        .moaModalFieldChrome()
+                        .accessibilityLabel(MoaL10n.text("API Key"))
+                }
 
-            VStack(alignment: .leading, spacing: 7) {
-                MoaModalFieldLabel(text: MoaL10n.text("API Key"))
-                SecureField(MoaL10n.text("Paste your Anthropic-compatible bearer token"), text: $apiKey)
-                    .moaModalFieldChrome()
-            }
+                VStack(alignment: .leading, spacing: 7) {
+                    MoaModalFieldLabel(text: MoaL10n.text("API Base URL"))
+                    TextField("https://your-api-endpoint.com", text: $baseURL)
+                        .moaModalFieldChrome()
+                        .accessibilityLabel(MoaL10n.text("API Base URL"))
+                    Text(MoaProviderBaseURLPolicy.visibleGuidance)
+                        .font(.system(size: 12))
+                        .foregroundStyle(MoaTheme.amber)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
 
-            VStack(alignment: .leading, spacing: 7) {
-                MoaModalFieldLabel(text: MoaL10n.text("API Base URL"))
-                TextField("https://your-api-endpoint.com", text: $baseURL)
-                    .moaModalFieldChrome()
-                Text(MoaProviderBaseURLPolicy.visibleGuidance)
+                VStack(alignment: .leading, spacing: 7) {
+                    MoaModalFieldLabel(text: MoaL10n.text("Models (optional)"))
+                    TextField("claude-opus-4.7[1M], claude-sonnet-4-5", text: $modelsText)
+                        .moaModalFieldChrome()
+                        .accessibilityLabel(MoaL10n.text("Models (optional)"))
+                    Text(MoaL10n.text("Append [1M] to a model to offer Claude Desktop's 1M-context variant, for example claude-opus-4.7[1M]."))
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Text(statusText.isEmpty ? " " : statusText)
+                    .id("moa-form-status")
+                    .preference(key: MoaFormStatusPreferenceKey.self, value: statusText)
                     .font(.system(size: 12))
-                    .foregroundStyle(MoaTheme.amber)
+                    .foregroundStyle(statusTone.color)
                     .fixedSize(horizontal: false, vertical: true)
+                    .frame(minHeight: 16, alignment: .leading)
             }
-
-            VStack(alignment: .leading, spacing: 7) {
-                MoaModalFieldLabel(text: MoaL10n.text("Models (optional)"))
-                TextField("claude-opus-4.7[1M], claude-sonnet-4-5", text: $modelsText)
-                    .moaModalFieldChrome()
-                Text(MoaL10n.text("Append [1M] to a model to offer Claude Desktop's 1M-context variant, for example claude-opus-4.7[1M]."))
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            Text(statusText.isEmpty ? " " : statusText)
-                .font(.system(size: 12))
-                .foregroundStyle(statusTone.color)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(minHeight: 16, alignment: .leading)
-
+        } footer: {
             HStack(spacing: 10) {
                 Spacer()
                 MoaModalButton(title: MoaL10n.text("Cancel"), action: onCancel)
@@ -513,7 +531,6 @@ private struct ClaudeProviderFormView: View {
                     .frame(minWidth: 88)
             }
         }
-        .moaModalFormBody()
         .onAppear { nameFocused = true }
     }
 
