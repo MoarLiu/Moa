@@ -2,7 +2,7 @@
 
 ## 1.4.1 - 2026-10-26
 
-- Fixed glass-form clicks. Save, Cancel, toggles, and pickers now activate, while clicking empty space still drags the borderless panel.
+- Fixed glass-form buttons. Save, Cancel, and the other modal actions now run immediately. Borderless glass forms no longer drag from the background, because that drag handling swallowed button clicks.
 
 ## 1.4.0 - 2026-10-26
 
