@@ -4,9 +4,7 @@ import Foundation
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let controller = FastStateController()
     let profileController = ConfigProfileController()
-    let providerBridgeProfileController = ProviderBridgeProfileController()
     let claudeDesktopProfileController = ClaudeDesktopProfileController()
-    let providerBridgeServer = MoaProviderBridgeServer()
     let zcodeController = ZCodeController()
     lazy var usageCoordinator = MoaUsageCoordinator()
     lazy var workbuddyCoordinator = MoaWorkBuddyCoordinator(app: self, edition: .international)
@@ -50,8 +48,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var workbuddyMenu: NSMenu { workbuddyCoordinator.menu }
     var workbuddyCNItem: NSMenuItem { workbuddyCNCoordinator.item }
     var workbuddyCNMenu: NSMenu { workbuddyCNCoordinator.menu }
-    let providerBridgeItem = NSMenuItem(title: MoaL10n.text("Provider Bridge"), action: nil, keyEquivalent: "")
-    let providerBridgeMenu = NSMenu(title: MoaL10n.text("Provider Bridge"))
 
     let codexDailyUsageAlertItem = NSMenuItem(title: MoaL10n.text("Daily Usage Alert"), action: #selector(showCodexDailyUsageAlertAction), keyEquivalent: "")
     let claudeDailyUsageAlertItem = NSMenuItem(title: MoaL10n.text("Daily Usage Alert"), action: #selector(showClaudeDailyUsageAlertAction), keyEquivalent: "")
@@ -63,10 +59,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let remoteConnectionsItem = NSMenuItem(title: MoaL10n.text("Remote Connection Settings…"), action: #selector(openRemoteConnectionsSettingsAction), keyEquivalent: "")
     let codexOfficialItem = NSMenuItem(title: MoaL10n.text("Codex Official"), action: nil, keyEquivalent: "")
     let codexOfficialMenu = NSMenu(title: MoaL10n.text("Codex Official"))
-    let codexProviderBridgeModeItem = NSMenuItem(title: MoaL10n.text("Provider Bridge Mode"), action: #selector(applyCodexProviderBridgeModeAction), keyEquivalent: "")
-    let startProviderBridgeItem = NSMenuItem(title: MoaL10n.text("Start Provider Bridge"), action: #selector(startProviderBridgeAction), keyEquivalent: "")
-    let stopProviderBridgeItem = NSMenuItem(title: MoaL10n.text("Stop Provider Bridge"), action: #selector(stopProviderBridgeAction), keyEquivalent: "")
-    let addProviderBridgeConfigItem = NSMenuItem(title: MoaL10n.text("Add Provider Bridge Config"), action: #selector(addProviderBridgeConfigAction), keyEquivalent: "")
     let editProfileItem = NSMenuItem(title: MoaL10n.text("Edit Selected Config"), action: #selector(editProfileAction(_:)), keyEquivalent: "")
     let deleteProfileItem = NSMenuItem(title: MoaL10n.text("Delete Selected Config"), action: #selector(deleteProfileAction(_:)), keyEquivalent: "")
     let importProfilesItem = NSMenuItem(title: MoaL10n.text("Import Config"), action: #selector(importCodexProfilesAction), keyEquivalent: "")
@@ -86,9 +78,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let openICloudDataFolderItem = NSMenuItem(title: MoaL10n.text("Open iCloud Data Folder"), action: #selector(openICloudDataFolderAction), keyEquivalent: "")
     let versionItem = NSMenuItem(title: "Moa", action: nil, keyEquivalent: "")
 
-    var providerBridgeLastHealthCheckAt: Date?
-    var providerBridgeLastErrorSummary = ""
-
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         repairLegacyICloudDataSplitIfNeeded()
@@ -96,7 +85,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         configureStatusItem()
         configureMenu()
         refreshStatus()
-        restoreActiveProviderBridgeIfNeeded()
         configureUsageAlertCallbacks()
         usageCoordinator.start()
     }
@@ -135,7 +123,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         usageCoordinator.stop()
-        providerBridgeServer.stop()
     }
 
     private func configureApplicationMenu() {
@@ -165,7 +152,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if let button = statusItem.button {
             button.image = Self.makeMenuBarIcon()
             button.imageScaling = .scaleProportionallyDown
-            button.toolTip = MoaL10n.text("Moa - Codex, Claude, ZCode, WorkBuddy, WorkBuddy AI, Provider Bridge")
+            button.toolTip = MoaL10n.text("Moa - Codex, Claude, ZCode, WorkBuddy, WorkBuddy AI")
         }
         statusItem.menu = menu
     }
@@ -194,15 +181,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         MoaTomlEditor.escapedStringContent(value)
     }
 
-    static func jsonEscaped(_ value: String) -> String {
-        value
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "\"", with: "\\\"")
-            .replacingOccurrences(of: "\n", with: "\\n")
-            .replacingOccurrences(of: "\r", with: "\\r")
-            .replacingOccurrences(of: "\t", with: "\\t")
-    }
-
     static func shellEscaped(_ value: String) -> String {
         value
             .replacingOccurrences(of: "\\", with: "\\\\")
@@ -211,10 +189,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             .replacingOccurrences(of: "`", with: "\\`")
             .replacingOccurrences(of: "\n", with: "\\n")
             .replacingOccurrences(of: "\r", with: "\\r")
-    }
-
-    static func shellSingleQuoted(_ value: String) -> String {
-        "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
     }
 
     static func identifierSlug(_ value: String) -> String {

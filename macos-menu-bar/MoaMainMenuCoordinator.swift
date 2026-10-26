@@ -28,8 +28,6 @@ final class MoaMainMenuCoordinator {
         app.menu.addItem(app.workbuddyCNItem)
         app.workbuddyItem.submenu = app.workbuddyMenu
         app.menu.addItem(app.workbuddyItem)
-        app.providerBridgeItem.submenu = app.providerBridgeMenu
-        app.menu.addItem(app.providerBridgeItem)
         app.menu.addItem(NSMenuItem.separator())
 
         app.moaDataItem.submenu = app.moaDataMenu
@@ -59,7 +57,6 @@ final class MoaMainMenuCoordinator {
         rebuildClaudeDesktopProfilesMenu()
         rebuildZCodeMenu()
         app.rebuildWorkBuddyMenus()
-        rebuildProviderBridgeMenu()
         configureMoaDataMenu()
         refreshStatus()
     }
@@ -103,7 +100,7 @@ final class MoaMainMenuCoordinator {
         app.remoteConnectionsItem.state = .off
 
         if let button = app.statusItem.button {
-            button.toolTip = MoaL10n.text("Moa - Codex, Claude, ZCode, WorkBuddy, WorkBuddy AI, Provider Bridge")
+            button.toolTip = MoaL10n.text("Moa - Codex, Claude, ZCode, WorkBuddy, WorkBuddy AI")
         }
     }
 
@@ -147,14 +144,12 @@ final class MoaMainMenuCoordinator {
         let selectedID: String?
         let profiles: [ConfigProfile]
         let officialAccounts: [CodexOfficialAccount]
-        let providerBridgeProfiles: [ConfigProfile]
         let selectedOfficialAccountID: String?
         let currentOfficialLoginSaveStatus: (hasLogin: Bool, savedAccountName: String?)
         do {
             selectedID = try app.profileController.selectedProfileID()
             profiles = try app.profileController.profiles()
             officialAccounts = try app.profileController.officialAccounts()
-            providerBridgeProfiles = try app.providerBridgeProfiles()
             selectedOfficialAccountID = try app.profileController.selectedOfficialAccountID()
             currentOfficialLoginSaveStatus = try app.profileController.currentOfficialLoginSaveStatus()
         } catch {
@@ -162,8 +157,6 @@ final class MoaMainMenuCoordinator {
             app.codexProfilesItem.title = "Codex · \(MoaL10n.text("Load Failed"))"
             return
         }
-        let directProfiles = profiles.filter { !$0.usesLocalProviderBridge }
-        let isProviderBridgeMode = app.profileController.isProviderBridgeModeSelected()
         let selectedName = app.currentCodexSelectionName()
         app.codexProfilesItem.title = "Codex · \(selectedName)"
         let isNoOfficialAccountMode = selectedOfficialAccountID == nil
@@ -238,19 +231,13 @@ final class MoaMainMenuCoordinator {
         app.codexOfficialMenu.addItem(deleteOfficialAccountItem)
         app.codexProfilesMenu.addItem(app.codexOfficialItem)
 
-        app.codexProviderBridgeModeItem.target = app
-        app.codexProviderBridgeModeItem.title = MoaL10n.text("Provider Bridge Mode")
-        app.codexProviderBridgeModeItem.state = isProviderBridgeMode ? .on : .off
-        app.codexProviderBridgeModeItem.isEnabled = !providerBridgeProfiles.isEmpty
-        app.codexProfilesMenu.addItem(app.codexProviderBridgeModeItem)
-
-        if directProfiles.isEmpty {
+        if profiles.isEmpty {
             let emptyItem = NSMenuItem(title: MoaL10n.text("No Saved Configs"), action: nil, keyEquivalent: "")
             emptyItem.isEnabled = false
             app.codexProfilesMenu.addItem(emptyItem)
         } else {
             app.codexProfilesMenu.addItem(NSMenuItem.separator())
-            for profile in directProfiles {
+            for profile in profiles {
                 let item = NSMenuItem(title: profile.name, action: #selector(AppDelegate.applyProfileAction(_:)), keyEquivalent: "")
                 item.representedObject = profile.id
                 item.state = profile.id == selectedID ? .on : .off
@@ -273,7 +260,7 @@ final class MoaMainMenuCoordinator {
         app.codexProfilesMenu.addItem(app.exportProfilesItem)
         app.editProfileItem.target = app
         app.editProfileItem.title = MoaL10n.text("Edit Selected Config")
-        app.editProfileItem.isEnabled = selectedID != nil && directProfiles.contains { $0.id == selectedID }
+        app.editProfileItem.isEnabled = selectedID != nil && profiles.contains { $0.id == selectedID }
         app.editProfileItem.representedObject = selectedID
         app.codexProfilesMenu.addItem(app.editProfileItem)
         app.deleteProfileItem.target = app
@@ -299,54 +286,6 @@ final class MoaMainMenuCoordinator {
         app.codexProfilesMenu.addItem(NSMenuItem.separator())
         app.codexProfilesMenu.addItem(NSMenuItem(title: MoaL10n.text("Open Moa Folder"), action: #selector(AppDelegate.openMoaFolderAction), keyEquivalent: ""))
         app.codexProfilesMenu.addItem(NSMenuItem(title: MoaL10n.text("Open Codex Folder"), action: #selector(AppDelegate.openCodexFolderAction), keyEquivalent: ""))
-    }
-
-    func rebuildProviderBridgeMenu() {
-        app.providerBridgeMenu.removeAllItems()
-        app.providerBridgeItem.title = MoaL10n.text("Provider Bridge")
-        app.providerBridgeMenu.title = MoaL10n.text("Provider Bridge")
-
-        let profiles: [ConfigProfile]
-        let selectedID: String?
-        do {
-            profiles = try app.providerBridgeProfileController.profiles()
-            selectedID = try app.providerBridgeProfileController.selectedProfileID()
-        } catch {
-            showDataLoadFailure(error, source: MoaL10n.text("Provider Bridge"), in: app.providerBridgeMenu)
-            app.providerBridgeItem.title = "\(MoaL10n.text("Provider Bridge")) · \(MoaL10n.text("Load Failed"))"
-            return
-        }
-        let bridgeSnapshot = app.providerBridgeServer.snapshot()
-
-        if profiles.isEmpty {
-            let emptyItem = NSMenuItem(title: MoaL10n.text("No Saved Configs"), action: nil, keyEquivalent: "")
-            emptyItem.isEnabled = false
-            app.providerBridgeMenu.addItem(emptyItem)
-        } else {
-            for profile in profiles {
-                let item = NSMenuItem(title: profile.name, action: #selector(AppDelegate.applyProviderBridgeProfileAction(_:)), keyEquivalent: "")
-                item.target = app
-                item.representedObject = profile.id
-                item.state = profile.id == selectedID ? .on : .off
-                app.providerBridgeMenu.addItem(item)
-            }
-        }
-
-        app.providerBridgeMenu.addItem(NSMenuItem.separator())
-
-        app.startProviderBridgeItem.target = app
-        app.startProviderBridgeItem.title = MoaL10n.text("Start Provider Bridge")
-        app.startProviderBridgeItem.isEnabled = selectedID != nil && !bridgeSnapshot.isRunning
-        app.providerBridgeMenu.addItem(app.startProviderBridgeItem)
-
-        app.stopProviderBridgeItem.target = app
-        app.stopProviderBridgeItem.title = MoaL10n.text("Stop Provider Bridge")
-        app.stopProviderBridgeItem.isEnabled = bridgeSnapshot.isRunning
-        app.providerBridgeMenu.addItem(app.stopProviderBridgeItem)
-
-        app.addProviderBridgeConfigItem.target = app
-        app.addProviderBridgeConfigItem.title = MoaL10n.text("Add Provider Bridge Config")
-        app.providerBridgeMenu.addItem(app.addProviderBridgeConfigItem)
     }
 
     func providerPresetSubmenuItem(title: String, presets: [MoaProviderPreset]) -> NSMenuItem {

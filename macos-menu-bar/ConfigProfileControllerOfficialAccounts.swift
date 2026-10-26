@@ -518,13 +518,13 @@ extension ConfigProfileController {
 
     func noAccountConfig(from currentConfig: String, profileDatabase: inout ProfileDatabase) throws -> String {
         if let selectedID = profileDatabase.selectedProfileID,
-           let selectedIndex = profileDatabase.profiles.firstIndex(where: { $0.id == selectedID && !$0.usesLocalProviderBridge }) {
+           let selectedIndex = profileDatabase.profiles.firstIndex(where: { $0.id == selectedID }) {
             let prepared = try preparedProfileForApply(profileDatabase.profiles[selectedIndex])
             profileDatabase.profiles[selectedIndex] = prepared
             return generateConfig(currentConfig, selecting: prepared)
         }
 
-        guard let firstDirectProfileIndex = profileDatabase.profiles.firstIndex(where: { !$0.usesLocalProviderBridge }) else {
+        guard let firstDirectProfileIndex = profileDatabase.profiles.indices.first else {
             profileDatabase.selectedProfileID = nil
             return currentConfig
         }

@@ -10,14 +10,8 @@ extension ConfigProfileController {
                 apiKey: includingAPIKeys ? profile.apiKey : nil,
                 models: profile.models,
                 oneMModels: nil,
-                providerKind: profile.providerKind,
-                clientTarget: profile.clientTarget,
-                upstreamProtocol: profile.upstreamProtocol,
-                bridgeMode: profile.bridgeMode,
-                upstreamBaseURL: profile.upstreamBaseURL,
                 model: profile.model,
-                testModel: profile.testModel,
-                reasoningMode: profile.reasoningMode)
+                testModel: profile.testModel)
         }
         let document = ProviderProfileExportDocument(
             schemaVersion: 2,
@@ -54,18 +48,10 @@ extension ConfigProfileController {
                     name: name,
                     baseURL: validatedBaseURL,
                     apiKey: entry.apiKey?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
-                    schemaVersion: entry.bridgeMode == nil ? nil : 2,
-                    providerKind: entry.providerKind,
-                    clientTarget: entry.clientTarget,
-                    upstreamProtocol: entry.upstreamProtocol,
-                    bridgeMode: entry.bridgeMode,
-                    upstreamBaseURL: entry.upstreamBaseURL,
+                    schemaVersion: document.schemaVersion,
                     model: entry.model,
                     testModel: entry.testModel,
-                    models: entry.models,
-                    reasoningMode: entry.reasoningMode,
-                    bridgeToken: nil,
-                    bridgePort: nil)
+                    models: entry.models)
                 database.profiles.append(profile)
             }
 

@@ -18,13 +18,6 @@ extension ConfigProfileController {
     }
 
     func providerID(for profile: ConfigProfile, in config: String) -> String {
-        if profile.usesLocalProviderBridge {
-            if profile.resolvedProviderKind == .deepseek && profile.name.localizedCaseInsensitiveContains("deepseek") {
-                return "moa-deepseek"
-            }
-            let slug = Self.providerIdentifierSlug(profile.name)
-            return slug.isEmpty ? "moa-bridge" : "moa-\(slug)"
-        }
         let selected = selectedProviderID(in: config)
         // The built-in OpenAI provider cannot be overridden by a user table.
         return selected == "openai" ? "moa-custom" : selected
@@ -259,15 +252,11 @@ extension ConfigProfileController {
     func providerBlock(for profile: ConfigProfile, providerID: String, extraLines: [String]) -> String {
         MoaCodexConfigEditor.providerBlock(
             providerID: providerID,
-            displayName: profile.usesLocalProviderBridge ? providerDisplayName(for: profile) : nil,
-            baseURL: profile.codexBaseURL,
-            apiKey: profile.codexBearerToken,
+            displayName: nil,
+            baseURL: profile.baseURL,
+            apiKey: profile.apiKey,
             extraLines: extraLines
         )
-    }
-
-    func providerDisplayName(for profile: ConfigProfile) -> String {
-        profile.usesLocalProviderBridge ? "Moa \(profile.name)" : profile.name
     }
 
     func removeProviderTables(from text: String) -> String {

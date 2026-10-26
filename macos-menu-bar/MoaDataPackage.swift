@@ -327,7 +327,6 @@ final class MoaDataPackageController {
     private let home: URL
     private let appVersion: String
     private let appBuild: String
-    private let providerBridgeDiagnostics: MoaProviderBridgeDiagnostics
 
     #if MOA_TESTING || MOA_TEST_SUPPORT
     var testingBeforeExportArchive: (() -> Void)?
@@ -370,12 +369,10 @@ final class MoaDataPackageController {
     }
 
     init(
-        environment: [String: String] = ProcessInfo.processInfo.environment,
-        providerBridgeDiagnostics: MoaProviderBridgeDiagnostics = .shared
+        environment: [String: String] = ProcessInfo.processInfo.environment
     ) {
         self.environment = environment
         dataAccess = .shared(environment: environment)
-        self.providerBridgeDiagnostics = providerBridgeDiagnostics
         home = MoaDataRoot.homeDirectory(environment: environment)
         appVersion = MoaUpdateController.currentVersion ?? "dev"
         appBuild = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0"
@@ -514,14 +511,6 @@ final class MoaDataPackageController {
                     encoding: .utf8
                 )
             }
-            if let providerBridgeDiagnosticsJSON = providerBridgeDiagnostics.diagnosticJSON() {
-                try providerBridgeDiagnosticsJSON.write(
-                    to: redactedDirectory.appendingPathComponent(MoaProviderBridgeDiagnostics.fileName),
-                    atomically: true,
-                    encoding: .utf8
-                )
-            }
-
             try? fileManager.removeItem(at: destination)
             try fileManager.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
             try runDitto(["-c", "-k", "--sequesterRsrc", "--keepParent", diagnosticRoot.path, destination.path])

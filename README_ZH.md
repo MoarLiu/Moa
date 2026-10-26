@@ -1,18 +1,23 @@
 # Moa
 
-Moa 是一个支持 ChatGPT（原 Codex Desktop）、Claude Desktop、ZCode、WorkBuddy、WorkBuddy AI 国际版和本地 Provider Bridge 工作流的 macOS 菜单栏应用。
+Moa 是一个支持 ChatGPT（原 Codex Desktop）、Claude Desktop、ZCode、WorkBuddy、WorkBuddy AI 国际版工作流的 macOS 菜单栏应用。
 
 它不包含原 Moa 的 Companion 相关功能：没有桌面宠物、AI 快捷动作、提醒事项、日记、番茄钟、MCP helper、Workflow Runner、资产上传、Dashboard、皮肤和声音资源包。
 
 ## 功能范围
 
 - ChatGPT / Codex 控制：Fast Mode、远程连接设置入口、官方账号切换、provider profile 导入导出、重新打开客户端。
-- Provider Bridge：本地 loopback Responses bridge，用于把 Codex 请求转发到 Chat Completions 上游，内置 DeepSeek 和常见网关 preset。
 - Claude Desktop profile：写入 Claude Desktop 3P gateway profile，并复制 Claude Code 环境变量片段。
 - WorkBuddy / WorkBuddy AI 国际版：各有独立菜单和用量 Tab，分别保存本机登录态、添加和切换账号、重命名或删除已保存账号，并正常退出和重启对应客户端。
 - 用量统计：基于本地 Codex / Claude / ZCode / WorkBuddy AI 日志估算用量，提供模型明细、CSV / Markdown 导出、自定义价格和每日提醒阈值。
 - Moa 数据：导出/导入完整数据包、导出脱敏诊断包，并可把数据根切换到 iCloud Drive。
 - 更新检查：可从主菜单检查 GitHub Releases，下载、校验并安装匹配当前 Mac 的 DMG。
+
+## 1.3.2 升级说明
+
+1.3.2 移除了 Provider Bridge、本地 HTTP 服务、协议转换和相关配置入口。Codex 服务商现在直接使用支持 OpenAI Responses 的端点；连接测试只验证 Responses，不再回退到 Chat Completions。
+
+如果此前使用 Provider Bridge，请在 Codex 菜单中选择已有的 Responses 配置，或添加服务商提供的 Responses Base URL；也可以选择官方模式。旧桥接配置不会自动转换为直连配置。旧配置文件保留在磁盘，1.3.2 不再读取独立桥接配置库；混合配置库中的桥接项仍保留在本地，但不再显示或导出，导入此类配置会提示重新添加 Responses 端点。升级本身不会改写当前 Codex 配置，完成上述选择后才会更新客户端配置并重新打开客户端。
 
 ## ChatGPT 客户端兼容
 
@@ -63,11 +68,10 @@ Moa 在 bundle、数据根、provider ID 和发布产物里统一使用主 Moa �
 - Application Support：`~/Library/Application Support/Moa`
 - iCloud 数据根：`iCloud Drive/Moa`
 - 数据包根目录：`MoaDataPackage/.moa`
-- Provider Bridge 默认端口：`19360`
 - Codex 托管 provider ID：`moa-*`
 - Claude Desktop 3P config-library profile：`Moa`
 
-Moa 在你执行切换动作时仍会写入真实的 Codex 和 Claude Desktop 配置文件；它自己的 profile 数据库、bridge token、数据包 manifest、iCloud 状态和诊断包都存放在 Moa 数据根下。
+Moa 在你执行切换动作时仍会写入真实的 Codex 和 Claude Desktop 配置文件；它自己的 profile 数据库、数据包 manifest、iCloud 状态和诊断包都存放在 Moa 数据根下。
 
 ## 数据文件
 
@@ -78,7 +82,6 @@ Moa 的本地数据存放在：
 - `~/.moa/codex_official_accounts.json`
 - `~/.moa/codex-auth/accounts/*.json`
 - `~/.moa/profiles.json`
-- `~/.moa/provider_bridge_profiles.json`
 - `~/.moa/claude_desktop_profiles.json`
 - `~/.moa/usage-pricing-overrides.json`
 - `~/.moa/usage-pricing-catalog-v1.json`
@@ -121,8 +124,7 @@ Codex app 的 Run 按钮通过以下文件接入：
 
 ## 安全说明
 
-- Provider API key 和 bridge token 只保存在本地。
-- Provider Bridge 只监听 `127.0.0.1`。
+- Provider API key 只保存在本地。
 - 诊断包会脱敏 auth、key、token 字段。
 - 打包脚本会拒绝把 `.moa`、`.codex`、auth/config/profile 文件、环境变量文件和签名密钥打进发布包。
 - Moa 不打包 `MoaMCP`，也不暴露本地 workflow tools。

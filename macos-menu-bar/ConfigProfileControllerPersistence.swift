@@ -33,7 +33,6 @@ extension ConfigProfileController {
                 )
             }
             #endif
-            try database.profiles.compactMap(\.bridgePort).forEach { _ = try MoaProviderBridgePort.validated($0) }
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
             let data = try encoder.encode(database)

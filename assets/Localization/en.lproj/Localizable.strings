@@ -10,11 +10,8 @@
 "Account name is required." = "Account name is required.";
 "Add" = "Add";
 "Add %@" = "Add %@";
-"Add a Chat Completions provider for Codex. Moa will run a local Responses bridge and Codex will only receive the local bridge token." = "Add a Chat Completions provider for Codex. Moa will run a local Responses bridge and Codex will only receive the local bridge token.";
 "Add a Codex provider profile. Moa will use it when switching configs." = "Add a Codex provider profile. Moa will use it when switching configs.";
 "Add a direct 3P provider for Claude Desktop. Moa writes Claude Desktop's 3P profile only." = "Add a direct 3P provider for Claude Desktop. Moa writes Claude Desktop's 3P profile only.";
-"Add a Provider Bridge config first." = "Add a Provider Bridge config first.";
-"Add a provider used by Moa's local Provider Bridge. Codex receives only the local bridge URL and token." = "Add a provider used by Moa's local Provider Bridge. Codex receives only the local bridge URL and token.";
 "Add a Responses-compatible provider preset for Codex. Moa will configure Codex directly and will not translate the upstream protocol." = "Add a Responses-compatible provider preset for Codex. Moa will configure Codex directly and will not translate the upstream protocol.";
 "Add Claude Desktop Provider" = "Add Claude Desktop Provider";
 "Add Codex Config" = "Add Codex Config";
@@ -22,7 +19,6 @@
 "Add Config" = "Add Config";
 "Add Current Login as Account" = "Add Current Login as Account";
 "Add Provider" = "Add Provider";
-"Add Provider Bridge Config" = "Add Provider Bridge Config";
 "Add Responses Preset" = "Add Responses Preset";
 "All historical session data has been updated to model_provider = \"%@\".\nPlease restart Codex." = "All historical session data has been updated to model_provider = \"%@\".\nPlease restart Codex.";
 "All Sources" = "All Sources";
@@ -32,7 +28,6 @@
 "API Key" = "API Key";
 "API keys are excluded by default and this is best for migrating configuration structure. Include API keys only when you trust the destination." = "API keys are excluded by default and this is best for migrating configuration structure. Include API keys only when you trust the destination.";
 "Append [1M] to a model to offer Claude Desktop's 1M-context variant, for example claude-opus-4.7[1M]." = "Append [1M] to a model to offer Claude Desktop's 1M-context variant, for example claude-opus-4.7[1M].";
-"Bridge curl copied" = "Bridge curl copied";
 "Cache Hit" = "Cache Hit";
 "Cache creation USD / 1M tokens" = "Cache creation USD / 1M tokens";
 "Cache read USD / 1M tokens" = "Cache read USD / 1M tokens";
@@ -96,7 +91,6 @@
 "Estimated Cost" = "Estimated Cost";
 "Example: 10" = "Example: 10";
 "Example: Anthropic Compatible" = "Example: Anthropic Compatible";
-"Example: DeepSeek Bridge" = "Example: DeepSeek Bridge";
 "Example: One" = "Example: One";
 "Example: OpenAI Personal" = "Example: OpenAI Personal";
 "Exclude API Keys" = "Exclude API Keys";
@@ -134,8 +128,6 @@
 "Local estimates, fallback pricing, and custom prices are for Moa reports only and may differ from official bills." = "Local estimates, fallback pricing, and custom prices are for Moa reports only and may differ from official bills.";
 "Moa alerts you when today's local estimated cost reaches the threshold. This is only a local estimate, not an official bill." = "Moa alerts you when today's local estimated cost reaches the threshold. This is only a local estimate, not an official bill.";
 "Moa - Codex Usage" = "Moa - Codex Usage";
-"Moa - Codex, Claude, Provider Bridge" = "Moa - Codex, Claude, Provider Bridge";
-"Moa - Codex, Claude, ZCode, Provider Bridge" = "Moa - Codex, Claude, ZCode, Provider Bridge";
 "Moa Data" = "Moa Data";
 "Moa Data Exported" = "Moa Data Exported";
 "Moa data folder does not exist: %@" = "Moa data folder does not exist: %@";
@@ -143,7 +135,6 @@
 "Moa Data Moved to This Mac" = "Moa Data Moved to This Mac";
 "Moa Data Stored in iCloud" = "Moa Data Stored in iCloud";
 "Moa will copy iCloud Drive/Moa back to ~/.moa, then use the local folder as its data folder." = "Moa will copy iCloud Drive/Moa back to ~/.moa, then use the local folder as its data folder.";
-"Moa will update the selected Provider Bridge config and restart the local bridge. Any old bridge curl command will stop working." = "Moa will update the selected Provider Bridge config and restart the local bridge. Any old bridge curl command will stop working.";
 "Migrate" = "Migrate";
 "Migrate Codex History?" = "Migrate Codex History?";
 "Migrate History model_provider" = "Migrate History model_provider";
@@ -154,7 +145,6 @@
 "Model" = "Model";
 "Model: %@\nEndpoint: %@" = "Model: %@\nEndpoint: %@";
 "Models (optional)" = "Models (optional)";
-"Models refreshed" = "Models refreshed";
 "Move Data Back to This Mac" = "Move Data Back to This Mac";
 "Move Moa Data Back to This Mac?" = "Move Moa Data Back to This Mac?";
 "Name, base URL, and API key are required." = "Name, base URL, and API key are required.";
@@ -183,10 +173,6 @@
 "Paste your API key" = "Paste your API key";
 "priced as %@" = "priced as %@";
 "Pricing" = "Pricing";
-"Provider" = "Provider";
-"Provider Bridge" = "Provider Bridge";
-"Provider Bridge Mode" = "Provider Bridge Mode";
-"Provider Bridge profile not found." = "Provider Bridge profile not found.";
 "Provider Name" = "Provider Name";
 "Provider preset not found." = "Provider preset not found.";
 "Quit Moa" = "Quit Moa";
@@ -194,8 +180,6 @@
 "Refresh" = "Refresh";
 "Refresh Status" = "Refresh Status";
 "Refreshing Status..." = "Refreshing Status...";
-"Regenerate" = "Regenerate";
-"Regenerate Provider Bridge Token?" = "Regenerate Provider Bridge Token?";
 "Remote APIs must use https://. Only localhost, 127.0.0.1, and ::1 may use http://; local HTTP sends API keys in plaintext, so connect only to trusted local services." = "Remote APIs must use https://. Only localhost, 127.0.0.1, and ::1 may use http://; local HTTP sends API keys in plaintext, so connect only to trusted local services.";
 "Remote Connections" = "Remote Connections";
 "Remove" = "Remove";
@@ -223,23 +207,16 @@
 "Set Alert" = "Set Alert";
 "Set Price" = "Set Price";
 "Source" = "Source";
-"Start Provider Bridge" = "Start Provider Bridge";
 "Status: %@" = "Status: %@";
-"Stop Provider Bridge" = "Stop Provider Bridge";
 "Store Data in iCloud" = "Store Data in iCloud";
 "Store Moa Data in iCloud?" = "Store Moa Data in iCloud?";
 "Test Connection" = "Test Connection";
 "Testing connection with %@%@..." = "Testing connection with %@%@...";
 "The connection test did not receive a valid response." = "The connection test did not receive a valid response.";
 "The current model_provider field is missing. Migration failed." = "The current model_provider field is missing. Migration failed.";
-"The curl command uses a redacted <bridge-token> placeholder." = "The curl command uses a redacted <bridge-token> placeholder.";
 "The current Codex official login is already saved as \"%@\"." = "The current Codex official login is already saved as \"%@\".";
 "The iCloud Moa data path already exists but is not a folder: %@" = "The iCloud Moa data path already exists but is not a folder: %@";
 "The import file does not contain any available profiles." = "The import file does not contain any available profiles.";
-"The models endpoint did not return a model list." = "The models endpoint did not return a model list.";
-"The models endpoint returned no model IDs." = "The models endpoint returned no model IDs.";
-"The models request did not receive a valid response." = "The models request did not receive a valid response.";
-"The Provider Bridge Codex config snippet is on the clipboard." = "The Provider Bridge Codex config snippet is on the clipboard.";
 "The selected Claude Code environment snippet is on the clipboard." = "The selected Claude Code environment snippet is on the clipboard.";
 "The selected Codex provider config snippet is on the clipboard." = "The selected Codex provider config snippet is on the clipboard.";
 "The selected zip is not a valid Moa data package." = "The selected zip is not a valid Moa data package.";
@@ -292,7 +269,6 @@
 "Claude Desktop state update failed (%@), and rollback also failed: %@" = "Claude Desktop state update failed (%@), and rollback also failed: %@";
 "Codex state update failed (%@), and rollback also failed: %@" = "Codex state update failed (%@), and rollback also failed: %@";
 "Data replacement failed (%@), and the previous data could not be restored (%@). The previous data is preserved at %@." = "Data replacement failed (%@), and the previous data could not be restored (%@). The previous data is preserved at %@.";
-"Provider bridge port must be between 0 and 65535 (received %lld)." = "Provider bridge port must be between 0 and 65535 (received %lld).";
 "The saved Codex official account path is invalid: %@" = "The saved Codex official account path is invalid: %@";
 "Load Failed" = "Load Failed";
 "Unable to load %@ data: %@" = "Unable to load %@ data: %@";
@@ -332,7 +308,6 @@
 "Unpriced" = "Unpriced";
 "Tokens only; cost excluded" = "Tokens only; cost excluded";
 "Choose a source to view its daily usage alert threshold." = "Choose a source to view its daily usage alert threshold.";
-"Moa - Codex, Claude, ZCode, WorkBuddy AI, Provider Bridge" = "Moa - Codex, Claude, ZCode, WorkBuddy AI, Provider Bridge";
 "Continue" = "Continue";
 "Fallback / Unpriced" = "Fallback / Unpriced";
 "Fallback / Unpriced Models" = "Fallback / Unpriced Models";
@@ -341,6 +316,9 @@
 "Saved accounts belong to a different WorkBuddy client. Save accounts separately in each client." = "Saved accounts belong to a different WorkBuddy client. Save accounts separately in each client.";
 "This login belongs to a different WorkBuddy client. Log in and save it in the matching client." = "This login belongs to a different WorkBuddy client. Log in and save it in the matching client.";
 "WorkBuddy and WorkBuddy AI are separate sources. Reports use USD API reference prices, not credits. Unpriced models contribute tokens only." = "WorkBuddy and WorkBuddy AI are separate sources. Reports use USD API reference prices, not credits. Unpriced models contribute tokens only.";
-"Moa - Codex, Claude, ZCode, WorkBuddy, WorkBuddy AI, Provider Bridge" = "Moa - Codex, Claude, ZCode, WorkBuddy, WorkBuddy AI, Provider Bridge";
 "WorkBuddy" = "WorkBuddy";
 "Moa is processing data. Try again when it finishes." = "Moa is processing data. Try again when it finishes.";
+
+"Moa - Codex, Claude, ZCode, WorkBuddy, WorkBuddy AI" = "Moa - Codex, Claude, ZCode, WorkBuddy, WorkBuddy AI";
+"Select a Responses Provider" = "Select a Responses Provider";
+"Only direct Responses-compatible Codex profiles are supported. Add a Responses endpoint or select Codex Official Mode." = "Only direct Responses-compatible Codex profiles are supported. Add a Responses endpoint or select Codex Official Mode.";

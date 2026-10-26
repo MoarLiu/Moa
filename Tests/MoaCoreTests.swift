@@ -88,8 +88,6 @@ enum MoaCoreTests {
             ("legacy Moa-Lite iCloud data migrates to Moa", testLegacyMoaLiteICloudDataMigration),
             ("legacy nested iCloud directories merge recursively", testLegacyNestedICloudDirectoryMigration),
             ("recursive migration does not follow destination symlinks", testRecursiveMigrationRejectsDestinationSymlinks),
-            ("provider bridge defaults use Moa port", testProviderBridgeDefaultPort),
-            ("Codex bridge provider IDs use Moa prefix", testCodexBridgeProviderIDs),
             ("TOML multiline strings survive structural edits", testTomlMultilineStringsSurviveStructuralEdits),
             ("Fast state TOML edits preserve multiline strings", testFastStateTomlMultilineStrings),
             ("official restore keeps selected provider identity", testOfficialRestoreKeepsSelectedProviderIdentity),
@@ -120,8 +118,6 @@ enum MoaCoreTests {
             ("pricing updater schedules the daily local check", testPricingUpdateSchedule),
             ("ZCode GLM pricing is estimated from usage tokens", testZCodePricing),
             ("ZCode usage scanner aggregates local SQLite usage", testZCodeUsageScanner),
-            ("provider bridge ports reject invalid boundaries", testProviderBridgePortValidation),
-            ("provider bridge streaming usage precedes completion", testProviderBridgeStreamingUsageOrder),
             ("Claude live files and selected state roll back together", testClaudeStateTransactionRollback),
             ("Codex profile state rolls back together", testCodexStateTransactionRollback),
             ("Codex official account state rolls back together", testCodexOfficialAccountTransactionRollback),
@@ -993,54 +989,6 @@ enum MoaCoreTests {
             !fileManager.fileExists(atPath: external.appendingPathComponent("missing.json").path),
             "recursive migration must not copy files through destination symlinks"
         )
-    }
-
-    private static func testProviderBridgeDefaultPort() throws {
-        let profile = ConfigProfile(
-            id: "bridge",
-            name: "DeepSeek Bridge",
-            baseURL: "https://api.deepseek.com",
-            apiKey: "sk-test",
-            providerKind: .deepseek,
-            upstreamProtocol: .chatCompletions,
-            bridgeMode: .localBridge
-        )
-
-        try expect(MoaProviderBridgeDefaults.defaultPort == 19360, "Moa provider bridge should use the Moa port")
-        try expect(profile.resolvedBridgePort == 19360, "local bridge profiles should inherit the Moa port")
-        try expect(profile.codexBaseURL == "http://127.0.0.1:19360/v1", "Codex base URL should use the Moa bridge port")
-    }
-
-    private static func testCodexBridgeProviderIDs() throws {
-        let home = try temporaryHome()
-        defer { try? FileManager.default.removeItem(at: home) }
-
-        let controller = ConfigProfileController(environment: [
-            "HOME": home.path,
-            "CODEX_HOME": home.appendingPathComponent(".codex").path
-        ])
-        let deepSeek = ConfigProfile(
-            id: "deepseek",
-            name: "DeepSeek Bridge",
-            baseURL: "https://api.deepseek.com",
-            apiKey: "sk-test",
-            providerKind: .deepseek,
-            upstreamProtocol: .chatCompletions,
-            bridgeMode: .localBridge
-        )
-        let custom = ConfigProfile(
-            id: "custom",
-            name: "Kimi Chat",
-            baseURL: "https://api.moonshot.ai/v1",
-            apiKey: "sk-test",
-            providerKind: .custom,
-            upstreamProtocol: .chatCompletions,
-            bridgeMode: .localBridge
-        )
-
-        try expect(ConfigProfileController.providerBridgeModeID == "moa-provider-bridge", "provider bridge mode ID should be Moa scoped")
-        try expect(controller.providerID(for: deepSeek, in: "") == "moa-deepseek", "DeepSeek bridge provider ID should use Moa prefix")
-        try expect(controller.providerID(for: custom, in: "") == "moa-kimi_chat", "custom bridge provider ID should use Moa prefix")
     }
 
     private static func testTomlMultilineStringsSurviveStructuralEdits() throws {
@@ -2144,78 +2092,6 @@ enum MoaCoreTests {
         try expect(summary.todayTokens == 1050, "ZCode summary should include today's tokens")
         try expect(summary.totalTokens == 1050, "ZCode summary should include total tokens")
         try expectClose(summary.cacheHitPercent, 19.047619, "ZCode summary should calculate cache hit percentage", tolerance: 0.00001)
-    }
-
-    private static func testProviderBridgePortValidation() throws {
-        let defaultPort = try MoaProviderBridgePort.validated(MoaProviderBridgeDefaults.defaultPort)
-        let automaticPort = try MoaProviderBridgePort.validated(0)
-        let highestPort = try MoaProviderBridgePort.validated(65535)
-        try expect(defaultPort == 19360, "default provider bridge port should be valid")
-        try expect(automaticPort == 0, "port zero should remain available for automatic assignment")
-        try expect(highestPort == 65535, "highest TCP port should be valid")
-
-        for invalid in [-1, 65536, Int.max] {
-            do {
-                _ = try MoaProviderBridgePort.validated(invalid)
-                throw TestError.failure("invalid provider bridge port should be rejected: \(invalid)")
-            } catch MoaProviderBridgePortError.outOfRange {
-                continue
-            }
-        }
-
-        for invalid in [-1, 65536, Int.max] {
-            let json = """
-            {"id":"test","name":"Bridge","baseURL":"https://example.com","bridgePort":\(invalid)}
-            """
-            do {
-                _ = try JSONDecoder().decode(ConfigProfile.self, from: Data(json.utf8))
-                throw TestError.failure("persisted invalid bridge port should fail decoding: \(invalid)")
-            } catch DecodingError.dataCorrupted {
-                continue
-            }
-        }
-
-        let invalidProfile = ConfigProfile(
-            id: UUID().uuidString,
-            name: "Invalid Bridge",
-            baseURL: "https://example.com",
-            apiKey: "key",
-            providerKind: .custom,
-            upstreamProtocol: .chatCompletions,
-            bridgeMode: .localBridge,
-            model: "model",
-            bridgeToken: "token",
-            bridgePort: Int.max
-        )
-        let server = MoaProviderBridgeServer()
-        do {
-            _ = try server.start(configuration: MoaProviderBridgeServerConfiguration(profile: invalidProfile))
-            throw TestError.failure("server should reject Int.max before probing or converting the port")
-        } catch MoaProviderBridgeServerError.invalidPort(let port) {
-            try expect(port == Int.max, "server should report the rejected port")
-        }
-    }
-
-    private static func testProviderBridgeStreamingUsageOrder() throws {
-        let converter = MoaChatSSEToResponsesSSEConverter(model: "test-model")
-        let finishFrames = try converter.ingest(jsonPayload: #"{"choices":[{"delta":{"content":"done"},"finish_reason":"stop"}]}"#)
-        try expect(
-            !finishFrames.joined().contains("response.completed"),
-            "finish_reason must not complete the response before the trailing usage chunk"
-        )
-
-        let usageFrames = try converter.ingest(jsonPayload: #"{"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12}}"#)
-        try expect(usageFrames.joined().contains("response.usage.delta"), "the trailing usage chunk should emit usage before completion")
-
-        let completedFrames = try converter.finish()
-        try expect(completedFrames.joined().contains("response.completed"), "the stream terminator should complete the response")
-        let combined = (finishFrames + usageFrames + completedFrames).joined()
-        guard let usageRange = combined.range(of: "response.usage.delta"),
-              let completedRange = combined.range(of: "response.completed")
-        else {
-            throw TestError.failure("streaming output should contain both usage and completion events")
-        }
-        try expect(usageRange.lowerBound < completedRange.lowerBound, "usage must be emitted before response.completed")
     }
 
     private static func testClaudeStateTransactionRollback() throws {

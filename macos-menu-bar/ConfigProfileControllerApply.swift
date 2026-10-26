@@ -34,60 +34,9 @@ extension ConfigProfileController {
         }
     }
 
-    @discardableResult
-    func applyProviderBridgeGateway(profile: ConfigProfile) throws -> ConfigProfile {
-        try stateLock.withLock {
-            try ensureStore()
-
-            return try withCodexStateTransaction(
-                files: [moaConfigURL, codexConfigURL, moaAuthURL, codexAuthURL, databaseURL, officialAccountsDatabaseURL],
-                includeOfficialAuthDirectory: true
-            ) {
-                try syncMoaAuthSessionFromCodex()
-                try backupCodexFiles()
-
-                let currentConfig = try syncedMoaConfig()
-                let generatedConfig = generateConfig(currentConfig, selecting: profile)
-                try writeText(generatedConfig, to: moaConfigURL)
-                try writeText(generatedConfig, to: codexConfigURL)
-                try copyFile(from: moaAuthURL, to: codexAuthURL)
-
-                var database = try loadDatabase()
-                database.selectedProfileID = Self.providerBridgeModeID
-                try saveDatabase(database)
-                return profile
-            }
-        }
-    }
-
     func preparedProfileForApply(_ profile: ConfigProfile) throws -> ConfigProfile {
         var prepared = profile
-        if prepared.usesLocalProviderBridge {
-            let normalized = try Self.validatedUpstreamBaseURL(
-                prepared.resolvedUpstreamBaseURL,
-                providerKind: prepared.resolvedProviderKind,
-                upstreamProtocol: prepared.resolvedUpstreamProtocol,
-                bridgeMode: prepared.resolvedBridgeMode
-            )
-            prepared.baseURL = normalized
-            prepared.upstreamBaseURL = normalized
-            prepared.schemaVersion = 2
-            if prepared.bridgeToken?.isEmpty != false {
-                prepared.bridgeToken = try MoaProviderBridgeToken.generate()
-            }
-            if prepared.bridgePort == nil {
-                prepared.bridgePort = MoaProviderBridgeDefaults.defaultPort
-            }
-            _ = try MoaProviderBridgePort.validated(prepared.resolvedBridgePort)
-            return prepared
-        }
-
-        prepared.baseURL = try Self.validatedProfileBaseURL(
-            prepared.baseURL,
-            providerKind: prepared.resolvedProviderKind,
-            upstreamProtocol: prepared.resolvedUpstreamProtocol,
-            bridgeMode: prepared.resolvedBridgeMode
-        )
+        prepared.baseURL = try Self.validatedProfileBaseURL(prepared.baseURL)
         return prepared
     }
 
@@ -185,7 +134,10 @@ extension ConfigProfileController {
 
     func importInitialProfileIfNeeded() throws {
         var database = try loadDatabase()
-        guard database.profiles.isEmpty else { return }
+        // A filtered legacy database is not a fresh installation. Do not
+        // re-import its live local endpoint as a new direct provider.
+        guard database.profiles.isEmpty, database.retiredProfiles.isEmpty,
+              database.selectedProfileID == nil else { return }
 
         let config = (try? String(contentsOf: codexConfigURL, encoding: .utf8))
             ?? (try? String(contentsOf: moaConfigURL, encoding: .utf8))
@@ -221,45 +173,12 @@ extension ConfigProfileController {
         try saveDatabase(database)
     }
 
-    static func validatedProfileBaseURL(
-        _ raw: String,
-        providerKind: MoaProviderKind = .custom,
-        upstreamProtocol: MoaProviderUpstreamProtocol = .responses,
-        bridgeMode: MoaProviderBridgeMode = .direct
-    ) throws -> String {
-        if providerKind == .deepseek && upstreamProtocol == .chatCompletions && bridgeMode == .localBridge {
-            return try MoaProviderBridgeEndpointNormalizer.normalizedDeepSeekChatBaseURL(raw)
-        }
-        return try MoaProviderBaseURLPolicy.validate(raw).normalizedString
-    }
-
-    static func validatedUpstreamBaseURL(
-        _ raw: String,
-        providerKind: MoaProviderKind,
-        upstreamProtocol: MoaProviderUpstreamProtocol,
-        bridgeMode: MoaProviderBridgeMode
-    ) throws -> String {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        if providerKind == .deepseek && upstreamProtocol == .chatCompletions && bridgeMode == .localBridge {
-            return try MoaProviderBridgeEndpointNormalizer.normalizedDeepSeekChatBaseURL(trimmed)
-        }
-        return try MoaProviderBaseURLPolicy.validate(trimmed).normalizedString
+    static func validatedProfileBaseURL(_ raw: String) throws -> String {
+        try MoaProviderBaseURLPolicy.validate(raw).normalizedString
     }
 
     static func normalizedOptionalString(_ value: String?) -> String? {
         let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return trimmed.isEmpty ? nil : trimmed
-    }
-
-    static func normalizedModelList(_ models: [String]) -> [String] {
-        var seen = Set<String>()
-        var output: [String] = []
-        for model in models {
-            let trimmed = model.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty, !seen.contains(trimmed) else { continue }
-            seen.insert(trimmed)
-            output.append(trimmed)
-        }
-        return output
     }
 }

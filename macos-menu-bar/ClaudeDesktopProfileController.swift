@@ -240,14 +240,8 @@ final class ClaudeDesktopProfileController {
                 apiKey: includingAPIKeys ? profile.apiKey : nil,
                 models: profile.models,
                 oneMModels: profile.enabledOneMModels.isEmpty ? nil : profile.enabledOneMModels,
-                providerKind: nil,
-                clientTarget: nil,
-                upstreamProtocol: nil,
-                bridgeMode: nil,
-                upstreamBaseURL: nil,
                 model: nil,
-                testModel: nil,
-                reasoningMode: nil)
+                testModel: nil)
         }
         let document = ProviderProfileExportDocument(
             schemaVersion: 1,

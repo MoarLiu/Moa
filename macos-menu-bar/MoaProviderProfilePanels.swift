@@ -3,13 +3,6 @@ import Foundation
 import SwiftUI
 
 enum MoaProviderProfilePanels {
-    struct ProviderBridgeInput {
-        var name: String
-        var baseURL: String
-        var apiKey: String
-        var preset: MoaProviderPreset
-    }
-
     static func showOfficialAccountName(
         title: String,
         message: String,
@@ -47,29 +40,10 @@ enum MoaProviderProfilePanels {
     static func showAddCodexPresetProfile(_ preset: MoaProviderPreset) -> (name: String, baseURL: String, apiKey: String)? {
         showCodexProfilePanel(
             title: MoaL10n.format("Add %@", preset.name),
-            message: preset.family == .chatCompletionsLocalBridge
-                ? MoaL10n.text("Add a Chat Completions provider for Codex. Moa will run a local Responses bridge and Codex will only receive the local bridge token.")
-                : MoaL10n.text("Add a Responses-compatible provider preset for Codex. Moa will configure Codex directly and will not translate the upstream protocol."),
+            message: MoaL10n.text("Add a Responses-compatible provider preset for Codex. Moa will configure Codex directly and will not translate the upstream protocol."),
             buttonTitle: MoaL10n.text("Add"),
             initial: CodexProfileFormView.Initial(preset: preset)
         )
-    }
-
-    static func showAddProviderBridgeConfig() -> ProviderBridgeInput? {
-        var result: ProviderBridgeInput?
-        MoaGlassModalHost.runModal(width: 560, fallbackHeight: 620, title: MoaL10n.text("Add Provider Bridge Config")) {
-            ProviderBridgeProfileFormView(
-                presets: MoaProviderPresets.chatCompletionsLocalBridge,
-                onSave: { input in
-                    result = input
-                    NSApp.stopModal(withCode: .OK)
-                },
-                onCancel: {
-                    NSApp.stopModal(withCode: .cancel)
-                }
-            )
-        }
-        return result
     }
 
     static func showEditCodexProfile(for profile: ConfigProfile) -> (name: String, baseURL: String, apiKey: String)? {
@@ -182,141 +156,6 @@ enum MoaProviderProfilePanels {
         }
 
         return result
-    }
-}
-
-private struct ProviderBridgeProfileFormView: View {
-    let presets: [MoaProviderPreset]
-    let onSave: (MoaProviderProfilePanels.ProviderBridgeInput) -> Void
-    let onCancel: () -> Void
-
-    @State private var selectedPresetID: String
-    @State private var name: String
-    @State private var baseURL: String
-    @State private var apiKey: String = ""
-    @State private var statusText: String = ""
-    @State private var statusTone: MoaFormStatusTone = .neutral
-    @FocusState private var nameFocused: Bool
-
-    init(
-        presets: [MoaProviderPreset],
-        onSave: @escaping (MoaProviderProfilePanels.ProviderBridgeInput) -> Void,
-        onCancel: @escaping () -> Void
-    ) {
-        let fallback = presets.first ?? MoaProviderPresets.chatCompletionsLocalBridge[0]
-        self.presets = presets.isEmpty ? [fallback] : presets
-        self.onSave = onSave
-        self.onCancel = onCancel
-        _selectedPresetID = State(initialValue: fallback.id)
-        _name = State(initialValue: fallback.name)
-        _baseURL = State(initialValue: fallback.baseURL)
-    }
-
-    private var selectedPreset: MoaProviderPreset {
-        presets.first { $0.id == selectedPresetID } ?? presets[0]
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            MoaModalHeader(
-                icon: "point.3.connected.trianglepath.dotted",
-                title: MoaL10n.text("Add Provider Bridge Config"),
-                message: MoaL10n.text("Add a provider used by Moa's local Provider Bridge. Codex receives only the local bridge URL and token.")
-            )
-
-            VStack(alignment: .leading, spacing: 7) {
-                MoaModalFieldLabel(text: MoaL10n.text("Provider"))
-                Picker("", selection: Binding(
-                    get: { selectedPresetID },
-                    set: { newValue in
-                        selectedPresetID = newValue
-                        let preset = presets.first { $0.id == newValue } ?? presets[0]
-                        name = preset.name
-                        baseURL = preset.baseURL
-                    }
-                )) {
-                    ForEach(presets, id: \.id) { preset in
-                        Text(preset.name).tag(preset.id)
-                    }
-                }
-                .pickerStyle(.menu)
-            }
-
-            VStack(alignment: .leading, spacing: 7) {
-                MoaModalFieldLabel(text: MoaL10n.text("Config Name"))
-                TextField(MoaL10n.text("Example: DeepSeek Bridge"), text: $name)
-                    .moaModalFieldChrome()
-                    .focused($nameFocused)
-            }
-
-            VStack(alignment: .leading, spacing: 7) {
-                MoaModalFieldLabel(text: MoaL10n.text("API Key"))
-                SecureField(MoaL10n.text("Paste your API key"), text: $apiKey)
-                    .moaModalFieldChrome()
-            }
-
-            VStack(alignment: .leading, spacing: 7) {
-                MoaModalFieldLabel(text: MoaL10n.text("API Base URL"))
-                TextField("https://your-api-endpoint.com/v1", text: $baseURL)
-                    .moaModalFieldChrome()
-                Text(MoaProviderBaseURLPolicy.visibleGuidance)
-                    .font(.system(size: 12))
-                    .foregroundStyle(MoaTheme.amber)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            Text(statusText.isEmpty ? " " : statusText)
-                .font(.system(size: 12))
-                .foregroundStyle(statusTone.color)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(minHeight: 16, alignment: .leading)
-
-            HStack(spacing: 10) {
-                Spacer()
-                Button(MoaL10n.text("Cancel"), action: onCancel)
-                    .frame(minWidth: 78)
-                    .controlSize(.regular)
-                    .buttonStyle(.bordered)
-                    .keyboardShortcut(.cancelAction)
-                Button(MoaL10n.text("Add"), action: save)
-                    .frame(minWidth: 88)
-                    .controlSize(.regular)
-                    .buttonStyle(.borderedProminent)
-                    .tint(MoaTheme.tint)
-                    .keyboardShortcut(.defaultAction)
-            }
-        }
-        .moaModalFormBody()
-        .onAppear { nameFocused = true }
-    }
-
-    private func save() {
-        let name = self.name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let baseURL = self.baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        let apiKey = self.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        guard !name.isEmpty, !baseURL.isEmpty, !apiKey.isEmpty else {
-            setStatus(MoaL10n.text("Name, base URL, and API key are required."), .error)
-            return
-        }
-        do {
-            _ = try MoaProviderBaseURLPolicy.validate(baseURL)
-        } catch {
-            setStatus(error.localizedDescription, .error)
-            return
-        }
-
-        onSave(MoaProviderProfilePanels.ProviderBridgeInput(
-            name: name,
-            baseURL: baseURL,
-            apiKey: apiKey,
-            preset: selectedPreset
-        ))
-    }
-
-    private func setStatus(_ text: String, _ tone: MoaFormStatusTone) {
-        statusText = text
-        statusTone = tone
     }
 }
 
@@ -561,7 +400,7 @@ private struct CodexProfileFormView: View {
         }
 
         let warning = MoaProviderBaseURLPolicy.warningMessage(for: baseURL)
-        let testModel = ProviderConnectionTester.codexTestModel(for: baseURL)
+        let testModel = ProviderConnectionTester.codexTestModel
         setStatus(
             String(
                 format: MoaL10n.text("Testing connection with %@%@..."),

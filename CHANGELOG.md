@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.3.2 - 2026-10-26
+
+- Removed Provider Bridge, including the local HTTP server, Responses-to-Chat Completions conversion, bridge presets, runtime controls, tokens, ports, and diagnostics.
+- Removed bridge mode from the Codex menu and simplified provider configuration and profile exports to direct Responses connections.
+- Codex connection tests now require a working Responses endpoint and no longer fall back to Chat Completions.
+- Kept existing data files on disk, excluded retired bridge profiles from active configuration lists and profile exports, and rejected their import with migration guidance. Existing bridge users must select a Responses-compatible provider or Codex Official Mode; upgrading does not rewrite the live client configuration.
+
 ## 1.3.1 - 2026-10-25
 
 - Prevented child-process output deadlocks, bounded discarded-output commands, and released data operations after command failures or timeouts.

@@ -11,7 +11,6 @@ final class MoaProfileActionCoordinator {
 
     var profileController: ConfigProfileController { app.profileController }
     var claudeDesktopProfileController: ClaudeDesktopProfileController { app.claudeDesktopProfileController }
-    var providerBridgeServer: MoaProviderBridgeServer { app.providerBridgeServer }
     var zcodeController: ZCodeController { app.zcodeController }
     var controller: FastStateController { app.controller }
     var statusItemText: NSMenuItem { app.statusItemText }
@@ -32,9 +31,7 @@ final class MoaProfileActionCoordinator {
         app.showOfficialAccountNamePanel(title: title, message: message, buttonTitle: buttonTitle, initialName: initialName)
     }
     func showDailyUsageAlertPanel(kind: DailyUsageAlertKind) { app.showDailyUsageAlertPanel(kind: kind) }
-    func migrateLegacyProviderBridgeProfilesIfNeeded() { app.migrateLegacyProviderBridgeProfilesIfNeeded() }
     func currentCodexSelectionName() -> String { app.currentCodexSelectionName() }
-    func ensureProviderBridge(for profile: ConfigProfile) throws -> ConfigProfile { try app.ensureProviderBridge(for: profile) }
     func importProfiles(groupName: String, importer: (Data) throws -> Int, onImported: () -> Void) {
         app.importProfiles(groupName: groupName, importer: importer, onImported: onImported)
     }
@@ -88,7 +85,7 @@ final class MoaProfileActionCoordinator {
 
         let model = profile.models.first?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
             ? profile.models[0].trimmingCharacters(in: .whitespacesAndNewlines)
-            : MoaProviderBridgeDefaults.deepSeekChatModel
+            : ProviderConnectionTester.claudeDefaultTestModel
         let snippet = """
         # Claude Code
         export ANTHROPIC_BASE_URL="\(AppDelegate.shellEscaped(profile.baseURL))"
@@ -125,8 +122,7 @@ final class MoaProfileActionCoordinator {
                     baseURL: input.baseURL,
                     apiKey: input.apiKey
                 )
-                let applied = try self.profileController.applyProfile(id: updated.id)
-                return try self.ensureProviderBridge(for: applied)
+                return try self.profileController.applyProfile(id: updated.id)
             }
 
             switch result {
@@ -168,9 +164,6 @@ final class MoaProfileActionCoordinator {
 
         do {
             let deleted = try profileController.deleteProfile(id: profile.id)
-            if deleted.usesLocalProviderBridge {
-                providerBridgeServer.stop()
-            }
             rebuildCodexProviderMenus()
             refreshStatus()
             statusItemText.title = AppDelegate.statusTitle("Deleted %@", deleted.name)
@@ -185,7 +178,6 @@ final class MoaProfileActionCoordinator {
         importProfiles(groupName: "Codex") { data in
             try self.profileController.importProfiles(from: data)
         } onImported: {
-            self.migrateLegacyProviderBridgeProfilesIfNeeded()
             self.rebuildCodexProviderMenus()
         }
     }
@@ -681,8 +673,7 @@ final class MoaProfileActionCoordinator {
 
         DispatchQueue.global(qos: .userInitiated).async {
             let result = Result {
-                let applied = try self.profileController.applyProfile(id: id)
-                return try self.ensureProviderBridge(for: applied)
+                try self.profileController.applyProfile(id: id)
             }
 
             switch result {

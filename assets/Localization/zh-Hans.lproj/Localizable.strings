@@ -10,11 +10,8 @@
 "Account name is required." = "请填写账号名称。";
 "Add" = "添加";
 "Add %@" = "添加 %@";
-"Add a Chat Completions provider for Codex. Moa will run a local Responses bridge and Codex will only receive the local bridge token." = "为 Codex 添加 Chat Completions provider。Moa 会运行本地 Responses 桥，Codex 只会收到本地桥接 token。";
 "Add a Codex provider profile. Moa will use it when switching configs." = "添加 Codex provider profile。Moa 会在切换配置时使用它。";
 "Add a direct 3P provider for Claude Desktop. Moa writes Claude Desktop's 3P profile only." = "添加 Claude Desktop 直连第三方供应商。Moa 只写入 Claude Desktop 的 3P profile。";
-"Add a Provider Bridge config first." = "请先添加 Provider Bridge 配置。";
-"Add a provider used by Moa's local Provider Bridge. Codex receives only the local bridge URL and token." = "添加供 Moa 本地 Provider Bridge 使用的供应商配置。Codex 只会收到本地 bridge URL 和 token。";
 "Add a Responses-compatible provider preset for Codex. Moa will configure Codex directly and will not translate the upstream protocol." = "为 Codex 添加兼容 Responses 的 provider preset。Moa 会直接配置 Codex，不会转换上游协议。";
 "Add Claude Desktop Provider" = "添加 Claude Desktop 供应商";
 "Add Codex Config" = "添加 Codex 配置";
@@ -22,7 +19,6 @@
 "Add Config" = "添加配置";
 "Add Current Login as Account" = "添加当前登录为新账号";
 "Add Provider" = "添加供应商";
-"Add Provider Bridge Config" = "添加 Provider Bridge 配置";
 "Add Responses Preset" = "添加 Responses 预设";
 "All historical session data has been updated to model_provider = \"%@\".\nPlease restart Codex." = "已经全部修改为 model_provider = \"%@\"。\n请重启 Codex。";
 "All Sources" = "全部来源";
@@ -32,7 +28,6 @@
 "API Key" = "API Key";
 "API keys are excluded by default and this is best for migrating configuration structure. Include API keys only when you trust the destination." = "默认不包含 API Key，适合迁移配置结构。只有在你确认保存位置安全时，才选择包含 API Key。";
 "Append [1M] to a model to offer Claude Desktop's 1M-context variant, for example claude-opus-4.7[1M]." = "在模型名后追加 [1M] 可提供 Claude Desktop 的 1M 上下文变体，例如 claude-opus-4.7[1M]。";
-"Bridge curl copied" = "Bridge curl 已复制";
 "Cache Hit" = "缓存比例";
 "Cache creation USD / 1M tokens" = "缓存创建 USD / 100万 tokens";
 "Cache read USD / 1M tokens" = "缓存读取 USD / 100万 tokens";
@@ -96,7 +91,6 @@
 "Estimated Cost" = "估算费用";
 "Example: 10" = "例如 10";
 "Example: Anthropic Compatible" = "例如：Anthropic Compatible";
-"Example: DeepSeek Bridge" = "例如：DeepSeek Bridge";
 "Example: One" = "例如：One";
 "Example: OpenAI Personal" = "例如：OpenAI 个人号";
 "Exclude API Keys" = "不包含 API Key";
@@ -134,8 +128,6 @@
 "Local estimates, fallback pricing, and custom prices are for Moa reports only and may differ from official bills." = "本地估算、fallback pricing 和自定义价格仅用于 Moa 报告，可能与官方账单不同。";
 "Moa alerts you when today's local estimated cost reaches the threshold. This is only a local estimate, not an official bill." = "当今日本地估算费用达到阈值时提醒；这里只是 Moa 的本地估算，不代表官方账单。";
 "Moa - Codex Usage" = "Moa - Codex 用量";
-"Moa - Codex, Claude, Provider Bridge" = "Moa - Codex、Claude、Provider Bridge";
-"Moa - Codex, Claude, ZCode, Provider Bridge" = "Moa - Codex、Claude、ZCode、Provider Bridge";
 "Moa Data" = "Moa 数据";
 "Moa Data Exported" = "Moa 数据已导出";
 "Moa data folder does not exist: %@" = "Moa 数据文件夹不存在：%@";
@@ -143,7 +135,6 @@
 "Moa Data Moved to This Mac" = "Moa 数据已移回这台 Mac";
 "Moa Data Stored in iCloud" = "Moa 数据已存储到 iCloud";
 "Moa will copy iCloud Drive/Moa back to ~/.moa, then use the local folder as its data folder." = "Moa 会把 iCloud Drive/Moa 复制回 ~/.moa，然后使用本地文件夹作为数据目录。";
-"Moa will update the selected Provider Bridge config and restart the local bridge. Any old bridge curl command will stop working." = "Moa 会更新选中的 Provider Bridge 配置并重启本地桥。旧的 bridge curl 命令会失效。";
 "Migrate" = "迁移";
 "Migrate Codex History?" = "迁移 Codex 历史会话？";
 "Migrate History model_provider" = "迁移历史会话 model_provider";
@@ -154,7 +145,6 @@
 "Model" = "模型";
 "Model: %@\nEndpoint: %@" = "模型：%@\n端点：%@";
 "Models (optional)" = "模型（可选）";
-"Models refreshed" = "模型列表已刷新";
 "Move Data Back to This Mac" = "数据移回这台 Mac";
 "Move Moa Data Back to This Mac?" = "将 Moa 数据移回这台 Mac？";
 "Name, base URL, and API key are required." = "名称、Base URL 和 API Key 都必须填写。";
@@ -183,10 +173,6 @@
 "Paste your API key" = "粘贴你的 API Key";
 "priced as %@" = "按 %@ 计价";
 "Pricing" = "计价";
-"Provider" = "Provider";
-"Provider Bridge" = "Provider Bridge";
-"Provider Bridge Mode" = "Provider Bridge 模式";
-"Provider Bridge profile not found." = "未找到 Provider Bridge 配置。";
 "Provider Name" = "供应商名称";
 "Provider preset not found." = "未找到 provider 预设。";
 "Quit Moa" = "退出 Moa";
@@ -194,8 +180,6 @@
 "Refresh" = "刷新";
 "Refresh Status" = "刷新状态";
 "Refreshing Status..." = "正在刷新状态...";
-"Regenerate" = "重新生成";
-"Regenerate Provider Bridge Token?" = "重新生成 Provider Bridge Token？";
 "Remote APIs must use https://. Only localhost, 127.0.0.1, and ::1 may use http://; local HTTP sends API keys in plaintext, so connect only to trusted local services." = "远程 API 必须使用 https://。仅 localhost、127.0.0.1、::1 可使用 http://；本地 http 会明文传输 API Key，请只连接可信本机服务。";
 "Remote Connections" = "远程连接";
 "Remove" = "移除";
@@ -223,23 +207,16 @@
 "Set Alert" = "设置提醒";
 "Set Price" = "设置价格";
 "Source" = "原文";
-"Start Provider Bridge" = "启动 Provider Bridge";
 "Status: %@" = "状态：%@";
-"Stop Provider Bridge" = "停止 Provider Bridge";
 "Store Data in iCloud" = "数据存储到 iCloud";
 "Store Moa Data in iCloud?" = "将 Moa 数据存储到 iCloud？";
 "Test Connection" = "测试连接";
 "Testing connection with %@%@..." = "正在使用 %@ 测试连接%@...";
 "The connection test did not receive a valid response." = "连接测试没有收到有效响应。";
 "The current model_provider field is missing. Migration failed." = "当前 model_provider 字段缺失，迁移失败。";
-"The curl command uses a redacted <bridge-token> placeholder." = "curl 命令使用已脱敏的 <bridge-token> 占位符。";
 "The current Codex official login is already saved as \"%@\"." = "当前 Codex 官方登录已保存为「%@」。";
 "The iCloud Moa data path already exists but is not a folder: %@" = "iCloud Moa 数据路径已存在，但不是文件夹：%@";
 "The import file does not contain any available profiles." = "导入文件里没有可用配置。";
-"The models endpoint did not return a model list." = "models endpoint 未返回模型列表。";
-"The models endpoint returned no model IDs." = "models endpoint 没有返回模型 ID。";
-"The models request did not receive a valid response." = "models 请求没有收到有效响应。";
-"The Provider Bridge Codex config snippet is on the clipboard." = "Provider Bridge 的 Codex 配置片段已复制到剪贴板。";
 "The selected Claude Code environment snippet is on the clipboard." = "已将选中的 Claude Code 环境变量片段复制到剪贴板。";
 "The selected Codex provider config snippet is on the clipboard." = "已将选中的 Codex 供应商配置片段复制到剪贴板。";
 "The selected zip is not a valid Moa data package." = "选择的 zip 不是有效的 Moa 数据包。";
@@ -292,7 +269,6 @@
 "Claude Desktop state update failed (%@), and rollback also failed: %@" = "Claude Desktop 状态更新失败（%@），回滚也失败：%@";
 "Codex state update failed (%@), and rollback also failed: %@" = "Codex 状态更新失败（%@），回滚也失败：%@";
 "Data replacement failed (%@), and the previous data could not be restored (%@). The previous data is preserved at %@." = "数据替换失败（%@），且无法恢复原数据（%@）。原数据已保留在 %@。";
-"Provider bridge port must be between 0 and 65535 (received %lld)." = "Provider Bridge 端口必须在 0 到 65535 之间（收到 %lld）。";
 "The saved Codex official account path is invalid: %@" = "已保存的 Codex 官方账号路径无效：%@";
 "Load Failed" = "加载失败";
 "Unable to load %@ data: %@" = "无法加载 %@ 数据：%@";
@@ -332,7 +308,6 @@
 "Unpriced" = "未定价";
 "Tokens only; cost excluded" = "仅统计 Token，未计入费用";
 "Choose a source to view its daily usage alert threshold." = "请选择一个来源，查看对应的每日用量提醒阈值。";
-"Moa - Codex, Claude, ZCode, WorkBuddy AI, Provider Bridge" = "Moa - Codex、Claude、ZCode、WorkBuddy AI、Provider Bridge";
 "Continue" = "继续";
 "Fallback / Unpriced" = "回退/未定价";
 "Fallback / Unpriced Models" = "回退与未定价模型";
@@ -341,6 +316,9 @@
 "Saved accounts belong to a different WorkBuddy client. Save accounts separately in each client." = "已保存的账号属于另一套 WorkBuddy 客户端，请在各自客户端分别保存账号。";
 "This login belongs to a different WorkBuddy client. Log in and save it in the matching client." = "这份登录态属于另一套 WorkBuddy 客户端，请在对应客户端登录并保存。";
 "WorkBuddy and WorkBuddy AI are separate sources. Reports use USD API reference prices, not credits. Unpriced models contribute tokens only." = "WorkBuddy 与 WorkBuddy AI 分别统计。费用采用美元 API 参考原价，不按积分计算；未定价模型仅计入 Token。";
-"Moa - Codex, Claude, ZCode, WorkBuddy, WorkBuddy AI, Provider Bridge" = "Moa - Codex、Claude、ZCode、WorkBuddy、WorkBuddy AI、Provider Bridge";
 "WorkBuddy" = "WorkBuddy";
 "Moa is processing data. Try again when it finishes." = "Moa 正在处理数据，请在完成后重试。";
+
+"Moa - Codex, Claude, ZCode, WorkBuddy, WorkBuddy AI" = "Moa - Codex、Claude、ZCode、WorkBuddy、WorkBuddy AI";
+"Select a Responses Provider" = "请选择 Responses 服务商";
+"Only direct Responses-compatible Codex profiles are supported. Add a Responses endpoint or select Codex Official Mode." = "仅支持直连 Responses 的 Codex 配置。请添加 Responses 端点或选择 Codex 官方模式。";

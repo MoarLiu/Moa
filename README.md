@@ -1,18 +1,23 @@
 # Moa
 
-Moa is a macOS menu bar app for ChatGPT (formerly Codex Desktop), Claude Desktop, ZCode, WorkBuddy, WorkBuddy AI International, and local Provider Bridge workflows.
+Moa is a macOS menu bar app for ChatGPT (formerly Codex Desktop), Claude Desktop, ZCode, WorkBuddy, and WorkBuddy AI International workflows.
 
 It intentionally excludes the original Moa Companion surface: no desktop pet, AI quick actions, reminders, journal, Pomodoro, MCP helper, workflow runner, asset upload, dashboard, skins, or sounds.
 
 ## Features
 
 - ChatGPT / Codex controls: Fast Mode, a remote connection settings shortcut, official account switching, provider profile import/export, and client reopen helpers.
-- Provider Bridge: local loopback Responses bridge for Chat Completions upstreams, with DeepSeek and common gateway presets.
 - Claude Desktop profiles: write Claude Desktop 3P gateway profiles and copy Claude Code environment snippets.
 - WorkBuddy / WorkBuddy AI International: separate account menus and usage tabs, local logins, account enrollment and switching, rename/forget actions, and client launch helpers.
 - Usage insights: local Codex, Claude, ZCode, and WorkBuddy AI summaries, model details, CSV / Markdown exports, custom prices, and configurable daily alerts.
 - Moa Data: export/import data packages, export redacted diagnostics, and optionally switch the active data root to iCloud Drive.
 - Updates: check GitHub Releases from the main menu, then download, verify, and install the matching macOS DMG.
+
+## Upgrading to 1.3.2
+
+1.3.2 removes Provider Bridge, its local HTTP server, protocol conversion, and configuration controls. Codex providers now connect directly to OpenAI Responses-compatible endpoints. Connection tests check Responses without falling back to Chat Completions.
+
+If you used Provider Bridge, select an existing Responses profile in the Codex menu, add the provider's Responses Base URL, or select Official Mode. Old bridge profiles are not automatically converted to direct profiles. Existing files remain on disk; 1.3.2 no longer reads the separate bridge database. Bridge entries in mixed profile databases remain stored but are hidden and excluded from profile exports; importing them asks you to add a Responses endpoint instead. Upgrading does not rewrite the live Codex configuration. Selecting a replacement updates the client configuration and reopens the client.
 
 ## ChatGPT Client Compatibility
 
@@ -63,11 +68,10 @@ Moa uses the primary Moa app identity throughout the bundle, data roots, provide
 - Application Support root: `~/Library/Application Support/Moa`
 - iCloud data root: `iCloud Drive/Moa`
 - Data package root: `MoaDataPackage/.moa`
-- Provider Bridge default port: `19360`
 - Codex managed provider IDs: `moa-*`
 - Claude Desktop 3P config-library profile: `Moa`
 
-Moa still edits the real Codex and Claude Desktop configuration files when you ask it to switch profiles. Its own profile databases, bridge tokens, package manifests, iCloud state, and diagnostics are stored under the Moa data root.
+Moa still edits the real Codex and Claude Desktop configuration files when you ask it to switch profiles. Its own profile databases, package manifests, iCloud state, and diagnostics are stored under the Moa data root.
 
 ## Data Files
 
@@ -78,7 +82,6 @@ Moa stores its local profile and recovery data under:
 - `~/.moa/codex_official_accounts.json`
 - `~/.moa/codex-auth/accounts/*.json`
 - `~/.moa/profiles.json`
-- `~/.moa/provider_bridge_profiles.json`
 - `~/.moa/claude_desktop_profiles.json`
 - `~/.moa/usage-pricing-overrides.json`
 - `~/.moa/usage-pricing-catalog-v1.json`
@@ -121,8 +124,7 @@ The script builds `Moa.app`, stops any currently running Moa process, and launch
 
 ## Security Notes
 
-- Provider API keys and bridge tokens stay local.
-- The Provider Bridge listens on `127.0.0.1` only.
+- Provider API keys stay local.
 - Diagnostic packages redact auth, key, and token fields.
 - Packaging scripts refuse to include `.moa`, `.codex`, auth/config/profile files, environment files, and signing keys.
 - Moa does not bundle `MoaMCP` and does not expose local workflow tools.

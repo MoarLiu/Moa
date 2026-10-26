@@ -18,6 +18,10 @@ final class MoaXCTest: XCTestCase {
 
     func testNativeDiscoveryMatchesTheCheckRegistry() {
         let expected: Set<String> = [
+            "retired provider storage keeps direct profiles and requires reselection",
+            "direct profile round trips omit retired routing fields",
+            "retired provider imports fail atomically with migration guidance",
+            "Codex connection tests require the Responses endpoint",
             "WorkBuddy saves exact encrypted login after quit",
             "WorkBuddy switching preserves refreshed outgoing accounts",
             "WorkBuddy new-account login and launch rollback",
@@ -47,8 +51,6 @@ final class MoaXCTest: XCTestCase {
             "legacy Moa-Lite iCloud data migrates to Moa",
             "legacy nested iCloud directories merge recursively",
             "recursive migration does not follow destination symlinks",
-            "provider bridge defaults use Moa port",
-            "Codex bridge provider IDs use Moa prefix",
             "TOML multiline strings survive structural edits",
             "Fast state TOML edits preserve multiline strings",
             "official restore keeps selected provider identity",
@@ -79,8 +81,6 @@ final class MoaXCTest: XCTestCase {
             "pricing updater schedules the daily local check",
             "ZCode GLM pricing is estimated from usage tokens",
             "ZCode usage scanner aggregates local SQLite usage",
-            "provider bridge ports reject invalid boundaries",
-            "provider bridge streaming usage precedes completion",
             "Claude live files and selected state roll back together",
             "Codex profile state rolls back together",
             "Codex official account state rolls back together",
@@ -97,8 +97,6 @@ final class MoaXCTest: XCTestCase {
             "provider updates preserve complete multiline values and arrays",
             "data imports reject external, chained and cyclic links",
             "legacy data manifests cannot hide symbolic links",
-            "bridge failures before headers return valid HTTP",
-            "bridge streams reject premature EOF and preserve finish status",
             "WorkBuddy request replays and timestamp formats aggregate correctly",
             "custom prices can be updated and removed after pricing a model",
             "price caches reload across roots and same-time imports",
@@ -106,15 +104,10 @@ final class MoaXCTest: XCTestCase {
             "process output cannot block and timed-out children are reaped",
             "failed noisy exports release the shared data operation",
             "schema 2 requires complete valid file and link hashes",
-            "bridge limits pending clients and rejects unsupported framing",
-            "bridge stop cancels pending streaming and ordinary upstream requests",
-            "bridge stop cancels an established stream and isolates restarts",
-            "bridge supports upstream frames delayed beyond five seconds",
-            "bridge stop wakes a blocked downstream writer",
             "streaming file hashes preserve digests and propagate read errors",
             "ZCode query cache avoids work and invalidates on database and WAL changes",
             "account menu reads preserve timestamps while refreshed credentials persist",
-            "provider comments and usage-only stream chunks retain their data",
+            "provider edits preserve adjacent comments and multiline values",
             "usage scheduling reduces idle work while preserving alerts and forced reloads",
         ]
         XCTAssertEqual(Set(MoaCoreTests.tests.map { $0.0 }), expected)
@@ -237,14 +230,6 @@ final class MoaXCTest: XCTestCase {
         try run("recursive migration does not follow destination symlinks")
     }
 
-    func testProviderBridgeDefaultsUseMoaPort() throws {
-        try run("provider bridge defaults use Moa port")
-    }
-
-    func testCodexBridgeProviderIDsUseMoaPrefix() throws {
-        try run("Codex bridge provider IDs use Moa prefix")
-    }
-
     func testTOMLMultilineStringsSurviveStructuralEdits() throws {
         try run("TOML multiline strings survive structural edits")
     }
@@ -365,14 +350,6 @@ final class MoaXCTest: XCTestCase {
         try run("ZCode usage scanner aggregates local SQLite usage")
     }
 
-    func testProviderBridgePortsRejectInvalidBoundaries() throws {
-        try run("provider bridge ports reject invalid boundaries")
-    }
-
-    func testProviderBridgeStreamingUsagePrecedesCompletion() throws {
-        try run("provider bridge streaming usage precedes completion")
-    }
-
     func testClaudeLiveFilesAndSelectedStateRollBackTogether() throws {
         try run("Claude live files and selected state roll back together")
     }
@@ -437,14 +414,6 @@ final class MoaXCTest: XCTestCase {
         try run("legacy data manifests cannot hide symbolic links")
     }
 
-    func testBridgeFailuresBeforeHeadersReturnValidHTTP() throws {
-        try run("bridge failures before headers return valid HTTP")
-    }
-
-    func testBridgeStreamsRejectPrematureEOFAndPreserveFinishStatus() throws {
-        try run("bridge streams reject premature EOF and preserve finish status")
-    }
-
     func testWorkBuddyRequestReplaysAndTimestampFormatsAggregateCorrectly() throws {
         try run("WorkBuddy request replays and timestamp formats aggregate correctly")
     }
@@ -473,26 +442,6 @@ final class MoaXCTest: XCTestCase {
         try run("schema 2 requires complete valid file and link hashes")
     }
 
-    func testBridgeLimitsPendingClientsAndRejectsUnsupportedFraming() throws {
-        try run("bridge limits pending clients and rejects unsupported framing")
-    }
-
-    func testBridgeStopCancelsPendingStreamingAndOrdinaryUpstreamRequests() throws {
-        try run("bridge stop cancels pending streaming and ordinary upstream requests")
-    }
-
-    func testBridgeStopCancelsAnEstablishedStreamAndIsolatesRestarts() throws {
-        try run("bridge stop cancels an established stream and isolates restarts")
-    }
-
-    func testBridgeSupportsUpstreamFramesDelayedBeyondFiveSeconds() throws {
-        try run("bridge supports upstream frames delayed beyond five seconds")
-    }
-
-    func testBridgeStopWakesABlockedDownstreamWriter() throws {
-        try run("bridge stop wakes a blocked downstream writer")
-    }
-
     func testStreamingFileHashesPreserveDigestsAndPropagateReadErrors() throws {
         try run("streaming file hashes preserve digests and propagate read errors")
     }
@@ -505,12 +454,28 @@ final class MoaXCTest: XCTestCase {
         try run("account menu reads preserve timestamps while refreshed credentials persist")
     }
 
-    func testProviderCommentsAndUsageOnlyStreamChunksRetainTheirData() throws {
-        try run("provider comments and usage-only stream chunks retain their data")
+    func testProviderEditsPreserveAdjacentCommentsAndMultilineValues() throws {
+        try run("provider edits preserve adjacent comments and multiline values")
     }
 
     func testUsageSchedulingReducesIdleWorkWhilePreservingAlertsAndForcedReloads() throws {
         try run("usage scheduling reduces idle work while preserving alerts and forced reloads")
     }
+    func testRetiredProviderStorage() throws {
+        try run("retired provider storage keeps direct profiles and requires reselection")
+    }
+
+    func testDirectProfileCompatibility() throws {
+        try run("direct profile round trips omit retired routing fields")
+    }
+
+    func testRetiredProviderImport() throws {
+        try run("retired provider imports fail atomically with migration guidance")
+    }
+
+    func testCodexResponsesConnection() throws {
+        try run("Codex connection tests require the Responses endpoint")
+    }
+
 }
 #endif

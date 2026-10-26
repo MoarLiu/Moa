@@ -35,53 +35,43 @@ enum ProviderConnectionTester {
     static let codexTestModel = "gpt-5.5"
     static let claudeDefaultTestModel = "claude-opus-4-8"
 
-    private static let urlSession: URLSession = {
+    #if MOA_TESTING || MOA_TEST_SUPPORT
+    static var testingURLSession: URLSession?
+    #endif
+
+    private static var urlSession: URLSession {
+        #if MOA_TESTING || MOA_TEST_SUPPORT
+        if let testingURLSession { return testingURLSession }
+        #endif
+        return defaultURLSession
+    }
+
+    private static let defaultURLSession: URLSession = {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 20
         configuration.timeoutIntervalForResource = 30
         return URLSession(configuration: configuration)
     }()
 
-    static func codexTestModel(for baseURL: String) -> String {
-        baseURL.lowercased().contains("api.deepseek.com")
-            ? MoaProviderBridgeDefaults.deepSeekChatModel
-            : codexTestModel
-    }
-
     static func testCodex(baseURL: String, apiKey: String, modelOverride: String? = nil) async throws -> ProviderConnectionTestResult {
         let baseURL = try validatedBaseURL(baseURL)
         let apiKey = try validatedAPIKey(apiKey)
         let model = modelOverride?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
             ? modelOverride!.trimmingCharacters(in: .whitespacesAndNewlines)
-            : codexTestModel(for: baseURL.absoluteString)
+            : codexTestModel
         let responsesBody: [String: Any] = [
             "model": model,
             "input": "ping",
             "max_output_tokens": 1
         ]
 
-        do {
-            let endpoint = try await postJSON(
-                body: responsesBody,
-                baseURL: baseURL,
-                endpoint: "responses",
-                apiKey: apiKey,
-                headers: [:])
-            return ProviderConnectionTestResult(model: model, endpoint: endpoint)
-        } catch ProviderConnectionTestError.requestFailed(let status, _) where shouldFallbackToChatCompletions(forHTTPStatus: status) {
-            let chatBody: [String: Any] = [
-                "model": model,
-                "messages": [["role": "user", "content": "ping"]],
-                "max_tokens": 1
-            ]
-            let endpoint = try await postJSON(
-                body: chatBody,
-                baseURL: baseURL,
-                endpoint: "chat/completions",
-                apiKey: apiKey,
-                headers: [:])
-            return ProviderConnectionTestResult(model: model, endpoint: endpoint)
-        }
+        let endpoint = try await postJSON(
+            body: responsesBody,
+            baseURL: baseURL,
+            endpoint: "responses",
+            apiKey: apiKey,
+            headers: [:])
+        return ProviderConnectionTestResult(model: model, endpoint: endpoint)
     }
 
     static func testClaude(baseURL: String, apiKey: String, models: [String]) async throws -> ProviderConnectionTestResult {
@@ -102,34 +92,6 @@ enum ProviderConnectionTester {
             apiKey: apiKey,
             headers: ["anthropic-version": "2023-06-01"])
         return ProviderConnectionTestResult(model: model, endpoint: endpoint)
-    }
-
-    static func fetchModelIDs(baseURL: String, apiKey: String, limit: Int = 80) async throws -> [String] {
-        let baseURL = try validatedBaseURL(baseURL)
-        let apiKey = try validatedAPIKey(apiKey)
-        var lastError: Error?
-        for url in endpointURLs(baseURL: baseURL, endpoint: "models") {
-            do {
-                let modelIDs = try await getModelIDs(from: url, apiKey: apiKey, limit: limit)
-                if !modelIDs.isEmpty {
-                    return modelIDs
-                }
-                lastError = ProviderConnectionTestError.noReachableEndpoint(MoaL10n.text("The models endpoint returned no model IDs."))
-            } catch let error as ProviderConnectionTestError {
-                lastError = error
-                if case .requestFailed(let status, _) = error,
-                   !shouldTryNextEndpointCandidate(forHTTPStatus: status) {
-                    throw error
-                }
-            } catch {
-                lastError = error
-            }
-        }
-
-        if let lastError {
-            throw lastError
-        }
-        throw ProviderConnectionTestError.noReachableEndpoint("")
     }
 
     private static func validatedBaseURL(_ raw: String) throws -> URL {
@@ -198,39 +160,6 @@ enum ProviderConnectionTester {
         }
     }
 
-    private static func getModelIDs(from url: URL, apiKey: String, limit: Int) async throws -> [String] {
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-
-        let (data, response) = try await urlSession.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw ProviderConnectionTestError.noReachableEndpoint(MoaL10n.text("The models request did not receive a valid response."))
-        }
-        guard (200..<300).contains(httpResponse.statusCode) else {
-            throw ProviderConnectionTestError.requestFailed(httpResponse.statusCode, errorMessage(from: data))
-        }
-        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let dataArray = object["data"] as? [[String: Any]]
-        else {
-            throw ProviderConnectionTestError.noReachableEndpoint(MoaL10n.text("The models endpoint did not return a model list."))
-        }
-
-        var seen = Set<String>()
-        var output: [String] = []
-        for entry in dataArray {
-            guard let id = entry["id"] as? String else { continue }
-            let trimmed = id.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty, !seen.contains(trimmed) else { continue }
-            seen.insert(trimmed)
-            output.append(trimmed)
-            if output.count >= max(1, limit) {
-                break
-            }
-        }
-        return output
-    }
-
     private static func endpointURLs(baseURL: URL, endpoint: String) -> [URL] {
         let normalizedEndpoint = endpoint.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         let existingPath = baseURL.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
@@ -247,10 +176,6 @@ enum ProviderConnectionTester {
 
         candidates.append(baseURL.appendingPathComponent(normalizedEndpoint))
         return deduplicated(candidates)
-    }
-
-    private static func shouldFallbackToChatCompletions(forHTTPStatus status: Int) -> Bool {
-        status == 400 || status == 404 || status == 405
     }
 
     private static func shouldTryNextEndpointCandidate(forHTTPStatus status: Int) -> Bool {

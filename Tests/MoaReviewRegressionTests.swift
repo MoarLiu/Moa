@@ -8,6 +8,10 @@ import CryptoKit
 
 enum MoaReviewRegressionTests {
     static let tests: [(String, () throws -> Void)] = [
+        ("retired provider storage keeps direct profiles and requires reselection", retiredProviderStorage),
+        ("direct profile round trips omit retired routing fields", directProfileCompatibility),
+        ("retired provider imports fail atomically with migration guidance", retiredProviderImport),
+        ("Codex connection tests require the Responses endpoint", codexResponsesConnection),
         ("official account sync preserves identities after external login", accountIdentities),
         ("shared workspace accounts retain separate JWT user identities", accountJWTPrincipals),
         ("provider edits preserve commented array tables and their fields", commentedArrayTables),
@@ -19,8 +23,6 @@ enum MoaReviewRegressionTests {
         ("provider updates preserve complete multiline values and arrays", providerMultilineValues),
         ("data imports reject external, chained and cyclic links", packageLinks),
         ("legacy data manifests cannot hide symbolic links", legacyPackageLinks),
-        ("bridge failures before headers return valid HTTP", bridgeConnectionFailure),
-        ("bridge streams reject premature EOF and preserve finish status", bridgeTermination),
         ("WorkBuddy request replays and timestamp formats aggregate correctly", workBuddyReplays),
         ("custom prices can be updated and removed after pricing a model", customPriceLifecycle),
         ("price caches reload across roots and same-time imports", priceCacheInvalidation),
@@ -52,6 +54,151 @@ enum MoaReviewRegressionTests {
             tokens["id_token"] = "header.\(payload).signature"
         }
         return try JSONSerialization.data(withJSONObject: ["auth_mode": "chatgpt", "tokens": tokens], options: [.sortedKeys])
+    }
+
+    private static func retiredProviderStorage() throws {
+        try withHome { home, environment in
+            let root = MoaDataRoot.localURL(environment: environment)
+            let live = home.appendingPathComponent(".codex/config.toml")
+            try FileManager.default.createDirectory(at: live.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            let config = "model_provider = \"moa-old\"\n[model_providers.moa-old]\nbase_url = \"http://127.0.0.1:19360/v1\"\nexperimental_bearer_token = \"synthetic-local\"\n"
+            try Data(config.utf8).write(to: live)
+            let retired: [String: Any] = ["id": "retired", "name": "Retired", "baseURL": "https://upstream.invalid", "apiKey": "synthetic", "bridgeMode": "localBridge", "upstreamProtocol": "chatCompletions", "bridgePort": Int.max, "bridgeToken": "synthetic-retired-token", "unknown": ["enabled": true, "fallbacks": [NSNull(), "fixture", 0.125] as [Any]]]
+            let direct: [String: Any] = ["id": "direct", "name": "Direct", "baseURL": "https://responses.invalid/v1", "apiKey": "synthetic-direct"]
+            let legacyFile = root.appendingPathComponent("provider_bridge_profiles.json")
+            let legacyData = try JSONSerialization.data(withJSONObject: ["selectedProfileID": "retired", "profiles": [retired]])
+            try legacyData.write(to: legacyFile)
+            let unselected = try JSONSerialization.data(withJSONObject: ["profiles": [retired]])
+            try unselected.write(to: root.appendingPathComponent("profiles.json"))
+            let unselectedController = ConfigProfileController(environment: environment)
+            try check(try unselectedController.profiles().isEmpty, "an unselected retired database must not re-import the live local endpoint")
+            try check(try Data(contentsOf: unselectedController.databaseURL) == unselected, "bootstrap must retain unselected retired data")
+            for selection in ["retired", "moa-provider-bridge"] {
+                for rows in [[retired], [retired, direct]] {
+                    let stored = try JSONSerialization.data(withJSONObject: ["selectedProfileID": selection, "profiles": rows])
+                    try stored.write(to: root.appendingPathComponent("profiles.json"), options: .atomic)
+                    let controller = ConfigProfileController(environment: environment)
+                    try check(try controller.profiles().map(\.id) == (rows.count == 1 ? [] : ["direct"]), "retired entries must not block or appear among direct profiles")
+                    try check(try controller.selectedProfile() == nil, "a retired selection must not become an active direct profile")
+                    try check(controller.selectedProfileName() == MoaL10n.text("Select a Responses Provider"), "the menu must ask for a replacement instead of claiming Official mode")
+                    try check(try Data(contentsOf: controller.databaseURL) == stored, "loading must retain the original stored data")
+                    try check(try String(contentsOf: live) == config, "bootstrap must not rewrite the live configuration")
+                    let exported = try JSONDecoder().decode(ProviderProfileExportDocument.self, from: controller.exportProfiles(includingAPIKeys: true))
+                    try check(exported.profiles.map(\.name) == (rows.count == 1 ? [] : ["Direct"]), "profile exports must exclude retired entries")
+                }
+            }
+            let controller = ConfigProfileController(environment: environment)
+            _ = try controller.applyProfile(id: "direct")
+            let applied = try String(contentsOf: live)
+            try check(applied.contains("https://responses.invalid/v1") && !applied.contains("19360"), "explicit replacement must remove the old local endpoint")
+            try check(applied.contains("synthetic-direct") && applied.contains("wire_api = \"responses\""), "replacement must use the direct provider's key and protocol")
+            try check(controller.selectedProfileName() == "Direct", "replacement must clear the unavailable selection")
+            try check(try Data(contentsOf: legacyFile) == legacyData, "the retired database must remain untouched")
+
+            let mixed = try JSONSerialization.data(withJSONObject: ["selectedProfileID": "retired", "profiles": [retired, direct]])
+            try mixed.write(to: root.appendingPathComponent("profiles.json"), options: .atomic)
+            let preservingController = ConfigProfileController(environment: environment)
+            let added = try preservingController.addProfile(name: "New Direct", baseURL: "https://new-responses.invalid/v1", apiKey: "synthetic-new")
+            let saved = try JSONSerialization.jsonObject(with: Data(contentsOf: preservingController.databaseURL)) as! [String: Any]
+            let savedEntries = saved["profiles"] as! [[String: Any]]
+            try check(savedEntries.count == 3, "saving a direct profile must preserve unavailable legacy profile entries")
+            let preserved = savedEntries.first { $0["id"] as? String == "retired" }!
+            try check(NSDictionary(dictionary: preserved).isEqual(to: retired), "legacy fields, large integers and nested data must remain exactly recoverable")
+            let reloaded = ConfigProfileController(environment: environment)
+            _ = try reloaded.updateProfile(id: added.id, name: "Updated", baseURL: added.baseURL, apiKey: added.apiKey)
+            _ = try reloaded.applyProfile(id: added.id)
+            _ = try reloaded.deleteProfile(id: added.id)
+            let afterWrites = try JSONSerialization.jsonObject(with: Data(contentsOf: reloaded.databaseURL)) as! [String: Any]
+            let afterEntries = afterWrites["profiles"] as! [[String: Any]]
+            let retained = afterEntries.first { $0["id"] as? String == "retired" }!
+            try check(afterEntries.count == 2 && NSDictionary(dictionary: retained).isEqual(to: retired), "editing, applying and deleting direct profiles must preserve retired data")
+            try check(try reloaded.profiles().map(\.id) == ["direct"], "retained entries must remain unavailable after a reload")
+            let exported = String(decoding: try reloaded.exportProfiles(includingAPIKeys: true), as: UTF8.self)
+            try check(!exported.contains("synthetic-retired-token") && !exported.contains("Retired"), "retired recovery data must never enter profile exports")
+        }
+    }
+
+    private static func directProfileCompatibility() throws {
+        try withHome { _, environment in
+            let controller = ConfigProfileController(environment: environment)
+            let oldDirect = Data(#"{"id":"direct","name":"Direct","baseURL":"https://responses.invalid/v1","providerKind":"custom","clientTarget":"codex","upstreamProtocol":"responses","bridgeMode":"direct","bridgeToken":"synthetic-retired","bridgePort":-1,"model":"fixture","testModel":"fixture-test","models":["fixture","fixture-test"]}"#.utf8)
+            let profile = try JSONDecoder().decode(ConfigProfile.self, from: oldDirect)
+            try check(profile.apiKey.isEmpty && profile.resolvedTestModel == "fixture-test", "old direct profiles must keep model metadata and optional keys")
+            let encoded = try JSONSerialization.jsonObject(with: JSONEncoder().encode(profile)) as! [String: Any]
+            try check(encoded["bridgeMode"] == nil && encoded["bridgeToken"] == nil && encoded["bridgePort"] == nil, "saved direct profiles must drop retired runtime fields")
+            try controller.saveDatabase(ProfileDatabase(selectedProfileID: profile.id, profiles: [profile]))
+            let data = try controller.exportProfiles(includingAPIKeys: false)
+            let copy = ConfigProfileController(environment: environment)
+            try check(try copy.importProfiles(from: data) == 1, "direct exports must remain importable")
+            let imported = try copy.profiles().last!
+            try check(imported.model == "fixture" && imported.models == ["fixture", "fixture-test"], "direct round trips must retain model selections")
+            let generated = controller.generateConfig("model_provider = \"openai\"\n", selecting: imported)
+            try check(generated.contains("https://responses.invalid/v1") && generated.contains("wire_api = \"responses\""), "direct profiles must generate Responses configuration")
+            let claude = ClaudeDesktopProfileController(environment: environment)
+            _ = try claude.addProfile(name: "Claude", baseURL: "https://claude.invalid", apiKey: "synthetic", models: ["claude-fixture"], oneMModels: ["claude-fixture"])
+            let claudeExport = try claude.exportProfiles(includingAPIKeys: true)
+            try check(try claude.importProfiles(from: claudeExport) == 1, "shared export changes must retain Claude profile compatibility")
+        }
+    }
+
+    private static func retiredProviderImport() throws {
+        try withHome { _, environment in
+            let controller = ConfigProfileController(environment: environment)
+            let saved = try controller.addProfile(name: "Existing", baseURL: "https://existing.invalid", apiKey: "synthetic")
+            let before = try Data(contentsOf: controller.databaseURL)
+            for routing in [["bridgeMode": "localBridge"], ["upstreamProtocol": "chatCompletions"], ["upstreamProtocol": "anthropicMessages"]] {
+                var retired = routing
+                retired["name"] = "Retired"
+                retired["baseURL"] = "https://upstream.invalid"
+                let document: [String: Any] = ["schemaVersion": 2, "provider": "codex", "exportedAt": "fixture", "profiles": [["name": "New Direct", "baseURL": "https://responses.invalid"], retired]]
+                do {
+                    _ = try controller.importProfiles(from: JSONSerialization.data(withJSONObject: document))
+                    throw Failure(description: "retired routing must be rejected instead of becoming a direct profile")
+                } catch ProviderProfileExportError.unsupportedProtocol {}
+                try check(try Data(contentsOf: controller.databaseURL) == before, "mixed imports must fail atomically")
+                try check(try controller.profiles().map(\.id) == [saved.id], "rejected imports must retain existing profiles")
+            }
+        }
+    }
+
+    private static func codexResponsesConnection() throws {
+        let settings = URLSessionConfiguration.ephemeral
+        settings.protocolClasses = [ResponsesTestProtocol.self]
+        let session = URLSession(configuration: settings)
+        ProviderConnectionTester.testingURLSession = session
+        defer { ProviderConnectionTester.testingURLSession = nil; session.invalidateAndCancel() }
+        for status in [200, 400, 404, 405, 401] {
+            ResponsesTestProtocol.reset(status: status)
+            let finished = DispatchSemaphore(value: 0)
+            let outcome = ConnectionOutcome()
+            let task = Task.detached {
+                do {
+                    outcome.set(.success(try await ProviderConnectionTester.testCodex(baseURL: "https://responses.invalid/v1", apiKey: "synthetic", modelOverride: "fixture-model")))
+                } catch { outcome.set(.failure(error)) }
+                finished.signal()
+            }
+            guard finished.wait(timeout: .now() + 5) == .success else {
+                task.cancel()
+                throw Failure(description: "mock connection test timed out")
+            }
+            let requests = ResponsesTestProtocol.snapshot()
+            try check(requests.count == 1 && requests[0].url?.path == "/v1/responses", "connection checks must never fall back to Chat Completions")
+            try check(requests[0].httpMethod == "POST" && requests[0].value(forHTTPHeaderField: "Authorization") == "Bearer synthetic", "direct probes must send the provider credentials")
+            switch outcome.get()! {
+            case .success(let result):
+                try check(status == 200 && result.model == "fixture-model", "only a successful Responses endpoint should pass")
+            case .failure:
+                try check(status != 200, "successful Responses probes should pass")
+            }
+        }
+    }
+
+    private final class ConnectionOutcome: @unchecked Sendable {
+        private let lock = NSLock()
+        private var result: Result<ProviderConnectionTestResult, Error>?
+        func set(_ value: Result<ProviderConnectionTestResult, Error>) { lock.lock(); result = value; lock.unlock() }
+        func get() -> Result<ProviderConnectionTestResult, Error>? { lock.lock(); defer { lock.unlock() }; return result }
     }
 
     private static func accountJWTPrincipals() throws {
@@ -104,7 +251,6 @@ enum MoaReviewRegressionTests {
             _ = try profiles.profiles()
             try sourcePackages.exportDataPackage(to: archive)
             let claude = ClaudeDesktopProfileController(environment: environment)
-            let bridge = ProviderBridgeProfileController(environment: environment)
             let prices = MoaUsagePricingOverrideController(environment: environment)
             let catalog = MoaUsagePricingCatalogStore(environment: environment)
             let sourcePrices = MoaUsagePricingOverrideController(environment: sourceEnvironment)
@@ -142,7 +288,6 @@ enum MoaReviewRegressionTests {
             try rejected { _ = try profiles.addProfile(name: "Rejected", baseURL: "https://rejected.example", apiKey: "synthetic") }
             try rejected { _ = try ConfigProfileController(environment: environment).addProfile(name: "Second Instance", baseURL: "https://rejected.example", apiKey: "synthetic") }
             try rejected { _ = try claude.addProfile(name: "Rejected", baseURL: "https://claude.example", apiKey: "synthetic", models: ["claude-sonnet-4-6"], oneMModels: []) }
-            try rejected { _ = try bridge.updateModels(id: "fixture", models: ["fixture"]) }
             try rejected { try prices.upsert(source: .codex, model: "gpt-5.5", inputUSDPerMillion: 1, outputUSDPerMillion: 1, cacheReadUSDPerMillion: nil, cacheCreationUSDPerMillion: nil) }
             try rejected { _ = try catalog.merge(MoaUsagePricingCatalogSnapshot(sourceURL: "https://prices.example", fetchedAt: Date(), models: [:])) }
             try rejected { _ = try MoaDataPackageController(environment: environment).importDataPackage(from: archive) }
@@ -478,65 +623,6 @@ enum MoaReviewRegressionTests {
         }
     }
 
-    private static func bridgeConnectionFailure() throws {
-        let response = try bridgeResponse(mode: "failure")
-        try check(response.hasPrefix("HTTP/1.1 502"), "upstream connection failures require a complete HTTP error response")
-        try check(response.contains("Content-Length:") && response.contains("\"status\":\"failed\""), "failure responses must include framing and a structured error")
-    }
-
-    private static func bridgeTermination() throws {
-        let truncated = try bridgeResponse(mode: "truncated")
-        try check(truncated.hasPrefix("HTTP/1.1 200") && truncated.contains("response.failed"), "premature upstream EOF should fail after streaming headers")
-        try check(!truncated.contains("response.completed"), "partial streams must never report success")
-        let stopped = try bridgeResponse(mode: "stopped")
-        try check(stopped.contains("response.completed"), "a valid stop finish_reason may complete without a DONE frame")
-        let length = try bridgeResponse(mode: "length")
-        try check(length.contains("response.incomplete") && length.contains("max_output_tokens"), "length-limited streams must report incomplete")
-        try check(!length.contains("response.completed") && !length.contains("response.function_call_arguments.done"), "truncated tools must not become executable completed calls")
-        let filtered = MoaChatSSEToResponsesSSEConverter()
-        _ = try filtered.ingest(jsonPayload: #"{"choices":[{"delta":{"content":"partial"},"finish_reason":"content_filter"}]}"#)
-        try check(try filtered.finish().joined().contains("response.incomplete"), "content filtering must retain incomplete status")
-    }
-
-    private static func bridgeResponse(mode: String) throws -> String {
-        let settings = URLSessionConfiguration.ephemeral
-        settings.protocolClasses = [ReviewUpstreamProtocol.self]
-        let session = URLSession(configuration: settings)
-        let server = MoaProviderBridgeServer(urlSession: session, diagnostics: MoaProviderBridgeDiagnostics())
-        var config = MoaProviderBridgeServerConfiguration(profile: ConfigProfile(id: "fixture", name: "Fixture", baseURL: "https://upstream.invalid/\(mode)", apiKey: "synthetic"))
-        config.bridgeToken = "synthetic"
-        config.port = 0
-        let port = try server.start(configuration: config)
-        defer { server.stop(); session.invalidateAndCancel() }
-        let fd = socket(AF_INET, SOCK_STREAM, 0)
-        guard fd >= 0 else { throw Failure(description: "socket creation failed") }
-        defer { close(fd) }
-        var timeout = timeval(tv_sec: 5, tv_usec: 0)
-        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
-        var address = sockaddr_in()
-        address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
-        address.sin_family = sa_family_t(AF_INET)
-        address.sin_port = UInt16(port).bigEndian
-        address.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
-        let result = withUnsafePointer(to: &address) { pointer in
-            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) }
-        }
-        try check(result == 0, "local bridge socket should connect")
-        let body = #"{"model":"fixture","input":"fixture","stream":true}"#
-        let request = "POST /v1/responses HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: Bearer synthetic\r\nContent-Length: \(body.utf8.count)\r\n\r\n" + body
-        let sent = request.withCString { send(fd, $0, request.utf8.count, 0) }
-        try check(sent == request.utf8.count, "test request should be sent completely")
-        var buffer = [UInt8](repeating: 0, count: 4096)
-        var received = Data()
-        while true {
-            let count = recv(fd, &buffer, buffer.count, 0)
-            if count == 0 { break }
-            try check(count > 0, "bridge must close its response without timing out")
-            received.append(contentsOf: buffer.prefix(count))
-        }
-        return String(decoding: received, as: UTF8.self)
-    }
-
     private static func workBuddyReplays() throws {
         for edition in [WorkBuddyEdition.china, .international] {
             try withHome { home, environment in
@@ -663,25 +749,32 @@ enum MoaReviewRegressionTests {
     }
 }
 
-private final class ReviewUpstreamProtocol: URLProtocol {
+private final class ResponsesTestProtocol: URLProtocol {
+    private static let lock = NSLock()
+    private static var status = 200
+    private static var requests: [URLRequest] = []
+
+    static func reset(status: Int) {
+        lock.lock(); defer { lock.unlock() }
+        self.status = status
+        requests = []
+    }
+
+    static func snapshot() -> [URLRequest] {
+        lock.lock(); defer { lock.unlock() }
+        return requests
+    }
+
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func stopLoading() {}
     override func startLoading() {
-        if request.url!.path.contains("failure") {
-            client?.urlProtocol(self, didFailWithError: URLError(.cannotConnectToHost))
-            return
-        }
-        client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: ["Content-Type": "text/event-stream"])!, cacheStoragePolicy: .notAllowed)
-        let payload: String
-        if request.url!.path.contains("length") {
-            payload = #"{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"fixture-call","function":{"name":"fixture","arguments":"{\"partial\":"}}]},"finish_reason":"length"}]}"# + "\n\ndata: [DONE]"
-        } else if request.url!.path.contains("stopped") {
-            payload = #"{"choices":[{"delta":{"content":"done"},"finish_reason":"stop"}]}"#
-        } else {
-            payload = #"{"choices":[{"delta":{"content":"partial"}}]}"#
-        }
-        client?.urlProtocol(self, didLoad: Data("data: \(payload)\n\n".utf8))
+        Self.lock.lock()
+        Self.requests.append(request)
+        let status = request.url!.path.hasSuffix("/responses") ? Self.status : 200
+        Self.lock.unlock()
+        client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: "HTTP/1.1", headerFields: [:])!, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data("{}".utf8))
         client?.urlProtocolDidFinishLoading(self)
     }
 }
