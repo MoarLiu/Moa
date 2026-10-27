@@ -920,16 +920,11 @@ enum MoaCoreTests {
         try expect(fileManager.fileExists(atPath: newSupport.appendingPathComponent("icloud-data-root-enabled").path), "iCloud state should migrate to Moa support directory")
         let migratedICloudProfileData = try String(contentsOf: newICloud.appendingPathComponent("profiles.json"), encoding: .utf8)
         try expect(migratedICloudProfileData == "icloud", "legacy iCloud data should copy to iCloud Drive/Moa")
-        let copiedAfterMigration = try MoaDataRoot.copyMissingContents(
-            from: newICloud.appendingPathComponent(".moa-lite", isDirectory: true),
-            to: newICloud,
-            fileManager: fileManager
-        )
         try expect(
-            fileManager.fileExists(atPath: newICloud.appendingPathComponent("codex-auth/accounts/missing.json").path),
-            "legacy nested migration should descend into existing destination directories"
+            !fileManager.fileExists(atPath: newICloud.appendingPathComponent("codex-auth/accounts/missing.json").path)
+                && fileManager.fileExists(atPath: newICloud.appendingPathComponent(".moa-lite/codex-auth/accounts/missing.json").path),
+            "ambiguous nested entries should remain available without restoring deleted outer files"
         )
-        try expect(!copiedAfterMigration, "the migration itself should merge nested content without a second pass")
         try expect(MoaDataRoot.currentURL(environment: environment).lastPathComponent == "Moa", "current root should use migrated Moa iCloud folder")
     }
 
@@ -958,10 +953,11 @@ enum MoaCoreTests {
 
         let controller = MoaDataPackageController(environment: environment)
         let repaired = try controller.repairLegacyICloudDataSplitIfNeeded()
-        try expect(repaired, "legacy nested directory data should be merged")
+        try expect(!repaired, "existing cloud data must not be merged with an ambiguous legacy copy")
         try expect(
-            fileManager.fileExists(atPath: cloudRoot.appendingPathComponent("codex-auth/accounts/missing.json").path),
-            "nested account files should be copied recursively"
+            !fileManager.fileExists(atPath: cloudRoot.appendingPathComponent("codex-auth/accounts/missing.json").path)
+                && fileManager.fileExists(atPath: nestedRoot.appendingPathComponent("codex-auth/accounts/missing.json").path),
+            "legacy entries should remain available without restoring deleted outer files"
         )
         let existing = try String(
             contentsOf: cloudRoot.appendingPathComponent("codex-auth/accounts/existing.json"),
@@ -1248,7 +1244,7 @@ enum MoaCoreTests {
             throw TestError.failure("migration should fail when SQLite index is unreadable")
         } catch let error as CodexSessionProviderMigrationError {
             switch error {
-            case .migrationFailedAndRestored(_, _):
+            case .migrationFailedAndRestored(_, _), .sqliteUpdateFailed(path: _):
                 break
             default:
                 throw TestError.failure("expected restored migration failure, got \(error.localizedDescription)")

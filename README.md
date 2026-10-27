@@ -117,6 +117,8 @@ Moa checks the [model-price-repo catalog](https://github.com/Wei-Shaw/model-pric
 
 When iCloud storage is enabled, Moa reads and writes `iCloud Drive/Moa` directly instead of `~/.moa`.
 
+If both the outer and nested legacy iCloud directories contain data, Moa preserves both without automatically merging them, so deleted entries are not restored. Review the nested directory before changing the data. Before migrating Codex history, close all ChatGPT and Codex desktop and CLI instances and keep them closed until migration finishes. Moa cannot prevent another process from starting during migration.
+
 ## Build
 
 ```bash

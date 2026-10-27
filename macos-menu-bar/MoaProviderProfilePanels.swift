@@ -2,6 +2,28 @@ import AppKit
 import Foundation
 import SwiftUI
 
+struct MoaConnectionTestState {
+    private var activeID: UUID?
+
+    var isTesting: Bool { activeID != nil }
+
+    mutating func begin() -> UUID {
+        let id = UUID()
+        activeID = id
+        return id
+    }
+
+    mutating func invalidate() {
+        activeID = nil
+    }
+
+    mutating func finish(_ id: UUID) -> Bool {
+        guard activeID == id else { return false }
+        activeID = nil
+        return true
+    }
+}
+
 enum MoaProviderProfilePanels {
     static func showOfficialAccountName(
         title: String,
@@ -266,7 +288,7 @@ private struct CodexProfileFormView: View {
     @State private var baseURL: String
     @State private var statusText: String = ""
     @State private var statusTone: MoaFormStatusTone = .neutral
-    @State private var isTesting = false
+    @State private var connectionTest = MoaConnectionTestState()
     @FocusState private var nameFocused: Bool
 
     init(
@@ -303,14 +325,14 @@ private struct CodexProfileFormView: View {
 
                 VStack(alignment: .leading, spacing: 7) {
                     MoaModalFieldLabel(text: MoaL10n.text("API Key"))
-                    SecureField(MoaL10n.text("Paste your API key"), text: $apiKey)
+                    SecureField(MoaL10n.text("Paste your API key"), text: connectionInput($apiKey))
                         .moaModalFieldChrome()
                         .accessibilityLabel(MoaL10n.text("API Key"))
                 }
 
                 VStack(alignment: .leading, spacing: 7) {
                     MoaModalFieldLabel(text: MoaL10n.text("API Base URL"))
-                    TextField("https://your-api-endpoint.com/v1", text: $baseURL)
+                    TextField("https://your-api-endpoint.com/v1", text: connectionInput($baseURL))
                         .moaModalFieldChrome()
                         .accessibilityLabel(MoaL10n.text("API Base URL"))
                     Text(MoaProviderBaseURLPolicy.visibleGuidance)
@@ -336,9 +358,9 @@ private struct CodexProfileFormView: View {
                 Spacer()
                 MoaModalButton(title: MoaL10n.text("Cancel"), action: onCancel)
                     .frame(minWidth: 78)
-                MoaModalButton(title: MoaL10n.text("Test Connection"), isEnabled: !isTesting, action: testConnection)
+                MoaModalButton(title: MoaL10n.text("Test Connection"), isEnabled: !connectionTest.isTesting, action: testConnection)
                     .frame(minWidth: 120)
-                MoaModalButton(title: buttonTitle, prominence: .prominent, keyEquivalent: "\r", isEnabled: !isTesting, action: save)
+                MoaModalButton(title: buttonTitle, prominence: .prominent, keyEquivalent: "\r", isEnabled: !connectionTest.isTesting, action: save)
                     .frame(minWidth: 88)
             }
         }
@@ -388,23 +410,23 @@ private struct CodexProfileFormView: View {
             ),
             .neutral
         )
-        isTesting = true
+        let testID = connectionTest.begin()
 
         Task {
             do {
                 let testResult = try await ProviderConnectionTester.testCodex(baseURL: baseURL, apiKey: apiKey)
                 await MainActor.run {
+                    guard connectionTest.finish(testID) else { return }
                     if let warning {
                         setStatus(String(format: MoaL10n.text("Connection works: %@. %@"), testResult.model, warning), .warning)
                     } else {
                         setStatus(String(format: MoaL10n.text("Connection works: %@"), testResult.model), .success)
                     }
-                    isTesting = false
                 }
             } catch {
                 await MainActor.run {
+                    guard connectionTest.finish(testID) else { return }
                     setStatus(error.localizedDescription, .error)
-                    isTesting = false
                 }
             }
         }
@@ -413,6 +435,15 @@ private struct CodexProfileFormView: View {
     private func setStatus(_ text: String, _ tone: MoaFormStatusTone) {
         statusText = text
         statusTone = tone
+    }
+
+    private func connectionInput(_ input: Binding<String>) -> Binding<String> {
+        Binding(get: { input.wrappedValue }, set: { value in
+            guard value != input.wrappedValue else { return }
+            input.wrappedValue = value
+            connectionTest.invalidate()
+            setStatus("", .neutral)
+        })
     }
 }
 
@@ -447,7 +478,7 @@ private struct ClaudeProviderFormView: View {
     @State private var modelsText: String
     @State private var statusText: String = ""
     @State private var statusTone: MoaFormStatusTone = .neutral
-    @State private var isTesting = false
+    @State private var connectionTest = MoaConnectionTestState()
     @FocusState private var nameFocused: Bool
 
     init(
@@ -485,14 +516,14 @@ private struct ClaudeProviderFormView: View {
 
                 VStack(alignment: .leading, spacing: 7) {
                     MoaModalFieldLabel(text: MoaL10n.text("API Key"))
-                    SecureField(MoaL10n.text("Paste your Anthropic-compatible bearer token"), text: $apiKey)
+                    SecureField(MoaL10n.text("Paste your Anthropic-compatible bearer token"), text: connectionInput($apiKey))
                         .moaModalFieldChrome()
                         .accessibilityLabel(MoaL10n.text("API Key"))
                 }
 
                 VStack(alignment: .leading, spacing: 7) {
                     MoaModalFieldLabel(text: MoaL10n.text("API Base URL"))
-                    TextField("https://your-api-endpoint.com", text: $baseURL)
+                    TextField("https://your-api-endpoint.com", text: connectionInput($baseURL))
                         .moaModalFieldChrome()
                         .accessibilityLabel(MoaL10n.text("API Base URL"))
                     Text(MoaProviderBaseURLPolicy.visibleGuidance)
@@ -503,7 +534,7 @@ private struct ClaudeProviderFormView: View {
 
                 VStack(alignment: .leading, spacing: 7) {
                     MoaModalFieldLabel(text: MoaL10n.text("Models (optional)"))
-                    TextField("claude-opus-4.7[1M], claude-sonnet-4-5", text: $modelsText)
+                    TextField("claude-opus-4.7[1M], claude-sonnet-4-5", text: connectionInput($modelsText))
                         .moaModalFieldChrome()
                         .accessibilityLabel(MoaL10n.text("Models (optional)"))
                     Text(MoaL10n.text("Append [1M] to a model to offer Claude Desktop's 1M-context variant, for example claude-opus-4.7[1M]."))
@@ -525,9 +556,9 @@ private struct ClaudeProviderFormView: View {
                 Spacer()
                 MoaModalButton(title: MoaL10n.text("Cancel"), action: onCancel)
                     .frame(minWidth: 78)
-                MoaModalButton(title: MoaL10n.text("Test Connection"), isEnabled: !isTesting, action: testConnection)
+                MoaModalButton(title: MoaL10n.text("Test Connection"), isEnabled: !connectionTest.isTesting, action: testConnection)
                     .frame(minWidth: 120)
-                MoaModalButton(title: buttonTitle, prominence: .prominent, keyEquivalent: "\r", isEnabled: !isTesting, action: save)
+                MoaModalButton(title: buttonTitle, prominence: .prominent, keyEquivalent: "\r", isEnabled: !connectionTest.isTesting, action: save)
                     .frame(minWidth: 88)
             }
         }
@@ -590,7 +621,7 @@ private struct ClaudeProviderFormView: View {
             ),
             .neutral
         )
-        isTesting = true
+        let testID = connectionTest.begin()
 
         Task {
             do {
@@ -600,17 +631,17 @@ private struct ClaudeProviderFormView: View {
                     models: parsedModels.models
                 )
                 await MainActor.run {
+                    guard connectionTest.finish(testID) else { return }
                     if let warning {
                         setStatus(String(format: MoaL10n.text("Connection works: %@. %@"), testResult.model, warning), .warning)
                     } else {
                         setStatus(String(format: MoaL10n.text("Connection works: %@"), testResult.model), .success)
                     }
-                    isTesting = false
                 }
             } catch {
                 await MainActor.run {
+                    guard connectionTest.finish(testID) else { return }
                     setStatus(error.localizedDescription, .error)
-                    isTesting = false
                 }
             }
         }
@@ -619,5 +650,14 @@ private struct ClaudeProviderFormView: View {
     private func setStatus(_ text: String, _ tone: MoaFormStatusTone) {
         statusText = text
         statusTone = tone
+    }
+
+    private func connectionInput(_ input: Binding<String>) -> Binding<String> {
+        Binding(get: { input.wrappedValue }, set: { value in
+            guard value != input.wrappedValue else { return }
+            input.wrappedValue = value
+            connectionTest.invalidate()
+            setStatus("", .neutral)
+        })
     }
 }

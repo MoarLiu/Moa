@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.5.1 - 2026-10-27
+
+- Hardened Codex history migration with client-process checks, consistent SQLite backups, transactional index updates, and conflict-aware rollback. Keep all Codex instances closed until migration finishes.
+- Preserved unrelated provider definitions, rejected unsupported inline provider tables before writing, and rolled back failed edits and account deletions.
+- Prevented legacy iCloud migration from repeatedly restoring deleted data or re-enabling storage. Ambiguous nested legacy data is retained for manual review.
+- Redacted credentials embedded in diagnostic URLs, validated exported links, and kept existing archives intact when export fails.
+- Waited for the old app before installing updates and restored or retained the previous app with a failure log when installation fails.
+- Validated custom prices without losing precision, invalidated stale connection results, and repaired usage and pricing cache recovery and model redirects.
+- Added regression coverage and included SwiftPM interaction tests in the release smoke checks.
+
 ## 1.5.0 - 2026-10-26
 
 - Kept the version/build row first in the main menu and added top-level account management and usage overview entries. Client menus retain usage summaries and one-click account switching, with launch, folder, and migration helpers listed directly at the bottom. Maintenance actions are grouped under Moa.

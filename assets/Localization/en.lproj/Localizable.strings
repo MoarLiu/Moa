@@ -114,6 +114,8 @@
 "Edit Selected Provider" = "Edit Selected Provider";
 "Enable Daily Usage Alert" = "Enable Daily Usage Alert";
 "Enter a positive input or output price." = "Enter a positive input or output price.";
+"Enter a nonnegative finite number for each price." = "Enter a nonnegative finite number for each price.";
+"Enter nonnegative finite prices, with a positive input or output price." = "Enter nonnegative finite prices, with a positive input or output price.";
 "Enter an alert threshold greater than 0." = "Enter an alert threshold greater than 0.";
 "Estimated Cost" = "Estimated Cost";
 "Example: 10" = "Example: 10";
@@ -459,3 +461,4 @@
 "Sign in to the client, then choose Save Current Login." = "Sign in to the client, then choose Save Current Login.";
 
 "Scroll horizontally for additional columns and price settings." = "Scroll horizontally for additional columns and price settings.";
+"Cannot switch providers while model_providers is an inline TOML table. Expand it into TOML tables first." = "Cannot switch providers while model_providers is an inline TOML table. Expand it into TOML tables first.";

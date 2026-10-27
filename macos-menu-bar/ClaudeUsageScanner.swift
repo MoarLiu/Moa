@@ -47,6 +47,7 @@ final class ClaudeUsageScanner {
     private struct Cache: Codable, Equatable {
         var version: Int
         var roots: [String]
+        var calendarSignature: String?
         var files: [String: CachedFile]
     }
 
@@ -54,21 +55,29 @@ final class ClaudeUsageScanner {
     private let home: String
     private let environment: [String: String]
     private let pricingOverrides: MoaUsagePricingOverrideController
+    private let calendarProvider: () -> Calendar
     private let cacheLock = NSLock()
+
+    #if MOA_TESTING || MOA_TEST_SUPPORT
+    var testingBeforeScan: ((URL) throws -> Void)?
+    #endif
 
     private var cacheURL: URL {
         MoaDataRoot.currentURL(environment: environment)
             .appendingPathComponent("claude-usage-cache-v1.json")
     }
 
-    init(environment: [String: String] = ProcessInfo.processInfo.environment) {
+    init(environment: [String: String] = ProcessInfo.processInfo.environment,
+         calendarProvider: @escaping () -> Calendar = { Calendar.current }) {
         home = environment["HOME"] ?? NSHomeDirectory()
         self.environment = environment
+        self.calendarProvider = calendarProvider
         pricingOverrides = MoaUsagePricingOverrideController(environment: environment)
     }
 
     func loadSummary(forceRefresh: Bool = false, now: Date = Date()) throws -> CodexUsageSummary {
-        summary(from: try loadReport(forceRefresh: forceRefresh, now: now), now: now)
+        let calendar = calendarProvider()
+        return summary(from: try loadReport(forceRefresh: forceRefresh, now: now, persistCache: true, calendar: calendar), now: now, calendar: calendar)
     }
 
     func loadReport(
@@ -76,13 +85,18 @@ final class ClaudeUsageScanner {
         now: Date = Date(),
         persistCache: Bool = true
     ) throws -> MoaUsageReport {
+        try loadReport(forceRefresh: forceRefresh, now: now, persistCache: persistCache, calendar: calendarProvider())
+    }
+
+    private func loadReport(forceRefresh: Bool, now: Date, persistCache: Bool, calendar: Calendar) throws -> MoaUsageReport {
         let projectsRoots = Self.defaultProjectsRoots(home: home, environment: environment)
         let files = sessionFiles(in: projectsRoots)
         let validPaths = Set(files.map(\.path))
         let rootPaths = projectsRoots.map(\.path).sorted()
+        let signature = "\(calendar.identifier)|\(calendar.timeZone.identifier)"
         var cache = lockedLoadCache(rootPaths: rootPaths)
-        if cache.version != 2 {
-            cache = Cache(version: 2, roots: rootPaths, files: [:])
+        if cache.version != 3 || cache.calendarSignature != signature {
+            cache = Cache(version: 3, roots: rootPaths, calendarSignature: signature, files: [:])
         }
         cache.roots = rootPaths
         let originalCache = cache
@@ -100,7 +114,7 @@ final class ClaudeUsageScanner {
                 continue
             }
 
-            let rows = parseSessionFile(fileURL)
+            let rows = try parseSessionFile(fileURL, calendar: calendar)
             nextFiles[path] = CachedFile(mtime: metadata.mtime, size: metadata.size, rows: rows)
         }
 
@@ -199,17 +213,19 @@ final class ClaudeUsageScanner {
         return (mtime, Int64(size))
     }
 
-    private func parseSessionFile(_ fileURL: URL) -> [UsageRow] {
+    private func parseSessionFile(_ fileURL: URL, calendar: Calendar) throws -> [UsageRow] {
         var keyedRows: [String: UsageRow] = [:]
         var unkeyedRows: [UsageRow] = []
 
-        do {
-            try scanLines(fileURL: fileURL) { line in
+        #if MOA_TESTING || MOA_TEST_SUPPORT
+        try testingBeforeScan?(fileURL)
+        #endif
+        try scanLines(fileURL: fileURL) { line in
                 guard shouldInspect(line) else { return }
                 guard let object = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any],
                       (object["type"] as? String) == "assistant",
                       let timestamp = object["timestamp"] as? String,
-                      let dayKey = Self.dayKey(from: timestamp),
+                      let dayKey = Self.dayKey(from: timestamp, calendar: calendar),
                       let message = object["message"] as? [String: Any],
                       let model = message["model"] as? String,
                       model != "<synthetic>",
@@ -262,9 +278,6 @@ final class ClaudeUsageScanner {
                 } else {
                     unkeyedRows.append(row)
                 }
-            }
-        } catch {
-            return keyedRows.keys.sorted().compactMap { keyedRows[$0] } + unkeyedRows
         }
 
         return keyedRows.keys.sorted().compactMap { keyedRows[$0] } + unkeyedRows
@@ -303,7 +316,7 @@ final class ClaudeUsageScanner {
     }
 
     private func shouldInspect(_ line: Data) -> Bool {
-        line.containsASCII(#""type":"assistant""#) && line.containsASCII(#""usage""#)
+        line.containsASCII(#""usage""#)
     }
 
     private func report(from cache: Cache, now: Date) -> MoaUsageReport {
@@ -360,8 +373,8 @@ final class ClaudeUsageScanner {
         return MoaUsageReport(rows: Array(buckets.values), generatedAt: now)
     }
 
-    private func summary(from report: MoaUsageReport, now: Date) -> CodexUsageSummary {
-        let todayKey = Self.dayKey(from: now)
+    private func summary(from report: MoaUsageReport, now: Date, calendar: Calendar) -> CodexUsageSummary {
+        let todayKey = Self.dayKey(from: now, calendar: calendar)
         var todayCost = 0.0
         var todayTokens = 0
         var totalCost = 0.0
@@ -411,7 +424,7 @@ final class ClaudeUsageScanner {
         guard let data = try? Data(contentsOf: cacheURL),
               let decoded = try? JSONDecoder().decode(Cache.self, from: data)
         else {
-            return Cache(version: 2, roots: rootPaths, files: [:])
+            return Cache(version: 3, roots: rootPaths, calendarSignature: nil, files: [:])
         }
         return decoded
     }
@@ -460,13 +473,13 @@ final class ClaudeUsageScanner {
         return 0
     }
 
-    private static func dayKey(from timestamp: String) -> String? {
+    private static func dayKey(from timestamp: String, calendar: Calendar) -> String? {
         guard let date = CodexUsageDateParser.parse(timestamp) else { return nil }
-        return dayKey(from: date)
+        return dayKey(from: date, calendar: calendar)
     }
 
-    private static func dayKey(from date: Date) -> String {
-        let components = Calendar.current.dateComponents([.year, .month, .day], from: date)
+    private static func dayKey(from date: Date, calendar: Calendar) -> String {
+        let components = calendar.dateComponents([.year, .month, .day], from: date)
         return String(format: "%04d-%02d-%02d", components.year ?? 1970, components.month ?? 1, components.day ?? 1)
     }
 }

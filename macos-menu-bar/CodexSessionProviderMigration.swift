@@ -1,4 +1,11 @@
+import CryptoKit
 import Foundation
+
+private struct SessionFileChange {
+    let url: URL
+    let backupURL: URL
+    let afterHash: String
+}
 
 struct CodexSessionProviderMigrationResult {
     let providerID: String
@@ -10,6 +17,7 @@ struct CodexSessionProviderMigrationResult {
 enum CodexSessionProviderMigrationError: LocalizedError {
     case missingModelProvider
     case sqliteUpdateFailed(path: String)
+    case historyChanged(path: String)
     case migrationFailedAndRestored(reason: String, backupPath: String)
     case migrationFailedRollbackFailed(reason: String, backupPath: String, rollbackReason: String)
 
@@ -19,6 +27,8 @@ enum CodexSessionProviderMigrationError: LocalizedError {
             return MoaL10n.text("The current model_provider field is missing. Migration failed.")
         case .sqliteUpdateFailed(let path):
             return MoaL10n.format("Failed to update Codex SQLite history index: %@", path)
+        case .historyChanged(let path):
+            return MoaL10n.format("Codex history changed during migration: %@. Close all Codex instances and try again.", path)
         case .migrationFailedAndRestored(let reason, let backupPath):
             return MoaL10n.format(
                 "Migration failed and the previous Codex history was restored.\nReason: %@\nBackup: %@",
@@ -54,24 +64,27 @@ extension ConfigProfileController {
         return try migrateCodexSessionModelProvider(to: providerID)
     }
 
-    func migrateCodexSessionModelProvider(to providerID: String) throws -> CodexSessionProviderMigrationResult {
+    func migrateCodexSessionModelProvider(to providerID: String, verifyQuiescence: () throws -> Void = {}) throws -> CodexSessionProviderMigrationResult {
         try stateLock.withLock {
             let trimmedProviderID = providerID.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmedProviderID.isEmpty else {
                 throw CodexSessionProviderMigrationError.missingModelProvider
             }
 
+            try verifyQuiescence()
             let backupURL = try backupCodexSessionProviderMigrationFiles()
             let jsonlFilesUpdated: Int
             let sqliteRowsUpdated: Int
+            var changedFiles: [SessionFileChange] = []
 
             do {
-                jsonlFilesUpdated = try migrateCodexSessionJSONLFiles(to: trimmedProviderID)
+                jsonlFilesUpdated = try migrateCodexSessionJSONLFiles(to: trimmedProviderID, backupURL: backupURL, changedFiles: &changedFiles, verifyQuiescence: verifyQuiescence)
+                try verifyQuiescence()
                 sqliteRowsUpdated = try migrateCodexSessionSQLiteIndexes(to: trimmedProviderID)
             } catch {
                 let originalReason = error.localizedDescription
                 do {
-                    try restoreCodexSessionProviderMigrationFiles(from: backupURL)
+                    try restoreChangedSessionFiles(changedFiles, verifyQuiescence: verifyQuiescence)
                 } catch {
                     throw CodexSessionProviderMigrationError.migrationFailedRollbackFailed(
                         reason: originalReason,
@@ -97,7 +110,8 @@ extension ConfigProfileController {
     private func backupCodexSessionProviderMigrationFiles() throws -> URL {
         let destinationRoot = backupDir
             .appendingPathComponent("codex-session-provider-migration-\(Self.timestamp())-\(UUID().uuidString.prefix(8))", isDirectory: true)
-        try fileManager.createDirectory(at: destinationRoot, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: destinationRoot, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: destinationRoot.path)
 
         for directory in codexSessionHistoryDirectories() where fileManager.fileExists(atPath: directory.path) {
             let destination = destinationRoot.appendingPathComponent(directory.lastPathComponent, isDirectory: true)
@@ -108,49 +122,25 @@ extension ConfigProfileController {
         for database in codexSessionStateDatabaseURLs() where fileManager.fileExists(atPath: database.path) {
             let destination = destinationRoot.appendingPathComponent(databaseBackupName(for: database))
             try? fileManager.removeItem(at: destination)
-            try fileManager.copyItem(at: database, to: destination)
-            for suffix in ["-wal", "-shm"] {
-                let sidecar = URL(fileURLWithPath: database.path + suffix)
-                guard fileManager.fileExists(atPath: sidecar.path) else { continue }
-                let sidecarDestination = destinationRoot.appendingPathComponent(databaseBackupName(for: database) + suffix)
-                try? fileManager.removeItem(at: sidecarDestination)
-                try fileManager.copyItem(at: sidecar, to: sidecarDestination)
-            }
+            let escapedPath = destination.path.replacingOccurrences(of: "'", with: "''")
+            _ = try runSQLite(databaseURL: database, sql: "VACUUM INTO '\(escapedPath)';")
+            try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: destination.path)
         }
 
         return destinationRoot
     }
 
-    private func restoreCodexSessionProviderMigrationFiles(from backupURL: URL) throws {
-        for directory in codexSessionHistoryDirectories() {
-            let backup = backupURL.appendingPathComponent(directory.lastPathComponent, isDirectory: true)
-            guard fileManager.fileExists(atPath: backup.path) else { continue }
-            try? fileManager.removeItem(at: directory)
-            try fileManager.createDirectory(at: directory.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try fileManager.copyItem(at: backup, to: directory)
-        }
-
-        for database in codexSessionStateDatabaseURLs() {
-            let backupName = databaseBackupName(for: database)
-            let backup = backupURL.appendingPathComponent(backupName)
-            guard fileManager.fileExists(atPath: backup.path) else { continue }
-
-            try? fileManager.removeItem(at: database)
-            for suffix in ["-wal", "-shm"] {
-                try? fileManager.removeItem(at: URL(fileURLWithPath: database.path + suffix))
+    private func restoreChangedSessionFiles(_ changes: [SessionFileChange], verifyQuiescence: () throws -> Void) throws {
+        for change in changes.reversed() {
+            try verifyQuiescence()
+            guard (try? MoaFileHash.sha256(change.url)) == change.afterHash else {
+                throw CodexSessionProviderMigrationError.historyChanged(path: change.url.path)
             }
-
-            try fileManager.createDirectory(at: database.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try fileManager.copyItem(at: backup, to: database)
-            for suffix in ["-wal", "-shm"] {
-                let sidecarBackup = backupURL.appendingPathComponent(backupName + suffix)
-                guard fileManager.fileExists(atPath: sidecarBackup.path) else { continue }
-                try fileManager.copyItem(at: sidecarBackup, to: URL(fileURLWithPath: database.path + suffix))
-            }
+            try Data(contentsOf: change.backupURL).write(to: change.url, options: .atomic)
         }
     }
 
-    private func migrateCodexSessionJSONLFiles(to providerID: String) throws -> Int {
+    private func migrateCodexSessionJSONLFiles(to providerID: String, backupURL: URL, changedFiles: inout [SessionFileChange], verifyQuiescence: () throws -> Void) throws -> Int {
         var updated = 0
 
         for directory in codexSessionHistoryDirectories() where fileManager.fileExists(atPath: directory.path) {
@@ -166,7 +156,14 @@ extension ConfigProfileController {
                 guard fileURL.pathExtension == "jsonl" else { continue }
                 let values = try fileURL.resourceValues(forKeys: [.isRegularFileKey])
                 guard values.isRegularFile == true else { continue }
-                if try migrateCodexSessionJSONLFile(fileURL, to: providerID) {
+                let directoryPath = directory.resolvingSymlinksInPath().standardizedFileURL.path
+                let filePath = fileURL.resolvingSymlinksInPath().standardizedFileURL.path
+                guard filePath.hasPrefix(directoryPath + "/") else {
+                    throw CodexSessionProviderMigrationError.historyChanged(path: fileURL.path)
+                }
+                let relativePath = String(filePath.dropFirst(directoryPath.count + 1))
+                let backupFile = backupURL.appendingPathComponent(directory.lastPathComponent).appendingPathComponent(relativePath)
+                if try migrateCodexSessionJSONLFile(fileURL, backupFile: backupFile, to: providerID, changedFiles: &changedFiles, verifyQuiescence: verifyQuiescence) {
                     updated += 1
                 }
             }
@@ -175,18 +172,24 @@ extension ConfigProfileController {
         return updated
     }
 
-    private func migrateCodexSessionJSONLFile(_ fileURL: URL, to providerID: String) throws -> Bool {
-        let text = try String(contentsOf: fileURL, encoding: .utf8)
+    private func migrateCodexSessionJSONLFile(_ fileURL: URL, backupFile: URL, to providerID: String, changedFiles: inout [SessionFileChange], verifyQuiescence: () throws -> Void) throws -> Bool {
+        let original = try Data(contentsOf: fileURL)
+        guard original == (try? Data(contentsOf: backupFile)) else {
+            throw CodexSessionProviderMigrationError.historyChanged(path: fileURL.path)
+        }
+        guard let text = String(data: original, encoding: .utf8) else {
+            throw CocoaError(.fileReadInapplicableStringEncoding)
+        }
         guard let firstLineEnd = text.firstIndex(of: "\n") else {
-            return try migrateCodexSessionJSONLText(text, rest: "", fileURL: fileURL, providerID: providerID)
+            return try migrateCodexSessionJSONLText(text, rest: "", fileURL: fileURL, backupFile: backupFile, original: original, providerID: providerID, changedFiles: &changedFiles, verifyQuiescence: verifyQuiescence)
         }
 
         let firstLine = String(text[..<firstLineEnd])
         let rest = String(text[firstLineEnd...])
-        return try migrateCodexSessionJSONLText(firstLine, rest: rest, fileURL: fileURL, providerID: providerID)
+        return try migrateCodexSessionJSONLText(firstLine, rest: rest, fileURL: fileURL, backupFile: backupFile, original: original, providerID: providerID, changedFiles: &changedFiles, verifyQuiescence: verifyQuiescence)
     }
 
-    private func migrateCodexSessionJSONLText(_ firstLine: String, rest: String, fileURL: URL, providerID: String) throws -> Bool {
+    private func migrateCodexSessionJSONLText(_ firstLine: String, rest: String, fileURL: URL, backupFile: URL, original: Data, providerID: String, changedFiles: inout [SessionFileChange], verifyQuiescence: () throws -> Void) throws -> Bool {
         guard let data = firstLine.data(using: .utf8),
               let parsed = try? JSONSerialization.jsonObject(with: data),
               var object = parsed as? [String: Any]
@@ -212,35 +215,39 @@ extension ConfigProfileController {
             return false
         }
 
-        try "\(outputLine)\(rest)".write(to: fileURL, atomically: true, encoding: .utf8)
+        let output = Data("\(outputLine)\(rest)".utf8)
+        try verifyQuiescence()
+        guard (try? Data(contentsOf: fileURL)) == original else {
+            throw CodexSessionProviderMigrationError.historyChanged(path: fileURL.path)
+        }
+        try output.write(to: fileURL, options: .atomic)
+        let hash = SHA256.hash(data: output).map { String(format: "%02x", $0) }.joined()
+        changedFiles.append(SessionFileChange(url: fileURL, backupURL: backupFile, afterHash: hash))
         try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
         return true
     }
 
     private func migrateCodexSessionSQLiteIndexes(to providerID: String) throws -> Int {
-        var updated = 0
-
+        var databases: [URL] = []
         for database in codexSessionStateDatabaseURLs() where fileManager.fileExists(atPath: database.path) {
-            updated += try updateCodexSessionSQLiteIndex(database, to: providerID)
+            if try sqliteThreadsTableHasModelProvider(in: database) { databases.append(database) }
         }
-
-        return updated
-    }
-
-    private func updateCodexSessionSQLiteIndex(_ databaseURL: URL, to providerID: String) throws -> Int {
-        guard try sqliteThreadsTableHasModelProvider(in: databaseURL) else {
-            return 0
-        }
+        guard let first = databases.first else { return 0 }
 
         let escapedProvider = providerID.replacingOccurrences(of: "'", with: "''")
-        let sql = """
-        BEGIN IMMEDIATE;
-        UPDATE threads SET model_provider = '\(escapedProvider)' WHERE model_provider IS NOT '\(escapedProvider)';
-        SELECT changes();
-        COMMIT;
-        """
-        let output = try runSQLite(databaseURL: databaseURL, sql: sql)
-        return Int(output.components(separatedBy: .whitespacesAndNewlines).last(where: { !$0.isEmpty }) ?? "0") ?? 0
+        var sql = ""
+        for (index, database) in databases.dropFirst().enumerated() {
+            let path = database.path.replacingOccurrences(of: "'", with: "''")
+            sql += "ATTACH DATABASE '\(path)' AS migration_\(index);\n"
+        }
+        sql += "BEGIN IMMEDIATE;\n"
+        for index in databases.indices {
+            let schema = index == 0 ? "main" : "migration_\(index - 1)"
+            sql += "UPDATE \(schema).threads SET model_provider = '\(escapedProvider)' WHERE model_provider IS NOT '\(escapedProvider)';\nSELECT changes();\n"
+        }
+        sql += "COMMIT;"
+        let output = try runSQLite(databaseURL: first, sql: sql)
+        return output.split(whereSeparator: { $0.isWhitespace }).compactMap { Int($0) }.reduce(0, +)
     }
 
     private func sqliteThreadsTableHasModelProvider(in databaseURL: URL) throws -> Bool {
@@ -253,10 +260,12 @@ extension ConfigProfileController {
     private func runSQLite(databaseURL: URL, sql: String) throws -> String {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/sqlite3")
-        process.arguments = [databaseURL.path, sql]
+        process.arguments = ["-batch", "-bail", databaseURL.path]
 
+        let inputPipe = Pipe()
         let outputPipe = Pipe()
         let errorPipe = Pipe()
+        process.standardInput = inputPipe
         process.standardOutput = outputPipe
         process.standardError = errorPipe
 
@@ -266,9 +275,11 @@ extension ConfigProfileController {
             throw CodexSessionProviderMigrationError.sqliteUpdateFailed(path: databaseURL.path)
         }
 
-        process.waitUntilExit()
+        try inputPipe.fileHandleForWriting.write(contentsOf: Data((sql + "\n").utf8))
+        try inputPipe.fileHandleForWriting.close()
         let output = String(data: outputPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let errorOutput = String(data: errorPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        process.waitUntilExit()
 
         guard process.terminationStatus == 0 else {
             NSLog("Moa Codex SQLite migration failed for \(databaseURL.path): \(errorOutput)")

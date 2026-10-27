@@ -14,6 +14,7 @@ enum MoaUsagePricing {
     private static let fallbackCodexPricingModel = "gpt-5.5"
     private static let fallbackClaudePricingModel = "claude-opus-4-7"
     private static let fallbackZCodePricingModel = "GLM-5.2"
+    private static let redirectedDeepSeekIDs: Set<String> = ["deepseek-v4-flash", "deepseek-v4-flash-vision-exp"]
     private static let catalogStoreLock = NSLock()
     nonisolated(unsafe) private static var catalogStore = MoaUsagePricingCatalogStore.shared
 
@@ -159,8 +160,14 @@ enum MoaUsagePricing {
         let seed = MoaUsagePricingSeed.price(source: source, model: key)
         let raw = model.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let notBefore = seed == nil ? nil : MoaUsagePricingSeed.checkedAt
-        if let remote = store.pricing(source: source, model: raw, notBefore: notBefore)
-            ?? store.pricing(source: source, model: key, notBefore: notBefore) {
+        // These retired IDs redirect to DeepSeek Flash rather than identifying
+        // separate SKUs, so an obsolete exact entry must never override Flash.
+        let unqualifiedRaw = raw.hasPrefix("deepseek/") ? String(raw.dropFirst("deepseek/".count)) : raw
+        let remote = redirectedDeepSeekIDs.contains(unqualifiedRaw)
+            ? store.pricing(source: source, model: key, notBefore: notBefore)
+            : (store.pricing(source: source, model: raw, notBefore: notBefore)
+                ?? store.pricing(source: source, model: key, notBefore: notBefore))
+        if let remote {
             if MoaUsagePricingSeed.unpricedModels.contains(key), remote.inputUSDPerMillion == 0, remote.outputUSDPerMillion == 0 { return nil }
             return remote
         }

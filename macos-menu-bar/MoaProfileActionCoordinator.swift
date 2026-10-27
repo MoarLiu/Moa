@@ -219,7 +219,7 @@ final class MoaProfileActionCoordinator {
 
         guard MoaNonBlockingAlert.confirm(
             messageText: MoaL10n.text("Migrate Codex History?"),
-            informativeText: MoaL10n.format("Change all historical Codex session data to model_provider = \"%@\"?", providerID),
+            informativeText: MoaL10n.format("Change all historical Codex session data to model_provider = \"%@\"? Close all ChatGPT and Codex desktop and CLI instances first, and do not reopen them until migration finishes. Moa cannot prevent another process from starting during migration.", providerID),
             primaryButtonTitle: MoaL10n.text("Migrate"),
             tone: .warning
         ) else {
@@ -230,8 +230,9 @@ final class MoaProfileActionCoordinator {
         guard let token = app.accountOperations.begin(.codex, message: MoaL10n.text("Migrating Codex history...")) else { return }
         DispatchQueue.global(qos: .userInitiated).async {
             let result = Result {
-                try self.controller.quitCodex()
-                return try self.profileController.migrateCodexSessionModelProvider(to: providerID)
+                try self.profileController.migrateCodexSessionModelProvider(to: providerID) {
+                    try self.controller.verifyHistoryMigrationQuiescence()
+                }
             }
 
             DispatchQueue.main.async {

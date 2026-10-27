@@ -1,5 +1,39 @@
 import Foundation
 
+enum MoaCustomPriceError: Error, Equatable {
+    case invalidField(Field)
+    case noPositivePrice
+
+    enum Field: Equatable {
+        case input, output, cacheRead, cacheCreation
+    }
+}
+
+struct MoaCustomPrices: Equatable {
+    let input: Double
+    let output: Double
+    let cacheRead: Double?
+    let cacheCreation: Double?
+
+    static func parse(input: String, output: String, cacheRead: String, cacheCreation: String) throws -> Self {
+        func value(_ text: String, field: MoaCustomPriceError.Field) throws -> Double? {
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return nil }
+            guard let number = Double(trimmed), number.isFinite, number >= 0 else {
+                throw MoaCustomPriceError.invalidField(field)
+            }
+            return number
+        }
+
+        let inputValue = try value(input, field: .input) ?? 0
+        let outputValue = try value(output, field: .output) ?? 0
+        let cacheReadValue = try value(cacheRead, field: .cacheRead)
+        let cacheCreationValue = try value(cacheCreation, field: .cacheCreation)
+        guard inputValue > 0 || outputValue > 0 else { throw MoaCustomPriceError.noPositivePrice }
+        return Self(input: inputValue, output: outputValue, cacheRead: cacheReadValue, cacheCreation: cacheCreationValue)
+    }
+}
+
 struct MoaUsagePricingOverride: Identifiable, Codable, Equatable {
     var source: MoaUsageSource
     var model: String
@@ -66,24 +100,41 @@ final class MoaUsagePricingOverrideController {
 
         let url = self.url.standardizedFileURL
         if dataAccess.isBusy { return cachedOverrides ?? [] }
-        let modified = (try? fileManager.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date
-        if let cachedOverrides, cachedURL == url, cachedModified == modified, cachedRevision == dataAccess.revision {
+        do {
+            return try loadOverrides(at: url, allowCache: true)
+        } catch {
+            guard cachedURL == url, cachedRevision == dataAccess.revision else { return [] }
+            return cachedOverrides ?? []
+        }
+    }
+
+    private func loadOverrides(at url: URL, allowCache: Bool) throws -> [MoaUsagePricingOverride] {
+        let attributes: [FileAttributeKey: Any]
+        do {
+            attributes = try fileManager.attributesOfItem(atPath: url.path)
+        } catch {
+            let nsError = error as NSError
+            if nsError.domain == NSCocoaErrorDomain &&
+                (nsError.code == NSFileNoSuchFileError || nsError.code == NSFileReadNoSuchFileError) {
+                cachedOverrides = []
+                cachedModified = nil
+                cachedURL = url
+                cachedRevision = dataAccess.revision
+                return []
+            }
+            throw error
+        }
+        let modified = attributes[.modificationDate] as? Date
+        if allowCache, let cachedOverrides, cachedURL == url, cachedModified == modified, cachedRevision == dataAccess.revision {
             return cachedOverrides
         }
 
+        let data = try Data(contentsOf: url)
         let loaded: [MoaUsagePricingOverride]
-        guard let data = try? Data(contentsOf: url), !data.isEmpty else {
-            loaded = []
-            cachedOverrides = loaded
-            cachedModified = modified
-            cachedURL = url
-            cachedRevision = dataAccess.revision
-            return loaded
-        }
         if let payload = try? decoder.decode(Payload.self, from: data) {
             loaded = payload.overrides
         } else {
-            loaded = (try? decoder.decode([MoaUsagePricingOverride].self, from: data)) ?? []
+            loaded = try decoder.decode([MoaUsagePricingOverride].self, from: data)
         }
         cachedOverrides = loaded
         cachedModified = modified
@@ -105,19 +156,29 @@ final class MoaUsagePricingOverrideController {
         cacheReadUSDPerMillion: Double?,
         cacheCreationUSDPerMillion: Double?
     ) throws {
+        guard inputUSDPerMillion.isFinite, inputUSDPerMillion >= 0,
+              outputUSDPerMillion.isFinite, outputUSDPerMillion >= 0,
+              cacheReadUSDPerMillion.map({ $0.isFinite && $0 >= 0 }) ?? true,
+              cacheCreationUSDPerMillion.map({ $0.isFinite && $0 >= 0 }) ?? true,
+              inputUSDPerMillion > 0 || outputUSDPerMillion > 0 else {
+            throw NSError(domain: "MoaUsagePricing", code: 1, userInfo: [
+                NSLocalizedDescriptionKey: MoaL10n.text("Enter nonnegative finite prices, with a positive input or output price.")
+            ])
+        }
         try dataAccess.lock()
         defer { dataAccess.unlock() }
         lock.lock()
         defer { lock.unlock() }
         let normalized = normalizedModel(source: source, model: model)
-        var overrides = overrides().filter { !($0.source == source && $0.model == normalized) }
+        var overrides = try loadOverrides(at: url.standardizedFileURL, allowCache: false)
+            .filter { !($0.source == source && $0.model == normalized) }
         overrides.append(MoaUsagePricingOverride(
             source: source,
             model: normalized,
-            inputUSDPerMillion: max(0, inputUSDPerMillion),
-            outputUSDPerMillion: max(0, outputUSDPerMillion),
-            cacheReadUSDPerMillion: cacheReadUSDPerMillion.map { max(0, $0) },
-            cacheCreationUSDPerMillion: cacheCreationUSDPerMillion.map { max(0, $0) },
+            inputUSDPerMillion: inputUSDPerMillion,
+            outputUSDPerMillion: outputUSDPerMillion,
+            cacheReadUSDPerMillion: cacheReadUSDPerMillion,
+            cacheCreationUSDPerMillion: cacheCreationUSDPerMillion,
             updatedAt: Date()
         ))
         try save(overrides)
@@ -129,7 +190,8 @@ final class MoaUsagePricingOverrideController {
         lock.lock()
         defer { lock.unlock() }
         let normalized = normalizedModel(source: source, model: model)
-        try save(overrides().filter { !($0.source == source && $0.model == normalized) })
+        let overrides = try loadOverrides(at: url.standardizedFileURL, allowCache: false)
+        try save(overrides.filter { !($0.source == source && $0.model == normalized) })
     }
 
     func codexCostEstimate(model: String, inputTokens: Int, cachedInputTokens: Int, cacheWriteInputTokens: Int = 0, outputTokens: Int) -> MoaUsagePricing.CostEstimate? {

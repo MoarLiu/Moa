@@ -60,6 +60,10 @@
 "Cache read USD / 1M tokens" = "缓存读取 USD / 100万 tokens";
 "Cancel" = "取消";
 "Change all historical Codex session data to model_provider = \"%@\"?" = "是否修改所有历史会话数据为 model_provider = \"%@\"？";
+"Change all historical Codex session data to model_provider = \"%@\"? Close all ChatGPT and Codex desktop and CLI instances first, and do not reopen them until migration finishes. Moa cannot prevent another process from starting during migration." = "是否将所有 Codex 历史会话的 model_provider 修改为 \"%@\"？请先关闭所有 ChatGPT 和 Codex 桌面版及命令行实例，并在迁移完成前不要重新打开。Moa 无法阻止其他进程在迁移期间启动。";
+"Close all ChatGPT and Codex desktop and CLI instances before migrating history, and keep them closed until migration completes." = "请先关闭所有 ChatGPT 和 Codex 桌面版及命令行实例，并在迁移完成前保持关闭。";
+"Could not check for running Codex processes. History migration was stopped." = "无法检查正在运行的 Codex 进程，已停止历史迁移。";
+"Codex history changed during migration: %@. Close all Codex instances and try again." = "迁移期间 Codex 历史发生变化：%@。请关闭所有 Codex 实例后重试。";
 "Choose Codex, Claude Desktop, or ZCode to view its daily usage alert threshold." = "选择 Codex、Claude Desktop 或 ZCode 后查看对应的今日用量提醒阈值。";
 "Choose Codex or Claude Desktop to view its daily usage alert threshold." = "选择 Codex 或 Claude Desktop 后查看对应的今日用量提醒阈值。";
 "Claude Code config copied" = "Claude Code 配置已复制";
@@ -114,6 +118,8 @@
 "Edit Selected Provider" = "编辑选中供应商";
 "Enable Daily Usage Alert" = "开启今日用量提醒";
 "Enter a positive input or output price." = "请输入大于 0 的输入或输出价格。";
+"Enter a nonnegative finite number for each price." = "每项价格都必须是非负的有限数字。";
+"Enter nonnegative finite prices, with a positive input or output price." = "价格必须是非负的有限数字，且输入或输出价格至少有一项大于 0。";
 "Enter an alert threshold greater than 0." = "请填写大于 0 的提醒阈值。";
 "Estimated Cost" = "估算费用";
 "Example: 10" = "例如 10";
@@ -460,3 +466,4 @@
 "Sign in to the client, then choose Save Current Login." = "请先在客户端中登录，再选择“保存当前登录”。";
 
 "Scroll horizontally for additional columns and price settings." = "横向滚动可查看其余列和价格设置。";
+"Cannot switch providers while model_providers is an inline TOML table. Expand it into TOML tables first." = "无法切换服务商：model_providers 是 TOML 内联表。请先将其展开为 TOML 表。";

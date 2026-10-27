@@ -181,10 +181,18 @@ extension ConfigProfileController {
     /// The caller permits application only after confirming a live edit.
     func updateProfileApplyingIfSelected(id: String, name: String, baseURL: String, apiKey: String, applyToCurrent: Bool) throws -> Bool {
         try stateLock.withLock {
-            _ = try updateProfile(id: id, name: name, baseURL: baseURL, apiKey: apiKey)
-            guard applyToCurrent, try selectedProfileID() == id else { return false }
-            _ = try applyProfile(id: id)
-            return true
+            try ensureStore()
+            guard applyToCurrent, try selectedProfileID() == id else {
+                _ = try updateProfile(id: id, name: name, baseURL: baseURL, apiKey: apiKey)
+                return false
+            }
+            // applyProfile restores live files on failure; this outer snapshot
+            // also restores the profile values saved before that transaction.
+            return try withCodexStateTransaction(files: [databaseURL]) {
+                _ = try updateProfile(id: id, name: name, baseURL: baseURL, apiKey: apiKey)
+                _ = try applyProfile(id: id)
+                return true
+            }
         }
     }
 

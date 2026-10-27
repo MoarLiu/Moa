@@ -117,6 +117,8 @@ Moa 每天按本地时间在 `00:20:01` 检查 Sub2API 同源的 [model-price-re
 
 开启 iCloud 存储后，Moa 会直接读写 `iCloud Drive/Moa`，不再读写 `~/.moa`。
 
+如果旧版 iCloud 数据的外层目录和嵌套目录都包含数据，Moa 会保留两份目录，不再自动合并，以免恢复已删除的条目。请在更改数据前自行核对旧嵌套目录。迁移 Codex 历史时，请先关闭所有 ChatGPT 和 Codex 桌面端及 CLI 实例，并保持关闭直到迁移结束；Moa 无法阻止其他进程在迁移期间启动。
+
 ## 构建
 
 ```bash

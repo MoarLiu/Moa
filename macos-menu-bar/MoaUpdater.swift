@@ -110,16 +110,18 @@ final class MoaUpdateController {
 
     private let session: URLSession
 
-    init() {
+    init(session: URLSession? = nil) {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 30
         configuration.timeoutIntervalForResource = 300
-        session = URLSession(configuration: configuration)
+        self.session = session ?? URLSession(configuration: configuration)
     }
 
     func checkForUpdate() async throws -> MoaUpdateCheckResult {
         do {
             return try await checkForUpdateFromGitHubAPI()
+        } catch MoaUpdateError.missingReleaseAsset {
+            throw MoaUpdateError.missingReleaseAsset
         } catch {
             return try await checkForUpdateFromAtomFeed(apiError: error)
         }
@@ -263,52 +265,7 @@ final class MoaUpdateController {
         let logURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("moa-update-\(UUID().uuidString).log")
 
-        let script = """
-        #!/bin/bash
-        set -euo pipefail
-        DMG="$1"
-        APP="$2"
-        BACKUP="$3"
-        LOG="$4"
-        WORK="$5"
-        SCRIPT="$6"
-        exec >"$LOG" 2>&1
-        MOUNT="$(/usr/bin/hdiutil attach -nobrowse -readonly "$DMG" | /usr/bin/awk '/\\/Volumes\\// {for (i=3; i<=NF; i++) {printf "%s%s", (i==3 ? "" : " "), $i}; print ""; exit}')"
-        if [[ -z "$MOUNT" ]]; then
-          echo "Unable to mount DMG"
-          exit 1
-        fi
-        cleanup() {
-          STATUS=$?
-          if [[ "$STATUS" -ne 0 && -d "$BACKUP" ]]; then
-            echo "Installer failed with status $STATUS; restoring previous Moa.app from backup"
-            /bin/rm -rf "$APP" || true
-            /usr/bin/ditto --noextattr --noacl "$BACKUP" "$APP" || true
-          fi
-          /usr/bin/hdiutil detach "$MOUNT" >/dev/null 2>&1 || true
-          /bin/rm -rf "$WORK" || true
-          /bin/rm -f "$SCRIPT" "$LOG" || true
-          exit "$STATUS"
-        }
-        trap cleanup EXIT
-        if [[ ! -d "$MOUNT/Moa.app" ]]; then
-          echo "Moa.app not found in mounted DMG"
-          exit 1
-        fi
-        /usr/bin/codesign --verify --deep --strict "$MOUNT/Moa.app"
-        if ! /usr/bin/codesign -dv --verbose=4 "$MOUNT/Moa.app" 2>&1 | /usr/bin/grep -F "Signature=adhoc" >/dev/null; then
-          /usr/sbin/spctl --assess --type execute "$MOUNT/Moa.app"
-        fi
-        if [[ ! -d "$BACKUP" ]]; then
-          echo "Prepared backup not found: $BACKUP"
-          exit 1
-        fi
-        if [[ -d "$APP" ]]; then
-          /bin/rm -rf "$APP"
-        fi
-        /usr/bin/ditto --noextattr --noacl "$MOUNT/Moa.app" "$APP"
-        /usr/bin/open "$APP"
-        """
+        let script = Self.installerScript
         try script.write(to: scriptURL, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
 
@@ -321,7 +278,8 @@ final class MoaUpdateController {
             backupURL.path,
             logURL.path,
             workDirectory.path,
-            scriptURL.path
+            scriptURL.path,
+            String(ProcessInfo.processInfo.processIdentifier)
         ]
         do {
             try process.run()
@@ -331,6 +289,81 @@ final class MoaUpdateController {
             throw MoaUpdateError.installerLaunchFailed
         }
     }
+
+    static let installerScript = """
+        #!/bin/bash
+        set -euo pipefail
+        DMG="$1"
+        APP="$2"
+        BACKUP="$3"
+        LOG="$4"
+        WORK="$5"
+        SCRIPT="$6"
+        OLD_PID="$7"
+        MOUNT=""
+        STAGED="${APP}.moa-update-new-$$"
+        PREVIOUS="${APP}.moa-update-old-$$"
+        MOVED_OLD=0
+        CREATING_STAGE=0
+        cleanup() {
+          STATUS=$?
+          trap - EXIT
+          RESTORED=1
+          if [[ "$STATUS" -ne 0 && "$MOVED_OLD" -eq 1 ]]; then
+            echo "Installer failed with status $STATUS; restoring previous Moa.app"
+            if ! /bin/rm -rf "$APP" || ! { /bin/mv "$PREVIOUS" "$APP" || /usr/bin/ditto --noextattr --noacl "$BACKUP" "$APP"; }; then
+              RESTORED=0
+              echo "Automatic restore failed; the backup remains at $BACKUP and the previous app may remain at $PREVIOUS"
+            fi
+          fi
+          if [[ -n "$MOUNT" ]]; then /usr/bin/hdiutil detach "$MOUNT" >/dev/null 2>&1 || true; fi
+          if [[ "$CREATING_STAGE" -eq 1 ]]; then /bin/rm -rf "$STAGED" || true; fi
+          /bin/rm -rf "$WORK" || true
+          /bin/rm -f "$SCRIPT" || true
+          if [[ "$STATUS" -ne 0 ]]; then
+            if [[ "$RESTORED" -eq 1 ]] && ! kill -0 "$OLD_PID" 2>/dev/null && [[ -d "$APP" ]]; then /usr/bin/open "$APP" || true; fi
+            /usr/bin/osascript -e 'on run argv' -e 'display alert "Moa update failed" message ("The previous app was kept or restored when possible. Log: " & item 1 of argv & return & "Backup: " & item 2 of argv) as warning' -e 'end run' "$LOG" "$BACKUP" || true
+          else
+            /bin/rm -rf "$PREVIOUS" || true
+            /bin/rm -f "$LOG" || true
+          fi
+          exit "$STATUS"
+        }
+        trap cleanup EXIT
+        exec >"$LOG" 2>&1
+        for attempt in {1..300}; do
+          if ! kill -0 "$OLD_PID" 2>/dev/null; then break; fi
+          /bin/sleep 0.1
+        done
+        if kill -0 "$OLD_PID" 2>/dev/null; then
+          echo "Previous Moa process did not exit"
+          exit 1
+        fi
+        MOUNT="$(/usr/bin/hdiutil attach -nobrowse -readonly "$DMG" | /usr/bin/awk '/\\/Volumes\\// {for (i=3; i<=NF; i++) {printf "%s%s", (i==3 ? "" : " "), $i}; print ""; exit}')"
+        if [[ -z "$MOUNT" ]]; then
+          echo "Unable to mount DMG"
+          exit 1
+        fi
+        if [[ ! -d "$MOUNT/Moa.app" ]]; then
+          echo "Moa.app not found in mounted DMG"
+          exit 1
+        fi
+        /usr/bin/codesign --verify --deep --strict "$MOUNT/Moa.app"
+        if ! /usr/bin/codesign -dv --verbose=4 "$MOUNT/Moa.app" 2>&1 | /usr/bin/grep -F "Signature=adhoc" >/dev/null; then
+          /usr/sbin/spctl --assess --type execute "$MOUNT/Moa.app"
+        fi
+        if [[ ! -d "$BACKUP" ]]; then
+          echo "Prepared backup not found: $BACKUP"
+          exit 1
+        fi
+        [[ ! -e "$STAGED" && ! -L "$STAGED" && ! -e "$PREVIOUS" && ! -L "$PREVIOUS" && -d "$APP" ]]
+        CREATING_STAGE=1
+        /usr/bin/ditto --noextattr --noacl "$MOUNT/Moa.app" "$STAGED"
+        /bin/mv "$APP" "$PREVIOUS"
+        MOVED_OLD=1
+        /bin/mv "$STAGED" "$APP"
+        /usr/bin/open "$APP"
+        """
 
     private static func version(from release: GitHubRelease) -> String {
         let candidates = [release.tagName, release.name].compactMap { $0 }
@@ -343,16 +376,17 @@ final class MoaUpdateController {
     static func releaseInfo(fromAtomFeed feed: String, includePrereleases: Bool = false) throws -> MoaUpdateInfo {
         let regex = try NSRegularExpression(pattern: #"<entry\b[^>]*>(.*?)</entry>"#, options: [.dotMatchesLineSeparators])
         for match in regex.matches(in: feed, range: NSRange(feed.startIndex..<feed.endIndex, in: feed)) {
-            guard let range = Range(match.range(at: 1), in: feed),
-                  let update = try? releaseInfo(fromAtomEntry: String(feed[range])) else { continue }
+            guard let range = Range(match.range(at: 1), in: feed) else { continue }
             // The API's /latest endpoint excludes prereleases. Keep the Atom
             // fallback on that same stable channel instead of promoting an RC.
-            if includePrereleases || versionParts(update.version).prerelease == nil { return update }
+            if let update = try releaseInfo(fromAtomEntry: String(feed[range]), includePrereleases: includePrereleases) {
+                return update
+            }
         }
         throw MoaUpdateError.invalidReleaseResponse
     }
 
-    private static func releaseInfo(fromAtomEntry entry: String) throws -> MoaUpdateInfo {
+    private static func releaseInfo(fromAtomEntry entry: String, includePrereleases: Bool) throws -> MoaUpdateInfo? {
         let link = firstCapture(in: entry, pattern: #"<link\b[^>]*rel="alternate"[^>]*href="([^"]+)""#)
             ?? firstCapture(in: entry, pattern: #"<link\b[^>]*href="([^"]+)""#)
         let title = firstCapture(in: entry, pattern: #"<title>(.*?)</title>"#, options: [.dotMatchesLineSeparators]) ?? ""
@@ -371,6 +405,7 @@ final class MoaUpdateController {
         guard let version = version(fromCandidates: [tag, title, plainText]) else {
             throw MoaUpdateError.invalidReleaseResponse
         }
+        if !includePrereleases, versionParts(version).prerelease != nil { return nil }
 
         let dmgName = dmgAssetName(version: version)
         let checksumName = "\(dmgName).sha256"

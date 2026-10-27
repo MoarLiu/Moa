@@ -1,6 +1,19 @@
 import Foundation
 
 extension ConfigProfileController {
+    func hasInlineProviderRoot(in config: String) -> Bool {
+        tomlEntries(in: config).contains { entry in
+            entry.table.isEmpty && MoaTomlEditor.keyPathComponents(entry.key) == ["model_providers"]
+        }
+    }
+
+    func validateProviderConfigForWrite(_ config: String) throws {
+        guard !hasInlineProviderRoot(in: config) else {
+            throw NSError(domain: "Moa", code: 422, userInfo: [NSLocalizedDescriptionKey:
+                MoaL10n.text("Cannot switch providers while model_providers is an inline TOML table. Expand it into TOML tables first.")])
+        }
+    }
+
     func generateConfig(_ config: String, selecting profile: ConfigProfile) -> String {
         var output = config.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Self.defaultConfig : config
         let providerID = providerID(for: profile, in: output)
@@ -18,9 +31,50 @@ extension ConfigProfileController {
     }
 
     func providerID(for profile: ConfigProfile, in config: String) -> String {
-        let selected = selectedProviderID(in: config)
-        // The built-in OpenAI provider cannot be overridden by a user table.
-        return selected == "openai" ? "moa-custom" : selected
+        let selected = rootTomlStringValue(in: config, key: "model_provider")
+        if let selected, !selected.isEmpty, selected != "openai",
+           !hasDottedProviderEntries(selected, in: config) {
+            return selected
+        }
+
+        // A missing selector means the built-in provider, not the first stored
+        // provider. Dotted assignments also define their table implicitly, so
+        // adding an explicit table of the same name would make TOML invalid.
+        let occupied = providerIDsDefined(in: config)
+        var candidate = "moa-custom"
+        var suffix = 2
+        while occupied.contains(candidate) {
+            candidate = "moa-custom-\(suffix)"
+            suffix += 1
+        }
+        return candidate
+    }
+
+    private func providerIDsDefined(in config: String) -> Set<String> {
+        var ids = Set<String>()
+        for table in tomlTableNames(in: config) {
+            guard let parts = MoaTomlEditor.keyPathComponents(table),
+                  parts.count >= 2, parts[0] == "model_providers" else { continue }
+            ids.insert(parts[1])
+        }
+        for entry in tomlEntries(in: config) {
+            let table = MoaTomlEditor.keyPathComponents(entry.table) ?? []
+            guard let key = MoaTomlEditor.keyPathComponents(entry.key) else { continue }
+            let parts = table + key
+            guard parts.count >= 2, parts[0] == "model_providers" else { continue }
+            ids.insert(parts[1])
+        }
+        return ids
+    }
+
+    private func hasDottedProviderEntries(_ id: String, in config: String) -> Bool {
+        tomlEntries(in: config).contains { entry in
+            let table = MoaTomlEditor.keyPathComponents(entry.table) ?? []
+            guard let key = MoaTomlEditor.keyPathComponents(entry.key) else { return false }
+            let parts = table + key
+            return table.count < 2 && parts.count >= 2
+                && parts[0] == "model_providers" && parts[1] == id
+        }
     }
 
     static func providerIdentifierSlug(_ value: String) -> String {
@@ -171,35 +225,6 @@ extension ConfigProfileController {
         guard let components = MoaTomlEditor.keyPathComponents(table), components.count == 2,
               components[0] == "model_providers", !components[1].isEmpty else { return nil }
         return components[1]
-    }
-
-    func selectedProviderID(in config: String) -> String {
-        let rootProvider = rootTomlStringValue(in: config, key: "model_provider")
-        let providerIDs = providerTableIDs(in: config)
-
-        if let rootProvider, !rootProvider.isEmpty {
-            // TOML keys are case-sensitive, and a built-in provider may not
-            // have a user table. The live selector remains authoritative.
-            return rootProvider
-        }
-
-        if let lowerCaseTable = providerIDs.first(where: { $0 == $0.lowercased() && $0.caseInsensitiveCompare("codex") != .orderedSame }) {
-            return lowerCaseTable
-        }
-
-        if let firstNonDefault = providerIDs.first(where: { $0.caseInsensitiveCompare("codex") != .orderedSame }) {
-            return firstNonDefault
-        }
-
-        if let firstProvider = providerIDs.first {
-            return firstProvider
-        }
-
-        if let rootProvider, !rootProvider.isEmpty {
-            return rootProvider
-        }
-
-        return "Codex"
     }
 
     func providerTableIDs(in text: String) -> [String] {

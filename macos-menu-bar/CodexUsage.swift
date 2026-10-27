@@ -3,7 +3,7 @@ import Foundation
 private typealias CodexUsagePricing = MoaUsagePricing
 
 final class CodexUsageScanner {
-    private static let cacheVersion = 3
+    private static let cacheVersion = 4
 
     private struct TokenCounts: Codable, Equatable {
         var input: Int = 0
@@ -69,6 +69,7 @@ final class CodexUsageScanner {
     private struct Cache: Codable, Equatable {
         var version: Int
         var codexHomePath: String
+        var calendarSignature: String
         var files: [String: CachedFile]
     }
 
@@ -76,6 +77,7 @@ final class CodexUsageScanner {
     private let environment: [String: String]
     private let codexHome: URL
     private let pricingOverrides: MoaUsagePricingOverrideController
+    private let calendarProvider: () -> Calendar
     private let cacheLock = NSLock()
 
     private var cacheURL: URL {
@@ -83,8 +85,9 @@ final class CodexUsageScanner {
             .appendingPathComponent("codex-usage-cache-v3.json")
     }
 
-    init(environment: [String: String] = ProcessInfo.processInfo.environment) {
+    init(environment: [String: String] = ProcessInfo.processInfo.environment, calendarProvider: @escaping () -> Calendar = { .current }) {
         self.environment = environment
+        self.calendarProvider = calendarProvider
         let home = environment["HOME"] ?? NSHomeDirectory()
         let codexHomePath = environment["CODEX_HOME"].flatMap { $0.isEmpty ? nil : $0 } ?? "\(home)/.codex"
         codexHome = URL(fileURLWithPath: codexHomePath).standardizedFileURL
@@ -92,7 +95,8 @@ final class CodexUsageScanner {
     }
 
     func loadSummary(forceRefresh: Bool = false, now: Date = Date()) throws -> CodexUsageSummary {
-        summary(from: try loadReport(forceRefresh: forceRefresh, now: now), now: now)
+        let calendar = calendarProvider()
+        return summary(from: try loadReport(forceRefresh: forceRefresh, now: now, persistCache: true, calendar: calendar), now: now, calendar: calendar)
     }
 
     func loadReport(
@@ -100,6 +104,10 @@ final class CodexUsageScanner {
         now: Date = Date(),
         persistCache: Bool = true
     ) throws -> MoaUsageReport {
+        try loadReport(forceRefresh: forceRefresh, now: now, persistCache: persistCache, calendar: calendarProvider())
+    }
+
+    private func loadReport(forceRefresh: Bool, now: Date, persistCache: Bool, calendar: Calendar) throws -> MoaUsageReport {
         let roots = [
             codexHome.appendingPathComponent("sessions", isDirectory: true),
             codexHome.appendingPathComponent("archived_sessions", isDirectory: true)
@@ -107,8 +115,9 @@ final class CodexUsageScanner {
         let files = sessionFiles(in: roots)
         let validPaths = Set(files.map(\.path))
         var cache = lockedLoadCache()
-        if cache.version != Self.cacheVersion || cache.codexHomePath != codexHome.path {
-            cache = Cache(version: Self.cacheVersion, codexHomePath: codexHome.path, files: [:])
+        let signature = Self.calendarSignature(calendar)
+        if cache.version != Self.cacheVersion || cache.codexHomePath != codexHome.path || cache.calendarSignature != signature {
+            cache = Cache(version: Self.cacheVersion, codexHomePath: codexHome.path, calendarSignature: signature, files: [:])
         }
         let originalCache = cache
 
@@ -125,7 +134,7 @@ final class CodexUsageScanner {
                 continue
             }
 
-            let days = parseSessionFile(fileURL)
+            let days = try parseSessionFile(fileURL, calendar: calendar)
             nextFiles[path] = CachedFile(mtime: metadata.mtime, size: metadata.size, days: days)
         }
 
@@ -160,7 +169,7 @@ final class CodexUsageScanner {
         return (mtime, Int64(size))
     }
 
-    private func parseSessionFile(_ fileURL: URL) -> [String: [String: TokenUsage]] {
+    private func parseSessionFile(_ fileURL: URL, calendar: Calendar) throws -> [String: [String: TokenUsage]] {
         var days: [String: [String: TokenUsage]] = [:]
         var currentModel: String?
         var previousTotals: TokenCounts?
@@ -182,8 +191,7 @@ final class CodexUsageScanner {
             hasUsageRecords = false
         }
 
-        do {
-            try scanLines(fileURL: fileURL) { line in
+        try scanLines(fileURL: fileURL) { line in
                 guard shouldInspect(line) else { return }
                 if line.count > 512 * 1024 {
                     let prefix = Data(line.prefix(1024))
@@ -203,7 +211,7 @@ final class CodexUsageScanner {
                     return
                 }
                 guard let timestamp = object["timestamp"] as? String,
-                      let day = Self.dayKey(from: timestamp) else { return }
+                      let day = Self.dayKey(from: timestamp, calendar: calendar) else { return }
 
                 if type == "token_usage_record" {
                     guard let values = payload["usage"] as? [String: Any],
@@ -252,10 +260,6 @@ final class CodexUsageScanner {
                                                  cacheWrite: previous.cacheWrite + delta.cacheWrite, output: previous.output + delta.output)
                 }
                 legacyEvents.append(PendingUsage(day: day, model: model, counts: delta))
-            }
-        } catch {
-            // Keep complete usage records read before a concurrently changing
-            // file ended or became unavailable.
         }
         flushTurn()
         return days
@@ -354,8 +358,8 @@ final class CodexUsageScanner {
         return MoaUsageReport(rows: Array(buckets.values), generatedAt: now)
     }
 
-    private func summary(from report: MoaUsageReport, now: Date) -> CodexUsageSummary {
-        let todayKey = Self.dayKey(from: now)
+    private func summary(from report: MoaUsageReport, now: Date, calendar: Calendar) -> CodexUsageSummary {
+        let todayKey = Self.dayKey(from: now, calendar: calendar)
         var todayCost = 0.0
         var todayTokens = 0
         var totalCost = 0.0
@@ -405,7 +409,7 @@ final class CodexUsageScanner {
         guard let data = try? Data(contentsOf: cacheURL),
               let decoded = try? JSONDecoder().decode(Cache.self, from: data)
         else {
-            return Cache(version: Self.cacheVersion, codexHomePath: codexHome.path, files: [:])
+            return Cache(version: Self.cacheVersion, codexHomePath: codexHome.path, calendarSignature: Self.calendarSignature(calendarProvider()), files: [:])
         }
         return decoded
     }
@@ -447,13 +451,17 @@ final class CodexUsageScanner {
         return 0
     }
 
-    private static func dayKey(from timestamp: String) -> String? {
-        guard let date = CodexUsageDateParser.parse(timestamp) else { return nil }
-        return dayKey(from: date)
+    private static func calendarSignature(_ calendar: Calendar) -> String {
+        "\(calendar.identifier)|\(calendar.timeZone.identifier)"
     }
 
-    private static func dayKey(from date: Date) -> String {
-        let components = Calendar.current.dateComponents([.year, .month, .day], from: date)
+    private static func dayKey(from timestamp: String, calendar: Calendar) -> String? {
+        guard let date = CodexUsageDateParser.parse(timestamp) else { return nil }
+        return dayKey(from: date, calendar: calendar)
+    }
+
+    private static func dayKey(from date: Date, calendar: Calendar) -> String {
+        let components = calendar.dateComponents([.year, .month, .day], from: date)
         return String(format: "%04d-%02d-%02d", components.year ?? 1970, components.month ?? 1, components.day ?? 1)
     }
 }

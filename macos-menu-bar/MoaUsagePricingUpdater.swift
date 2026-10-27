@@ -184,7 +184,10 @@ final class MoaUsagePricingCatalogStore: @unchecked Sendable {
             if let writtenURL { NotificationCenter.default.post(name: Self.didUpdate, object: writtenURL) }
         }
 
-        let current = loadSnapshotIfNeeded()
+        // Read the current catalog under the store lock before writing. A
+        // transient read or decode failure must never turn a merge into a
+        // replacement that silently discards the existing models.
+        let current = try readSnapshot(at: catalogURL)
         var mergedModels = current?.models ?? [:]
         var modelDates = current?.modelFetchedAt
             ?? current?.models.mapValues { $0.mapValues { _ in current?.fetchedAt ?? .distantPast } } ?? [:]
@@ -279,21 +282,37 @@ final class MoaUsagePricingCatalogStore: @unchecked Sendable {
         }
 
         let modifiedAt = modificationDate(of: url)
-        lastFileCheckAt = now
-        if cachedURL == url, cachedModifiedAt == modifiedAt {
+        if cachedURL == url, cachedModifiedAt == modifiedAt, cachedSnapshot != nil {
+            lastFileCheckAt = now
             return cachedSnapshot
         }
 
-        cachedURL = url
-        cachedModifiedAt = modifiedAt
-        guard let data = try? Data(contentsOf: url),
-              let snapshot = try? decoder.decode(MoaUsagePricingCatalogSnapshot.self, from: data),
-              snapshot.version == MoaUsagePricingCatalogSnapshot.currentVersion
-        else {
-            cachedSnapshot = nil
+        do {
+            let snapshot = try readSnapshot(at: url)
+            cachedURL = url
+            cachedModifiedAt = modifiedAt
+            lastFileCheckAt = now
+            cachedSnapshot = snapshot
+            return snapshot
+        } catch {
+            // Retry on the next lookup, including when permissions change
+            // without updating the file's modification date.
+            lastFileCheckAt = nil
+            return cachedURL == url ? cachedSnapshot : nil
+        }
+    }
+
+    private func readSnapshot(at url: URL) throws -> MoaUsagePricingCatalogSnapshot? {
+        let data: Data
+        do {
+            data = try Data(contentsOf: url)
+        } catch let error as NSError where error.domain == NSCocoaErrorDomain && error.code == NSFileReadNoSuchFileError {
             return nil
         }
-        cachedSnapshot = snapshot
+        let snapshot = try decoder.decode(MoaUsagePricingCatalogSnapshot.self, from: data)
+        guard snapshot.version == MoaUsagePricingCatalogSnapshot.currentVersion else {
+            throw NSError(domain: "MoaPricingCatalog", code: 1, userInfo: [NSLocalizedDescriptionKey: MoaL10n.text("The saved pricing catalog has an unsupported version.")])
+        }
         return snapshot
     }
 

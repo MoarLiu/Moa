@@ -4,9 +4,18 @@ import Foundation
 
 private enum CodexAppError: LocalizedError {
     case clientStillRunning
+    case migrationProcessesRunning
+    case processCheckFailed
 
     var errorDescription: String? {
-        MoaL10n.text("ChatGPT could not be closed. Finish the active task and try again.")
+        switch self {
+        case .clientStillRunning:
+            return MoaL10n.text("ChatGPT could not be closed. Finish the active task and try again.")
+        case .migrationProcessesRunning:
+            return MoaL10n.text("Close all ChatGPT and Codex desktop and CLI instances before migrating history, and keep them closed until migration completes.")
+        case .processCheckFailed:
+            return MoaL10n.text("Could not check for running Codex processes. History migration was stopped.")
+        }
     }
 }
 
@@ -51,6 +60,32 @@ final class CodexAppController: Sendable {
 
     func quitCodex() throws {
         guard quitCodexIfNeeded() else { throw CodexAppError.clientStillRunning }
+    }
+
+    func verifyHistoryMigrationQuiescence() throws {
+        guard NSRunningApplication.runningApplications(withBundleIdentifier: CodexDesktopApplication.bundleIdentifier).isEmpty else {
+            throw CodexAppError.migrationProcessesRunning
+        }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/ps")
+        process.arguments = ["-u", String(getuid()), "-o", "comm="]
+        let output = Pipe()
+        process.standardOutput = output
+        process.standardError = FileHandle.nullDevice
+        do { try process.run() } catch { throw CodexAppError.processCheckFailed }
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0, let commands = String(data: data, encoding: .utf8) else {
+            throw CodexAppError.processCheckFailed
+        }
+        if commands.split(separator: "\n").contains(where: { Self.isCodexProcessCommand(String($0)) }) {
+            throw CodexAppError.migrationProcessesRunning
+        }
+    }
+
+    static func isCodexProcessCommand(_ command: String) -> Bool {
+        let name = URL(fileURLWithPath: command.trimmingCharacters(in: .whitespacesAndNewlines)).lastPathComponent.lowercased()
+        return name == "codex" || name == "codex-cli" || name.hasPrefix("codex-")
     }
 
     func openCodex() {

@@ -297,7 +297,11 @@ extension ConfigProfileController {
                 try backupCodexFiles()
                 let deleted = database.accounts.remove(at: index)
                 let deletedAuthURL = try officialAuthURL(for: deleted)
-                try? fileManager.removeItem(at: deletedAuthURL)
+                do {
+                    try fileManager.removeItem(at: deletedAuthURL)
+                } catch let error as CocoaError where error.code == .fileNoSuchFile {
+                    // A previously removed copy does not prevent forgetting it.
+                }
 
                 let activated: CodexOfficialAccount?
                 if deletesLiveLogin, !database.accounts.isEmpty {
@@ -552,6 +556,7 @@ extension ConfigProfileController {
     func noAccountConfig(from currentConfig: String, profileDatabase: inout ProfileDatabase) throws -> String {
         if let selectedID = profileDatabase.selectedProfileID,
            let selectedIndex = profileDatabase.profiles.firstIndex(where: { $0.id == selectedID }) {
+            try validateProviderConfigForWrite(currentConfig)
             let prepared = try preparedProfileForApply(profileDatabase.profiles[selectedIndex])
             profileDatabase.profiles[selectedIndex] = prepared
             return generateConfig(currentConfig, selecting: prepared)
@@ -562,6 +567,7 @@ extension ConfigProfileController {
             return currentConfig
         }
 
+        try validateProviderConfigForWrite(currentConfig)
         let prepared = try preparedProfileForApply(profileDatabase.profiles[firstDirectProfileIndex])
         profileDatabase.profiles[firstDirectProfileIndex] = prepared
         profileDatabase.selectedProfileID = prepared.id

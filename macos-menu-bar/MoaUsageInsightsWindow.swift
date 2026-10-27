@@ -288,10 +288,10 @@ private final class MoaUsageInsightsViewModel: ObservableObject {
             CustomPriceFormView(
                 title: "\(row.source.title) · \(row.model)",
                 canRemove: existing != nil,
-                initialInput: existing.map { String(format: "%.4f", $0.inputUSDPerMillion) } ?? "",
-                initialOutput: existing.map { String(format: "%.4f", $0.outputUSDPerMillion) } ?? "",
-                initialCacheRead: existing?.cacheReadUSDPerMillion.map { String(format: "%.4f", $0) } ?? "",
-                initialCacheCreation: existing?.cacheCreationUSDPerMillion.map { String(format: "%.4f", $0) } ?? "",
+                initialInput: existing.map { String($0.inputUSDPerMillion) } ?? "",
+                initialOutput: existing.map { String($0.outputUSDPerMillion) } ?? "",
+                initialCacheRead: existing?.cacheReadUSDPerMillion.map { String($0) } ?? "",
+                initialCacheCreation: existing?.cacheCreationUSDPerMillion.map { String($0) } ?? "",
                 onSave: { input, output, cacheRead, cacheCreation in
                     action = .save(input: input, output: output, cacheRead: cacheRead, cacheCreation: cacheCreation)
                     MoaGlassModalHost.finish(.OK)
@@ -736,15 +736,20 @@ private struct CustomPriceFormView: View {
     }
 
     private func save() {
-        let input = Double(inputText.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
-        let output = Double(outputText.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
-        guard input > 0 || output > 0 else {
+        do {
+            let prices = try MoaCustomPrices.parse(input: inputText, output: outputText, cacheRead: cacheReadText, cacheCreation: cacheCreationText)
+            onSave(prices.input, prices.output, prices.cacheRead, prices.cacheCreation)
+        } catch MoaCustomPriceError.invalidField(let field) {
+            statusText = MoaL10n.text("Enter a nonnegative finite number for each price.")
+            switch field {
+            case .input: focusedField = .input
+            case .output: focusedField = .output
+            case .cacheRead: focusedField = .cacheRead
+            case .cacheCreation: focusedField = .cacheCreation
+            }
+        } catch {
             statusText = MoaL10n.text("Enter a positive input or output price.")
             focusedField = .input
-            return
         }
-        let cacheRead = Double(cacheReadText.trimmingCharacters(in: .whitespacesAndNewlines))
-        let cacheCreation = Double(cacheCreationText.trimmingCharacters(in: .whitespacesAndNewlines))
-        onSave(input, output, cacheRead, cacheCreation)
     }
 }

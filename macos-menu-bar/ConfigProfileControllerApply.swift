@@ -21,6 +21,7 @@ extension ConfigProfileController {
                 try backupCodexFiles()
 
                 let currentConfig = try syncedMoaConfig()
+                try validateProviderConfigForWrite(currentConfig)
                 let generatedConfig = generateConfig(currentConfig, selecting: profile)
                 try writeText(generatedConfig, to: moaConfigURL)
                 try writeText(generatedConfig, to: codexConfigURL)
@@ -142,15 +143,14 @@ extension ConfigProfileController {
         let config = (try? String(contentsOf: codexConfigURL, encoding: .utf8))
             ?? (try? String(contentsOf: moaConfigURL, encoding: .utf8))
             ?? ""
-        let providerID = rootTomlStringValue(in: config, key: "model_provider") ?? "Current Codex"
+        guard let providerID = rootTomlStringValue(in: config, key: "model_provider"),
+              !providerID.isEmpty, providerID != "openai" else { return }
         let providerTable = MoaTomlEditor.keyPath(["model_providers", providerID])
         let baseURL = tomlStringValue(in: config, table: providerTable, key: "base_url")
-            ?? firstTomlStringValue(in: config, key: "base_url")
             ?? ""
         let apiKey = authAPIKeyValue(readAuthJSON(from: codexAuthURL)["OPENAI_API_KEY"])
             ?? tomlStringValue(in: config, table: providerTable, key: "experimental_bearer_token")
             ?? tomlStringValue(in: config, table: providerTable, key: "ANTHROPIC_AUTH_TOKEN")
-            ?? firstTomlStringValue(in: config, key: "experimental_bearer_token")
             ?? ""
         guard let validatedBaseURL = try? Self.validatedProfileBaseURL(baseURL) else { return }
 

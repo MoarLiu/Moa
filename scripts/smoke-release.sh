@@ -11,6 +11,13 @@ MACOS="$CONTENTS/MacOS"
 RESOURCES="$CONTENTS/Resources"
 EXECUTABLE="$MACOS/$APP_NAME"
 
+if [[ -z "${DEVELOPER_DIR:-}" ]] &&
+   [[ "$(/usr/bin/xcode-select -p 2>/dev/null || true)" == "/Library/Developer/CommandLineTools" ]] &&
+   [[ -d "/Applications/Xcode.app/Contents/Developer" ]]; then
+  export DEVELOPER_DIR="/Applications/Xcode.app/Contents/Developer"
+  echo "Using full Xcode toolchain for SwiftUI macro support: $DEVELOPER_DIR" >&2
+fi
+
 fail() {
   echo "smoke-release: $*" >&2
   exit 1
@@ -93,5 +100,6 @@ if find "$APP" \( \
 fi
 
 "$ROOT/scripts/run-tests.sh"
+/usr/bin/xcrun swift test --package-path "$ROOT" --scratch-path "$ROOT/build/swift-tests" --no-parallel
 
 echo "Smoke release checks passed for $APP"
