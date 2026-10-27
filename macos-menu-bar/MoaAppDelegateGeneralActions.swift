@@ -308,12 +308,14 @@ extension AppDelegate {
     }
 
     @objc func reopenCodexAction() {
+        guard let token = accountOperations.begin(.codex, message: MoaL10n.text("Reopening Codex...")) else { return }
         statusItemText.title = Self.statusTitle("Reopening Codex...")
 
         DispatchQueue.global(qos: .userInitiated).async {
             self.controller.reopenCodex()
 
             DispatchQueue.main.async {
+                self.accountOperations.finish(.codex, id: token)
                 self.refreshStatus()
             }
         }

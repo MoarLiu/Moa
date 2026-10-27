@@ -8,6 +8,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let claudeDesktopProfileController = ClaudeDesktopProfileController()
     let zcodeController = ZCodeController()
     lazy var usageCoordinator = MoaUsageCoordinator()
+    lazy var codexEnhancements = CodexEnhancementCoordinator(controller: controller, operations: accountOperations)
     lazy var workbuddyCoordinator = MoaWorkBuddyCoordinator(app: self, edition: .international)
     lazy var workbuddyCNCoordinator = MoaWorkBuddyCoordinator(app: self, edition: .china)
     lazy var deepseekCoordinator = MoaDeepSeekCoordinator(app: self)
@@ -89,6 +90,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         refreshStatus()
         configureUsageAlertCallbacks()
         usageCoordinator.start()
+        codexEnhancements.start()
     }
 
     private func configureUsageAlertCallbacks() {
@@ -130,6 +132,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        codexEnhancements.stop()
         usageCoordinator.stop()
     }
 

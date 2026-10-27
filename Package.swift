@@ -14,6 +14,7 @@ let package = Package(
         .executableTarget(
             name: "Moa",
             path: "macos-menu-bar",
+            resources: [.copy("Resources")],
             swiftSettings: [.define("MOA_TEST_SUPPORT", .when(configuration: .debug))],
             linkerSettings: [
                 .linkedFramework("ApplicationServices"),

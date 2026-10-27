@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.6.0 - 2026-10-27
+
+- Added an opt-in Codex generation-rate status line with incremental local usage reading, mirrored-event deduplication, optional request/context and cache metrics, and a below-composer compatibility layout.
+- Added a loopback-only enhancement launch mode and isolated display script, with graceful restart, verified launch ownership, timeout recovery and stale-display cleanup. Provider routing and historical billing calculations remain independent.
+- Added log replay, local WebSocket and isolated HTML tests. The status line was also manually verified in one installed client version; compatibility varies by client version and layout.
+- Clarified recovery after a refused client quit, allowed more time for graceful shutdown, excluded auxiliary prewarm/overlay pages, and supported composer placement markers on inner forms.
+- Displayed the input cache hit rate to two decimal places.
+
 ## 1.5.1 - 2026-10-27
 
 - Hardened Codex history migration with client-process checks, consistent SQLite backups, transactional index updates, and conflict-aware rollback. Keep all Codex instances closed until migration finishes.

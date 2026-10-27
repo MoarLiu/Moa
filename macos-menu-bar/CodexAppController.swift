@@ -45,16 +45,34 @@ enum CodexDesktopApplication {
 }
 
 /// Client lifecycle only. Configuration preferences remain owned by Codex.
-final class CodexAppController: Sendable {
+final class CodexAppController: @unchecked Sendable {
     private let environment: [String: String]
+    private let enhancementRuntime: CodexEnhancementRuntime
+    private let defaults: UserDefaults
     private var codexApp: URL? { CodexDesktopApplication.applicationURL(environment: environment) }
 
-    init(environment: [String: String] = ProcessInfo.processInfo.environment) {
+    init(environment: [String: String] = ProcessInfo.processInfo.environment,
+         defaults: UserDefaults = .standard, enhancementRuntime: CodexEnhancementRuntime = .shared) {
         self.environment = environment
+        self.defaults = defaults
+        self.enhancementRuntime = enhancementRuntime
     }
 
     func reopenCodex() {
+        if CodexStatusLineSettings(defaults: defaults).enabled || enhancementRuntime.launch != nil {
+            reopenCodexSafely()
+            return
+        }
         guard quitCodexIfNeeded() else { return }
+        openCodexIfAvailable()
+    }
+
+    /// Enabling a display feature must never force-terminate an active client.
+    func reopenCodexSafely() {
+        guard quitCodexIfNeeded(allowForce: false) else {
+            enhancementRuntime.recordError(CodexEnhancementError.clientRunning)
+            return
+        }
         openCodexIfAvailable()
     }
 
@@ -93,17 +111,26 @@ final class CodexAppController: Sendable {
     }
 
     @discardableResult
-    private func quitCodexIfNeeded() -> Bool {
+    private func quitCodexIfNeeded(allowForce: Bool = true) -> Bool {
         let applications = runningCodexApplications()
         guard !applications.isEmpty else { return true }
         applications.forEach { _ = $0.terminate() }
-        if waitForCodexRunning(false, timeout: 4) { return true }
+        if waitForCodexRunning(false, timeout: allowForce ? 4 : 12) { return true }
+        guard allowForce else { return false }
         runningCodexApplications().forEach { _ = $0.forceTerminate() }
         return waitForCodexRunning(false, timeout: 3)
     }
 
     private func openCodexIfAvailable() {
-        guard let codexApp else { return }
+        guard let codexApp else {
+            if CodexStatusLineSettings(defaults: defaults).enabled { enhancementRuntime.recordError(CodexEnhancementError.unavailable) }
+            return
+        }
+        if CodexStatusLineSettings(defaults: defaults).enabled && !isCodexRunning() {
+            do { try enhancementRuntime.start(app: codexApp, environment: environment) }
+            catch { enhancementRuntime.recordError(error) }
+            return
+        }
         _ = run("/usr/bin/open", [codexApp.path])
     }
 

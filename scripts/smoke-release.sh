@@ -54,6 +54,9 @@ require_file "$RESOURCES/AppIcon.icns"
 require_file "$RESOURCES/MoaMenuBarIcon.png"
 require_file "$RESOURCES/en.lproj/Localizable.strings"
 require_file "$RESOURCES/zh-Hans.lproj/Localizable.strings"
+require_file "$RESOURCES/CodexStatusLine.js"
+cmp -s "$ROOT/macos-menu-bar/Resources/CodexStatusLine.js" "$RESOURCES/CodexStatusLine.js" ||
+  fail "bundled Codex status-line script differs from the source"
 require_absent "$MACOS/MoaMCP"
 
 plist_value() {

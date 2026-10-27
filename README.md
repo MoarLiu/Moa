@@ -1,5 +1,13 @@
 # Moa
 
+Experimental Codex generation-rate status line: enable **Codex → Show Generation Rate (Estimated)**, finish active tasks, then choose **Status Line Settings → Reopen ChatGPT to Apply**. It is off by default. Optional controls show request tokens/context estimates, input cache hits, or use a layout below the composer. A refused quit stops the enhancement restart rather than force-terminating the client.
+
+If the status says the client could not close, wait for this response and other active tasks to finish, quit ChatGPT with Command-Q, then use **Moa → Codex → Open Codex**. Opening from the Dock does not add Moa's enhancement arguments. Hidden quick-chat prewarm and pet windows are excluded when finding the main chat page.
+
+The indicator estimates throughput from adjacent local usage records in the same turn, using a time-weighted average of the last three valid intervals. It includes waits and tool time and updates after usage is recorded; it is not a per-token measurement of a single streaming response. The first sample shows `--`. Context usage is the latest request's token count divided by the window recorded in the log.
+
+Moa launches the official client with a loopback debug connection and adds an isolated display script; it does not patch the app, change provider routing, or run a proxy/HTTP service. Only the process launched by this Moa instance and a single unambiguous main page are supported. After restarting Moa, reopen the client through Moa again. `CODEX_HOME` must point to that client's actual local logs. Turning the feature off removes the display; reopen normally to remove the process-level debug listener. Isolated log, WebSocket and HTML tests cover the implementation, and a preview was manually verified with one installed client version; compatibility can vary by client version and layout.
+
 Moa is a macOS menu bar app for ChatGPT (formerly Codex Desktop), Claude Desktop, ZCode, WorkBuddy, WorkBuddy AI International, and DeepSeek Harness workflows.
 
 It intentionally excludes the original Moa Companion surface: no desktop pet, AI quick actions, reminders, journal, Pomodoro, MCP helper, workflow runner, asset upload, dashboard, skins, or sounds.

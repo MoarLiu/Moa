@@ -467,3 +467,25 @@
 
 "Scroll horizontally for additional columns and price settings." = "横向滚动可查看其余列和价格设置。";
 "Cannot switch providers while model_providers is an inline TOML table. Expand it into TOML tables first." = "无法切换服务商：model_providers 是 TOML 内联表。请先将其展开为 TOML 表。";
+
+/* Codex generation rate */
+"Show Generation Rate (Estimated)" = "显示生成速率（估算）";
+"Status Line Settings" = "状态栏设置";
+"Show Request Tokens and Context" = "显示请求 Token 与上下文估计";
+"Show Input Cache Hit Rate" = "显示输入缓存命中率";
+"Use Layout Below the Composer" = "在输入框下方显示（兼容布局）";
+"Reopen ChatGPT to Apply" = "重新打开 ChatGPT 以应用";
+"Uses a local debug connection; finish active tasks before reopening." = "通过本机调试连接显示；重新打开前请先结束活动任务。";
+"Status line: off" = "状态栏：已关闭";
+"Status line: off; reopen to restore normal launch" = "状态栏：已关闭；重开客户端可恢复普通启动";
+"Status line: waiting for ChatGPT to reopen through Moa" = "状态栏：等待通过 Moa 重新打开 ChatGPT";
+"Status line: could not verify the local client connection" = "状态栏：无法验证本机客户端连接";
+"Status line: client connection interrupted" = "状态栏：客户端连接已断开";
+"Status line: client connection timed out" = "状态栏：客户端连接超时";
+"Status line: display resource is missing" = "状态栏：缺少显示资源";
+"Status line: main chat window unavailable or ambiguous" = "状态栏：主聊天窗口不可用或存在多个窗口";
+"Status line: connected; waiting for a local chat" = "状态栏：已连接，等待本机聊天";
+"Status line: layout unsupported; try the below-composer layout" = "状态栏：布局不兼容，请尝试在输入框下方显示";
+"Status line: enabled" = "状态栏：已启用";
+"Status line: no local usage record for this chat" = "状态栏：未找到此聊天的本地用量记录";
+"Status line: quit ChatGPT manually, then choose Open Codex in Moa" = "状态栏：请手动退出 ChatGPT，再从 Moa 选择“打开 Codex”";

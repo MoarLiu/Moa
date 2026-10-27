@@ -234,6 +234,9 @@ final class MoaMainMenuCoordinator {
         app.codexProfilesMenu.addItem(app.codexUsageDetailsItem)
         app.codexProfilesMenu.addItem(NSMenuItem.separator())
 
+        for item in app.codexEnhancements.menuItems { app.codexProfilesMenu.addItem(item) }
+        app.codexProfilesMenu.addItem(NSMenuItem.separator())
+
         app.codexOfficialMenu.removeAllItems()
         app.codexOfficialMenu.autoenablesItems = false
         app.codexOfficialMenu.title = MoaL10n.text("Codex Official")

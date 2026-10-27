@@ -128,6 +128,8 @@ MACOSX_DEPLOYMENT_TARGET="$MACOS_DEPLOYMENT_TARGET" "$SWIFTC_BIN" \
 chmod 755 "$EXECUTABLE"
 check_mach_o_deployment_target "$EXECUTABLE"
 
+/bin/cp -X "$ROOT/macos-menu-bar/Resources/CodexStatusLine.js" "$RESOURCES/CodexStatusLine.js"
+
 if [[ -f "$ROOT/assets/moa-icon.icns" ]]; then
   /bin/cp -X "$ROOT/assets/moa-icon.icns" "$RESOURCES/AppIcon.icns"
 fi
