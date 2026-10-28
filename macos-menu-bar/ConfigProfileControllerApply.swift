@@ -86,7 +86,7 @@ extension ConfigProfileController {
 
     func ensureStore() throws {
         try stateLock.withLock {
-            try fileManager.createDirectory(at: moaHome, withIntermediateDirectories: true)
+            try MoaSecureFile.ensurePrivateDirectory(moaHome)
             try fileManager.createDirectory(at: codexHome, withIntermediateDirectories: true)
 
             if !fileManager.fileExists(atPath: moaConfigURL.path) {
@@ -112,7 +112,7 @@ extension ConfigProfileController {
     }
 
     func ensureOfficialAccountStore() throws {
-        try fileManager.createDirectory(at: officialAuthAccountsDir, withIntermediateDirectories: true)
+        try MoaSecureFile.ensurePrivateDirectory(officialAuthAccountsDir)
         guard !fileManager.fileExists(atPath: officialAccountsDatabaseURL.path) else {
             return
         }

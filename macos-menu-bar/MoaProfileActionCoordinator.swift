@@ -118,28 +118,23 @@ final class MoaProfileActionCoordinator {
         guard let token = app.accountOperations.begin(.codex, message: MoaL10n.text("Saving…")) else { return }
         DispatchQueue.global(qos: .userInitiated).async {
             let result = Result {
-                let updated = try self.profileController.updateProfile(
-                    id: profile.id,
-                    name: input.name,
-                    baseURL: input.baseURL,
-                    apiKey: input.apiKey
-                )
-                return try self.profileController.applyProfile(id: updated.id)
-            }
-
-            switch result {
-            case .success:
-                self.controller.reopenCodex()
-            case .failure:
-                break
+                try self.controller.changeConfiguration {
+                    let updated = try self.profileController.updateProfile(
+                        id: profile.id,
+                        name: input.name,
+                        baseURL: input.baseURL,
+                        apiKey: input.apiKey
+                    )
+                    return try self.profileController.applyProfile(id: updated.id)
+                }
             }
 
             DispatchQueue.main.async {
                 self.app.accountOperations.finish(.codex, id: token)
                 self.app.accountManagerWindow.refreshIfVisible()
+                self.rebuildCodexProviderMenus()
                 switch result {
                 case .success(let updated):
-                    self.rebuildCodexProviderMenus()
                     self.refreshStatus()
                     self.statusItemText.title = AppDelegate.statusTitle("Updated %@", updated.name)
                 case .failure(let error):
@@ -492,23 +487,18 @@ final class MoaProfileActionCoordinator {
         guard let token = app.accountOperations.begin(.codex, message: MoaL10n.text("Switching…")) else { return }
         DispatchQueue.global(qos: .userInitiated).async {
             let result = Result {
-                try self.profileController.restoreOfficial()
-                return self.profileController.selectedOfficialAccountName()
-            }
-
-            switch result {
-            case .success:
-                self.controller.reopenCodex()
-            case .failure:
-                break
+                try self.controller.changeConfiguration {
+                    try self.profileController.restoreOfficial()
+                    return self.profileController.selectedOfficialAccountName()
+                }
             }
 
             DispatchQueue.main.async {
                 self.app.accountOperations.finish(.codex, id: token)
                 self.app.accountManagerWindow.refreshIfVisible()
+                self.rebuildCodexProviderMenus()
                 switch result {
                 case .success(let accountName):
-                    self.rebuildCodexProviderMenus()
                     self.refreshStatus()
                     if let accountName {
                         self.statusItemText.title = AppDelegate.statusTitle("Codex Official · %@ · Reopened", accountName)
@@ -531,22 +521,17 @@ final class MoaProfileActionCoordinator {
         guard let token = app.accountOperations.begin(.codex, message: MoaL10n.text("Switching…")) else { return }
         DispatchQueue.global(qos: .userInitiated).async {
             let result = Result {
-                try self.profileController.applyOfficialNoAccountMode()
-            }
-
-            switch result {
-            case .success:
-                self.controller.reopenCodex()
-            case .failure:
-                break
+                try self.controller.changeConfiguration {
+                    try self.profileController.applyOfficialNoAccountMode()
+                }
             }
 
             DispatchQueue.main.async {
                 self.app.accountOperations.finish(.codex, id: token)
                 self.app.accountManagerWindow.refreshIfVisible()
+                self.rebuildCodexProviderMenus()
                 switch result {
                 case .success(let account):
-                    self.rebuildCodexProviderMenus()
                     self.refreshStatus()
                     if let account {
                         self.statusItemText.title = AppDelegate.statusTitle("Codex Official · %@ · Reopened", account.displayTitle)
@@ -570,22 +555,17 @@ final class MoaProfileActionCoordinator {
         guard let token = app.accountOperations.begin(.codex, message: MoaL10n.text("Switching…")) else { return }
         DispatchQueue.global(qos: .userInitiated).async {
             let result = Result {
-                try self.profileController.applyOfficialAccount(id: id)
-            }
-
-            switch result {
-            case .success:
-                self.controller.reopenCodex()
-            case .failure:
-                break
+                try self.controller.changeConfiguration {
+                    try self.profileController.applyOfficialAccount(id: id)
+                }
             }
 
             DispatchQueue.main.async {
                 self.app.accountOperations.finish(.codex, id: token)
                 self.app.accountManagerWindow.refreshIfVisible()
+                self.rebuildCodexProviderMenus()
                 switch result {
                 case .success:
-                    self.rebuildCodexProviderMenus()
                     self.refreshStatus()
                     self.statusItemText.title = AppDelegate.statusTitle("Codex · %@ · Reopened", self.currentCodexSelectionName())
                 case .failure(let error):
@@ -677,22 +657,17 @@ final class MoaProfileActionCoordinator {
         guard let token = app.accountOperations.begin(.codex, message: MoaL10n.text("Deleting…")) else { return }
         DispatchQueue.global(qos: .userInitiated).async {
             let result = Result {
-                try self.profileController.deleteSelectedOfficialAccount()
-            }
-
-            switch result {
-            case .success:
-                self.controller.reopenCodex()
-            case .failure:
-                break
+                try self.controller.changeConfiguration(if: try self.profileController.loadOfficialAccountDatabase().accounts.count > 1 && self.profileController.currentLiveOfficialAccountID() == account.id) {
+                    try self.profileController.deleteSelectedOfficialAccount()
+                }
             }
 
             DispatchQueue.main.async {
                 self.app.accountOperations.finish(.codex, id: token)
                 self.app.accountManagerWindow.refreshIfVisible()
+                self.rebuildCodexProviderMenus()
                 switch result {
                 case .success(let result):
-                    self.rebuildCodexProviderMenus()
                     self.refreshStatus()
                     if let activated = result.activated {
                         self.statusItemText.title = AppDelegate.statusTitle("Deleted %@ · Using %@", result.deleted.name, activated.name)
@@ -716,22 +691,17 @@ final class MoaProfileActionCoordinator {
         guard let token = app.accountOperations.begin(.codex, message: MoaL10n.text("Switching…")) else { return }
         DispatchQueue.global(qos: .userInitiated).async {
             let result = Result {
-                try self.profileController.applyProfile(id: id)
-            }
-
-            switch result {
-            case .success:
-                self.controller.reopenCodex()
-            case .failure:
-                break
+                try self.controller.changeConfiguration {
+                    try self.profileController.applyProfile(id: id)
+                }
             }
 
             DispatchQueue.main.async {
                 self.app.accountOperations.finish(.codex, id: token)
                 self.app.accountManagerWindow.refreshIfVisible()
+                self.rebuildCodexProviderMenus()
                 switch result {
                 case .success(let profile):
-                    self.rebuildCodexProviderMenus()
                     self.refreshStatus()
                     self.statusItemText.title = AppDelegate.statusTitle("Using %@", profile.name)
                 case .failure(let error):

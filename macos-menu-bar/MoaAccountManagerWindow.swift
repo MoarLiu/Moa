@@ -323,9 +323,10 @@ final class MoaAccountManagerModel: ObservableObject {
             let applyToCurrent = (try? app.profileController.selectedProfileID()) == id
             guard !applyToCurrent || confirmLiveEdit(row, MoaL10n.text("Codex quits and reopens, so finish active tasks first.")) else { return }
             run(row.group, MoaL10n.text("Saving…")) {
-                let applied = try self.app.profileController.updateProfileApplyingIfSelected(
-                    id: id, name: input.name, baseURL: input.baseURL, apiKey: input.apiKey, applyToCurrent: applyToCurrent)
-                if applied { self.app.controller.reopenCodex() }
+                try self.app.controller.changeConfiguration(if: applyToCurrent) {
+                    _ = try self.app.profileController.updateProfileApplyingIfSelected(
+                        id: id, name: input.name, baseURL: input.baseURL, apiKey: input.apiKey, applyToCurrent: applyToCurrent)
+                }
             }
         case .claude:
             guard let profile = try? app.claudeDesktopProfileController.profiles().first(where: { $0.id == row.id }),
@@ -356,8 +357,11 @@ final class MoaAccountManagerModel: ObservableObject {
         run(row.group, MoaL10n.text("Deleting…")) {
             switch row.group {
             case .codexOfficial:
-                let result = try self.app.profileController.deleteOfficialAccount(id: row.id)
-                if result.activated != nil { self.app.controller.reopenCodex() }
+                let switchesLogin = try self.app.profileController.loadOfficialAccountDatabase().accounts.count > 1
+                    && self.app.profileController.currentLiveOfficialAccountID() == row.id
+                try self.app.controller.changeConfiguration(if: switchesLogin) {
+                    _ = try self.app.profileController.deleteOfficialAccount(id: row.id)
+                }
             case .codexConfig:
                 _ = try self.app.profileController.deleteProfile(id: row.id)
             case .claude:
@@ -403,11 +407,13 @@ final class MoaAccountManagerModel: ObservableObject {
         run(row.group, MoaL10n.text("Switching…")) {
             switch row.group {
             case .codexOfficial:
-                _ = try self.app.profileController.applyOfficialAccount(id: row.id)
-                self.app.controller.reopenCodex()
+                try self.app.controller.changeConfiguration {
+                    _ = try self.app.profileController.applyOfficialAccount(id: row.id)
+                }
             case .codexConfig:
-                _ = try self.app.profileController.applyProfile(id: row.id)
-                self.app.controller.reopenCodex()
+                try self.app.controller.changeConfiguration {
+                    _ = try self.app.profileController.applyProfile(id: row.id)
+                }
             case .claude:
                 _ = try self.app.claudeDesktopProfileController.applyProfile(id: row.id)
                 self.app.claudeDesktopProfileController.reopenClaudeDesktop()

@@ -62,7 +62,7 @@ enum ProviderConnectionTester {
         let responsesBody: [String: Any] = [
             "model": model,
             "input": "ping",
-            "max_output_tokens": 1
+            "max_output_tokens": 16
         ]
 
         let endpoint = try await postJSON(
@@ -156,7 +156,7 @@ enum ProviderConnectionTester {
             throw ProviderConnectionTestError.noReachableEndpoint(MoaL10n.text("The connection test did not receive a valid response."))
         }
         guard (200..<300).contains(httpResponse.statusCode) else {
-            throw ProviderConnectionTestError.requestFailed(httpResponse.statusCode, errorMessage(from: data))
+            throw ProviderConnectionTestError.requestFailed(httpResponse.statusCode, String(errorMessage(from: data).prefix(300)))
         }
     }
 
@@ -179,7 +179,7 @@ enum ProviderConnectionTester {
     }
 
     private static func shouldTryNextEndpointCandidate(forHTTPStatus status: Int) -> Bool {
-        status == 400 || status == 404 || status == 405
+        status == 404 || status == 405
     }
 
     private static func deduplicated(_ urls: [URL]) -> [URL] {

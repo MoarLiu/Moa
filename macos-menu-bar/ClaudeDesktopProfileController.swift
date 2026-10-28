@@ -445,8 +445,7 @@ final class ClaudeDesktopProfileController {
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
             let data = try encoder.encode(database)
-            try data.write(to: databaseURL, options: .atomic)
-            try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: databaseURL.path)
+            try MoaSecureFile.write(data, to: databaseURL)
             cachedDatabase = database
             cachedDatabaseModified = (try? fileManager.attributesOfItem(atPath: databaseURL.path))?[.modificationDate] as? Date
             cachedDatabaseURLPath = databaseURL.standardizedFileURL.path
@@ -651,14 +650,13 @@ final class ClaudeDesktopProfileController {
     private func writeJSONObject(_ object: [String: Any], to url: URL) throws {
         let data = try JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys])
         try writeData(data, to: url)
-        try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
     }
 
     private func writeData(_ data: Data, to url: URL) throws {
         if let parent = url.deletingLastPathComponent().path.isEmpty ? nil : url.deletingLastPathComponent() {
             try fileManager.createDirectory(at: parent, withIntermediateDirectories: true)
         }
-        try data.write(to: url, options: .atomic)
+        try MoaSecureFile.write(data, to: url)
     }
 
     @discardableResult

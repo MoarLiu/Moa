@@ -375,6 +375,11 @@ enum MoaDataPackageError: LocalizedError {
 
 final class MoaDataPackageController {
     private static let runtimeOnlyDirectoryNames: Set<String> = []
+    static let retainedRecoveryPackageCount = 12
+
+    var recoveryDirectory: URL {
+        supportDirectory.appendingPathComponent("Recovery", isDirectory: true)
+    }
 
     private let fileManager = FileManager.default
     private let operationLock = NSRecursiveLock()
@@ -514,8 +519,7 @@ final class MoaDataPackageController {
             if !fileManager.fileExists(atPath: destination.path) {
                 try fileManager.createDirectory(at: destination, withIntermediateDirectories: true)
             }
-            let rollbackURL = defaultDataPackageURL(prefix: "Moa-Data-Rollback")
-            try exportDataPackage(to: rollbackURL)
+            let rollbackURL = try createRecoveryPackage(prefix: "Moa-Data-Rollback")
 
             try replaceMoaHome(at: destination, with: importedMoaHome)
             return rollbackURL
@@ -583,8 +587,7 @@ final class MoaDataPackageController {
                 try fileManager.createDirectory(at: moaHome, withIntermediateDirectories: true)
             }
 
-            let rollbackURL = defaultDataPackageURL(prefix: "Moa-Data-Before-iCloud")
-            try exportDataPackage(to: rollbackURL)
+            let rollbackURL = try createRecoveryPackage(prefix: "Moa-Data-Before-iCloud")
             let source = moaHome
             try fileManager.createDirectory(at: iCloudDriveRoot, withIntermediateDirectories: true)
 
@@ -623,8 +626,7 @@ final class MoaDataPackageController {
 
             try materializeLegacyICloudSymlinkIfNeeded()
             _ = try migrateLegacyNestedICloudDataIfNeeded()
-            let rollbackURL = defaultDataPackageURL(prefix: "Moa-Data-Before-iCloud-Off")
-            try exportDataPackage(to: rollbackURL)
+            let rollbackURL = try createRecoveryPackage(prefix: "Moa-Data-Before-iCloud-Off")
             if fileManager.fileExists(atPath: iCloudMoaHome.path) {
                 try replaceDirectory(at: moaHome, with: iCloudMoaHome)
             } else {
@@ -657,6 +659,34 @@ final class MoaDataPackageController {
     }
 
     private func migrateSensitiveStoresBeforeExport() throws {}
+
+    private func createRecoveryPackage(prefix: String) throws -> URL {
+        try MoaSecureFile.ensurePrivateDirectory(recoveryDirectory)
+        let url = recoveryDirectory.appendingPathComponent("\(prefix)-\(Self.timestamp())-\(UUID().uuidString).zip")
+        try exportDataPackage(to: url)
+        // Prune only after the replacement snapshot has been validated and saved.
+        do { try pruneRecoveryPackages(preserving: url) }
+        catch { NSLog("Moa could not prune old recovery packages: %@", error.localizedDescription) }
+        return url
+    }
+
+    func pruneRecoveryPackages(preserving preservedURL: URL? = nil) throws {
+        let prefixes = ["Moa-Data-Rollback-", "Moa-Data-Before-iCloud-"]
+        let packages = try fileManager.contentsOfDirectory(
+            at: recoveryDirectory, includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey, .contentModificationDateKey]
+        ).compactMap { url -> (URL, Date)? in
+            guard url.pathExtension == "zip", prefixes.contains(where: { url.lastPathComponent.hasPrefix($0) }) else { return nil }
+            let values = try url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .contentModificationDateKey])
+            guard values.isRegularFile == true, values.isSymbolicLink != true else { return nil }
+            try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+            return (url, values.contentModificationDate ?? .distantPast)
+        }.sorted { $0.1 == $1.1 ? $0.0.lastPathComponent > $1.0.lastPathComponent : $0.1 > $1.1 }
+        let candidates = packages.filter { $0.0.standardizedFileURL != preservedURL?.standardizedFileURL }
+        let retained = Self.retainedRecoveryPackageCount - (packages.count - candidates.count)
+        for (url, _) in candidates.dropFirst(max(0, retained)) {
+            try fileManager.removeItem(at: url)
+        }
+    }
 
     private func replaceMoaHome(at destination: URL, with importedMoaHome: URL) throws {
         try materializeLegacyICloudSymlinkIfNeeded()
@@ -1106,7 +1136,7 @@ final class MoaDataPackageController {
     private func temporaryDirectory(prefix: String) throws -> URL {
         let url = fileManager.temporaryDirectory
             .appendingPathComponent("\(prefix)-\(UUID().uuidString)", isDirectory: true)
-        try fileManager.createDirectory(at: url, withIntermediateDirectories: true)
+        try MoaSecureFile.ensurePrivateDirectory(url)
         return url
     }
 
@@ -1226,8 +1256,10 @@ final class MoaDataPackageController {
     private func archiveDirectory(_ source: URL, to destination: URL) throws {
         let directory = destination.deletingLastPathComponent()
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-        let temporary = directory.appendingPathComponent(".moa-export-\(UUID().uuidString).zip")
-        defer { try? fileManager.removeItem(at: temporary) }
+        let staging = directory.appendingPathComponent(".moa-export-\(UUID().uuidString)", isDirectory: true)
+        try MoaSecureFile.ensurePrivateDirectory(staging)
+        let temporary = staging.appendingPathComponent("export.zip")
+        defer { try? fileManager.removeItem(at: staging) }
         #if MOA_TESTING || MOA_TEST_SUPPORT
         try testingBeforeExportArchive?()
         #endif
@@ -1235,6 +1267,7 @@ final class MoaDataPackageController {
         guard runProcess("/usr/bin/unzip", ["-tq", temporary.path]) == 0 else {
             throw MoaDataPackageError.commandFailed(MoaL10n.text("Failed to validate the exported archive."))
         }
+        try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: temporary.path)
         guard rename(temporary.path, destination.path) == 0 else {
             throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno), userInfo: [NSFilePathErrorKey: destination.path])
         }

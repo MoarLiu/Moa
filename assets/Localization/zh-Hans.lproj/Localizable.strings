@@ -489,3 +489,11 @@
 "Status line: enabled" = "状态栏：已启用";
 "Status line: no local usage record for this chat" = "状态栏：未找到此聊天的本地用量记录";
 "Status line: quit ChatGPT manually, then choose Open Codex in Moa" = "状态栏：请手动退出 ChatGPT，再从 Moa 选择“打开 Codex”";
+
+"ChatGPT is not installed or its application path is unavailable." = "未安装 ChatGPT，或其应用路径不可用。";
+
+"ChatGPT could not be opened. Open the app manually and try again." = "无法打开 ChatGPT。请手动打开应用后重试。";
+
+"The Codex configuration was saved, but ChatGPT could not be reopened. Open it manually. %@" = "Codex 配置已保存，但无法重新打开 ChatGPT。请手动打开。%@";
+
+"Opening Codex..." = "正在打开 Codex…";

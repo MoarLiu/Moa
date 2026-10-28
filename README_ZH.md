@@ -110,6 +110,12 @@ Moa 在 bundle、数据根、provider ID 和发布产物里统一使用主 Moa �
 
 Moa 在你执行切换动作时仍会写入真实的 Codex 和 Claude Desktop 配置文件；它自己的 profile 数据库、数据包 manifest、iCloud 状态和诊断包都存放在 Moa 数据根下。
 
+## 1.6.1 维护更新
+
+Codex 切换和当前配置编辑会先请求客户端正常退出，再保存配置并重新打开。客户端拒绝退出或超时后，Moa 会停止操作，不会强制终止任务。配置已保存但启动失败时，会明确提示手动打开客户端。请先结束活动任务，并关闭其他共享同一配置目录的桌面或 CLI 实例。
+
+自动生成的导入及 iCloud 切换回滚包存放在 `~/Library/Application Support/Moa/Recovery`，仅本机保留最近 12 份，目录权限为 `700`、文件权限为 `600`。手动导出仍使用用户选择的位置。旧版本已写入 Downloads 的备份不会自动删除。
+
 ## 数据文件
 
 Moa 的本地数据存放在：
@@ -163,7 +169,9 @@ Codex app 的 Run 按钮通过以下文件接入：
 
 ## 安全说明
 
-- Provider API key 只保存在本地。
+- Provider API key 和 Codex 登录会话保存在 Moa 的数据文件中；Moa 不会将它们上传到自有服务器。启用 iCloud 存储后，这些文件会随数据根同步到 iCloud Drive。数据导出包和自动回滚包包含这些凭据，且未加密，请妥善保管；WorkBuddy 和 DeepSeek 的独立账号库仍排除在同步和导出之外。
+- 敏感配置通过创建时即为 `600` 的临时文件原子替换，权限设置失败会中止保存。
+- 当前自动更新依赖 GitHub Release 和同源 SHA-256 校验；它们不能独立证明发布者身份。独立更新签名尚未部署。
 - 诊断包会脱敏 auth、key、token 字段。
 - 打包脚本会拒绝把 `.moa`、`.codex`、`.dsh`、客户端登录/账号库、auth/config/profile 文件、环境变量文件和签名密钥打进发布包。
 - Moa 不打包 `MoaMCP`，也不暴露本地 workflow tools。

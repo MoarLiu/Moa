@@ -191,9 +191,9 @@ final class CodexUsageScanner {
             hasUsageRecords = false
         }
 
-        try scanLines(fileURL: fileURL) { line in
+        try MoaJSONLReader.scan(fileURL: fileURL) { line, truncated in
                 guard shouldInspect(line) else { return }
-                if line.count > 512 * 1024 {
+                if truncated || line.count > 512 * 1024 {
                     let prefix = Data(line.prefix(1024))
                     if prefix.containsASCII(#""type":"turn_context""#) || prefix.containsASCII(#""type": "turn_context""#) {
                         flushTurn()
@@ -263,38 +263,6 @@ final class CodexUsageScanner {
         }
         flushTurn()
         return days
-    }
-
-    private func scanLines(fileURL: URL, onLine: (Data) -> Void) throws {
-        let handle = try FileHandle(forReadingFrom: fileURL)
-        defer { try? handle.close() }
-
-        var buffer = Data()
-        while true {
-            let chunk = try handle.read(upToCount: 64 * 1024) ?? Data()
-            if chunk.isEmpty { break }
-            buffer.append(chunk)
-
-            var consumedUntil = buffer.startIndex
-            var searchStart = buffer.startIndex
-            while searchStart < buffer.endIndex,
-                  let newline = buffer[searchStart...].firstIndex(of: 10) {
-                var line = buffer.subdata(in: consumedUntil..<newline)
-                if line.last == 13 {
-                    line.removeLast()
-                }
-                onLine(line)
-                consumedUntil = buffer.index(after: newline)
-                searchStart = consumedUntil
-            }
-            if consumedUntil > buffer.startIndex {
-                buffer = buffer.subdata(in: consumedUntil..<buffer.endIndex)
-            }
-        }
-
-        if !buffer.isEmpty {
-            onLine(buffer)
-        }
     }
 
     private func shouldInspect(_ line: Data) -> Bool {

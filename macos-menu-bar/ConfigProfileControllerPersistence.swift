@@ -36,8 +36,7 @@ extension ConfigProfileController {
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
             let data = try encoder.encode(database)
-            try data.write(to: databaseURL, options: .atomic)
-            try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: databaseURL.path)
+            try MoaSecureFile.write(data, to: databaseURL)
             cachedDatabase = database
             cachedDatabaseModified = (try? fileManager.attributesOfItem(atPath: databaseURL.path))?[.modificationDate] as? Date
             cachedDatabaseURLPath = databaseURL.standardizedFileURL.path
@@ -85,8 +84,7 @@ extension ConfigProfileController {
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
             let data = try encoder.encode(database)
-            try data.write(to: officialAccountsDatabaseURL, options: .atomic)
-            try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: officialAccountsDatabaseURL.path)
+            try MoaSecureFile.write(data, to: officialAccountsDatabaseURL)
             cachedOfficialAccountDatabase = database
             cachedOfficialAccountDatabaseModified = (try? fileManager.attributesOfItem(atPath: officialAccountsDatabaseURL.path))?[.modificationDate] as? Date
             cachedOfficialAccountDatabaseURLPath = officialAccountsDatabaseURL.standardizedFileURL.path
@@ -116,8 +114,7 @@ extension ConfigProfileController {
 
     func writeAuthJSON(_ auth: [String: Any], to url: URL) throws {
         let output = try authJSONString(from: auth)
-        try output.write(to: url, atomically: true, encoding: .utf8)
-        try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        try MoaSecureFile.write(Data(output.utf8), to: url)
     }
 
     func authJSONString(from auth: [String: Any]) throws -> String {
@@ -319,15 +316,13 @@ extension ConfigProfileController {
         if !output.hasSuffix("\n") {
             output.append("\n")
         }
-        try output.write(to: url, atomically: true, encoding: .utf8)
-        try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        try MoaSecureFile.write(Data(output.utf8), to: url)
     }
 
     func copyFile(from source: URL, to destination: URL) throws {
         let data = try Data(contentsOf: source)
         try fileManager.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try data.write(to: destination, options: .atomic)
-        try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: destination.path)
+        try MoaSecureFile.write(data, to: destination)
     }
 
     func withCodexStateTransaction<T>(
@@ -410,8 +405,7 @@ extension ConfigProfileController {
     private func restoreStateFile(_ snapshot: StateFileSnapshot) throws {
         if let data = snapshot.data {
             try fileManager.createDirectory(at: snapshot.url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try data.write(to: snapshot.url, options: .atomic)
-            try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: snapshot.url.path)
+            try MoaSecureFile.write(data, to: snapshot.url)
         } else if fileManager.fileExists(atPath: snapshot.url.path) {
             try fileManager.removeItem(at: snapshot.url)
         }
@@ -426,8 +420,7 @@ extension ConfigProfileController {
         for (relative, data) in snapshot.files {
             let destination = snapshot.url.appendingPathComponent(relative)
             try fileManager.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try data.write(to: destination, options: .atomic)
-            try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: destination.path)
+            try MoaSecureFile.write(data, to: destination)
         }
     }
 
@@ -439,13 +432,13 @@ extension ConfigProfileController {
     }
 
     func backupCodexFiles() throws {
-        try fileManager.createDirectory(at: backupDir, withIntermediateDirectories: true)
+        try MoaSecureFile.ensurePrivateDirectory(backupDir)
         let stamp = Self.timestamp()
 
         for url in [codexConfigURL, codexAuthURL] where fileManager.fileExists(atPath: url.path) {
             let destination = backupDir.appendingPathComponent("\(url.lastPathComponent).\(stamp)")
             try? fileManager.removeItem(at: destination)
-            try fileManager.copyItem(at: url, to: destination)
+            try MoaSecureFile.write(Data(contentsOf: url), to: destination)
         }
         pruneCodexBackups(keepingPerFile: 12)
     }

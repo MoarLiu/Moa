@@ -106,6 +106,12 @@ Moa uses the primary Moa app identity throughout the bundle, data roots, provide
 
 Moa still edits the real Codex and Claude Desktop configuration files when you ask it to switch profiles. Its own profile databases, package manifests, iCloud state, and diagnostics are stored under the Moa data root.
 
+## 1.6.1 Maintenance Update
+
+Codex switches and active-profile edits request a graceful client quit before saving and reopening. A refused or timed-out quit stops the operation without force-terminating tasks. If saving succeeds but launching fails, Moa reports that the client must be opened manually. Finish active tasks and close other desktop or CLI instances sharing the same configuration directory first.
+
+Automatic recovery packages for imports and iCloud changes stay in `~/Library/Application Support/Moa/Recovery`, with directory/file modes `700`/`600` and the latest 12 packages retained on this Mac. Manual exports keep their chosen destination. Backups previously written to Downloads are not automatically deleted.
+
 ## Data Files
 
 Moa stores its local profile and recovery data under:
@@ -159,7 +165,9 @@ The script builds `Moa.app`, stops any currently running Moa process, and launch
 
 ## Security Notes
 
-- Provider API keys stay local.
+- Provider API keys and Codex login sessions are stored in Moa data files; Moa does not upload them to its own server. Enabling iCloud storage syncs these files through iCloud Drive. Data exports and automatic recovery packages contain these credentials without encryption and must be kept private. Separate WorkBuddy and DeepSeek account stores remain excluded from sync and exports.
+- Sensitive configuration saves use atomic replacement with temporary files created as `600`; permission-setting failures stop the save.
+- Automatic updates currently trust GitHub Releases and a SHA-256 checksum from the same source. They do not independently authenticate the publisher. Independent update signatures have not yet been deployed.
 - Diagnostic packages redact auth, key, and token fields.
 - Packaging scripts refuse to include `.moa`, `.codex`, `.dsh`, client login/account stores, auth/config/profile files, environment files, and signing keys.
 - Moa does not bundle `MoaMCP` and does not expose local workflow tools.

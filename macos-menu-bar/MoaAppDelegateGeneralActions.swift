@@ -32,7 +32,7 @@ extension AppDelegate {
     }
 
     @objc func openCodexAction() {
-        controller.openCodex()
+        performCodexLaunch()
     }
 
     @objc func checkUpdateAction() {
@@ -312,11 +312,23 @@ extension AppDelegate {
         statusItemText.title = Self.statusTitle("Reopening Codex...")
 
         DispatchQueue.global(qos: .userInitiated).async {
-            self.controller.reopenCodex()
+            let result = Result { try self.controller.reopenCodex() }
 
             DispatchQueue.main.async {
                 self.accountOperations.finish(.codex, id: token)
                 self.refreshStatus()
+                if case .failure(let error) = result { self.showError(error.localizedDescription) }
+            }
+        }
+    }
+
+    private func performCodexLaunch() {
+        guard let token = accountOperations.begin(.codex, message: MoaL10n.text("Opening Codex...")) else { return }
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result = Result { try self.controller.openCodex() }
+            DispatchQueue.main.async {
+                self.accountOperations.finish(.codex, id: token)
+                if case .failure(let error) = result { self.showError(error.localizedDescription) }
             }
         }
     }

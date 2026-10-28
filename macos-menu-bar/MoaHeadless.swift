@@ -9,6 +9,7 @@ func runHeadlessCommandIfNeeded() -> Int32? {
 
     let controller = ConfigProfileController(environment: environment)
     do {
+        try CodexAppController(environment: environment).quitCodex()
         _ = try controller.applyProfile(id: profileID)
         return 0
     } catch {

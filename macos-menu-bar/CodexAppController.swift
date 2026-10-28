@@ -3,12 +3,21 @@ import Darwin
 import Foundation
 
 private enum CodexAppError: LocalizedError {
+    case clientUnavailable
+    case launchFailed
+    case configurationSavedButLaunchFailed(String)
     case clientStillRunning
     case migrationProcessesRunning
     case processCheckFailed
 
     var errorDescription: String? {
         switch self {
+        case .clientUnavailable:
+            return MoaL10n.text("ChatGPT is not installed or its application path is unavailable.")
+        case .launchFailed:
+            return MoaL10n.text("ChatGPT could not be opened. Open the app manually and try again.")
+        case .configurationSavedButLaunchFailed(let details):
+            return MoaL10n.format("The Codex configuration was saved, but ChatGPT could not be reopened. Open it manually. %@", details)
         case .clientStillRunning:
             return MoaL10n.text("ChatGPT could not be closed. Finish the active task and try again.")
         case .migrationProcessesRunning:
@@ -58,25 +67,36 @@ final class CodexAppController: @unchecked Sendable {
         self.enhancementRuntime = enhancementRuntime
     }
 
-    func reopenCodex() {
-        if CodexStatusLineSettings(defaults: defaults).enabled || enhancementRuntime.launch != nil {
-            reopenCodexSafely()
-            return
-        }
-        guard quitCodexIfNeeded() else { return }
-        openCodexIfAvailable()
+    #if MOA_TESTING || MOA_TEST_SUPPORT
+    var testingQuit: (() throws -> Void)?
+    var testingOpen: (() throws -> Void)?
+    #endif
+
+    func reopenCodex() throws {
+        try quitCodex()
+        try openCodex()
     }
 
-    /// Enabling a display feature must never force-terminate an active client.
     func reopenCodexSafely() {
-        guard quitCodexIfNeeded(allowForce: false) else {
-            enhancementRuntime.recordError(CodexEnhancementError.clientRunning)
-            return
-        }
-        openCodexIfAvailable()
+        do { try reopenCodex() }
+        catch { enhancementRuntime.recordError(error) }
+    }
+
+    /// Mutations run only after a graceful quit. A failed launch must not be
+    /// presented as a successful switch; the saved configuration remains usable.
+    func changeConfiguration<T>(if restart: Bool = true, _ change: () throws -> T) throws -> T {
+        guard restart else { return try change() }
+        try quitCodex()
+        let value = try change()
+        do { try openCodex() }
+        catch { throw CodexAppError.configurationSavedButLaunchFailed(error.localizedDescription) }
+        return value
     }
 
     func quitCodex() throws {
+        #if MOA_TESTING || MOA_TEST_SUPPORT
+        if let testingQuit { try testingQuit(); return }
+        #endif
         guard quitCodexIfNeeded() else { throw CodexAppError.clientStillRunning }
     }
 
@@ -106,32 +126,24 @@ final class CodexAppController: @unchecked Sendable {
         return name == "codex" || name == "codex-cli" || name.hasPrefix("codex-")
     }
 
-    func openCodex() {
-        openCodexIfAvailable()
+    func openCodex() throws {
+        #if MOA_TESTING || MOA_TEST_SUPPORT
+        if let testingOpen { try testingOpen(); return }
+        #endif
+        guard let codexApp else { throw CodexAppError.clientUnavailable }
+        if CodexStatusLineSettings(defaults: defaults).enabled && !isCodexRunning() {
+            try enhancementRuntime.start(app: codexApp, environment: environment)
+        } else {
+            guard run("/usr/bin/open", [codexApp.path]) == 0 else { throw CodexAppError.launchFailed }
+        }
+        guard waitForCodexRunning(true, timeout: 12) else { throw CodexAppError.launchFailed }
     }
 
-    @discardableResult
-    private func quitCodexIfNeeded(allowForce: Bool = true) -> Bool {
+    private func quitCodexIfNeeded() -> Bool {
         let applications = runningCodexApplications()
         guard !applications.isEmpty else { return true }
-        applications.forEach { _ = $0.terminate() }
-        if waitForCodexRunning(false, timeout: allowForce ? 4 : 12) { return true }
-        guard allowForce else { return false }
-        runningCodexApplications().forEach { _ = $0.forceTerminate() }
-        return waitForCodexRunning(false, timeout: 3)
-    }
-
-    private func openCodexIfAvailable() {
-        guard let codexApp else {
-            if CodexStatusLineSettings(defaults: defaults).enabled { enhancementRuntime.recordError(CodexEnhancementError.unavailable) }
-            return
-        }
-        if CodexStatusLineSettings(defaults: defaults).enabled && !isCodexRunning() {
-            do { try enhancementRuntime.start(app: codexApp, environment: environment) }
-            catch { enhancementRuntime.recordError(error) }
-            return
-        }
-        _ = run("/usr/bin/open", [codexApp.path])
+        guard applications.allSatisfy({ $0.terminate() }) else { return false }
+        return waitForCodexRunning(false, timeout: 12)
     }
 
     private func runningCodexApplications() -> [NSRunningApplication] {

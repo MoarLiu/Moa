@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.6.1 - 2026-10-28
+
+- Quit Codex gracefully before applying account or provider changes from menus and account management. Refused quits stop writes, and launch failures report whether configuration was already saved.
+- Corrected the Responses connection probe token budget and retained the original HTTP 400 error instead of trying a different endpoint; limited displayed error text.
+- Bounded Codex and Claude JSONL line buffers and removed repeated scans of long lines while preserving Codex model context and following usage records.
+- Moved automatic data-recovery packages to a private, device-local directory with a 12-package retention limit. Manual exports retain their selected location and use private file permissions.
+- Created sensitive configuration files with private permissions before writing and propagated permission failures. Clarified credentials in iCloud storage and unencrypted data packages, as well as the current update trust boundary.
+
 ## 1.6.0 - 2026-10-27
 
 - Added an opt-in Codex generation-rate status line with incremental local usage reading, mirrored-event deduplication, optional request/context and cache metrics, and a below-composer compatibility layout.

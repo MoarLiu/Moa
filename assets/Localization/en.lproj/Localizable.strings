@@ -484,3 +484,11 @@
 "Status line: enabled" = "Status line: enabled";
 "Status line: no local usage record for this chat" = "Status line: no local usage record for this chat";
 "Status line: quit ChatGPT manually, then choose Open Codex in Moa" = "Status line: quit ChatGPT manually, then choose Open Codex in Moa";
+
+"ChatGPT is not installed or its application path is unavailable." = "ChatGPT is not installed or its application path is unavailable.";
+
+"ChatGPT could not be opened. Open the app manually and try again." = "ChatGPT could not be opened. Open the app manually and try again.";
+
+"The Codex configuration was saved, but ChatGPT could not be reopened. Open it manually. %@" = "The Codex configuration was saved, but ChatGPT could not be reopened. Open it manually. %@";
+
+"Opening Codex..." = "Opening Codex...";
