@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.6.4 - 2026-10-30
+
+- Prevent stale Antigravity fallback logins from overwriting existing saved accounts during saving, switching, or enrollment.
+- Preserve refreshed Antigravity credentials when restarting the same account fails, so retrying does not restore an older token.
+- Validate Codex Responses and Claude Messages connection-test results. HTML login pages, mismatched protocols, and failed API responses no longer report success; invalid successful-HTTP responses do not trigger another potentially billable probe. Valid token-limited Responses results remain supported.
+- Consolidate connection-test endpoint rules, add regression coverage, and update English and Chinese messages and account recovery guidance.
+
 ## 1.6.3 - 2026-10-29
 
 - Keep the app launched on Apple silicon native. Cross-architecture packaging no longer replaces `Moa.app` with an Intel-only build, which macOS 27 warns will not open on macOS 28.

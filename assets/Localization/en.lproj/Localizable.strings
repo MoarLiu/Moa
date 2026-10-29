@@ -536,3 +536,4 @@
 "Open Antigravity" = "Open Antigravity";
 "Reopen Antigravity" = "Reopen Antigravity";
 "The Antigravity fallback login file is unsupported. Close Antigravity and restore its login file before switching accounts." = "The Antigravity fallback login file is unsupported. Close Antigravity and restore its login file before switching accounts.";
+"The endpoint returned an unexpected API response. Check the provider URL and protocol." = "The endpoint returned an unexpected API response. Check the provider URL and protocol.";

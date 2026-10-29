@@ -11,6 +11,7 @@ private enum ProviderConnectionTestError: LocalizedError {
     case missingAPIKey
     case requestFailed(Int, String)
     case noReachableEndpoint(String)
+    case invalidResponse
 
     var errorDescription: String? {
         switch self {
@@ -27,6 +28,8 @@ private enum ProviderConnectionTestError: LocalizedError {
             return MoaL10n.format("Connection test failed: HTTP %d, %@.", status, message)
         case .noReachableEndpoint(let message):
             return message.isEmpty ? MoaL10n.text("No test endpoint is reachable.") : message
+        case .invalidResponse:
+            return MoaL10n.text("The endpoint returned an unexpected API response. Check the provider URL and protocol.")
         }
     }
 }
@@ -34,6 +37,31 @@ private enum ProviderConnectionTestError: LocalizedError {
 enum ProviderConnectionTester {
     static let codexTestModel = "gpt-5.5"
     static let claudeDefaultTestModel = "claude-opus-4-8"
+
+    /// Keep routing, protocol headers and response validation together.
+    private enum Endpoint: String {
+        case responses, messages
+
+        var headers: [String: String] {
+            self == .messages ? ["anthropic-version": "2023-06-01"] : [:]
+        }
+
+        func accepts(_ data: Data) -> Bool {
+            guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  object["error"] == nil || object["error"] is NSNull else { return false }
+            switch self {
+            case .responses:
+                guard object["object"] as? String == "response", object["output"] is [[String: Any]] else { return false }
+                // A small probe budget may produce a valid incomplete response.
+                // Status is optional, but a reported failure/queued job is not success.
+                return object["status"] == nil || ["completed", "incomplete"].contains(object["status"] as? String ?? "")
+            case .messages:
+                return object["type"] as? String == "message"
+                    && object["role"] as? String == "assistant"
+                    && object["content"] is [[String: Any]]
+            }
+        }
+    }
 
     #if MOA_TESTING || MOA_TEST_SUPPORT
     static var testingURLSession: URLSession?
@@ -68,9 +96,8 @@ enum ProviderConnectionTester {
         let endpoint = try await postJSON(
             body: responsesBody,
             baseURL: baseURL,
-            endpoint: "responses",
-            apiKey: apiKey,
-            headers: [:])
+            endpoint: .responses,
+            apiKey: apiKey)
         return ProviderConnectionTestResult(model: model, endpoint: endpoint)
     }
 
@@ -88,9 +115,8 @@ enum ProviderConnectionTester {
         let endpoint = try await postJSON(
             body: body,
             baseURL: baseURL,
-            endpoint: "messages",
-            apiKey: apiKey,
-            headers: ["anthropic-version": "2023-06-01"])
+            endpoint: .messages,
+            apiKey: apiKey)
         return ProviderConnectionTestResult(model: model, endpoint: endpoint)
     }
 
@@ -115,22 +141,21 @@ enum ProviderConnectionTester {
     private static func postJSON(
         body: [String: Any],
         baseURL: URL,
-        endpoint: String,
-        apiKey: String,
-        headers: [String: String]
+        endpoint: Endpoint,
+        apiKey: String
     ) async throws -> String {
         var lastError: Error?
-        for url in endpointURLs(baseURL: baseURL, endpoint: endpoint) {
+        for url in endpointURLs(baseURL: baseURL, endpoint: endpoint.rawValue) {
             try Task.checkCancellation()
             do {
-                try await postJSON(body, to: url, apiKey: apiKey, headers: headers)
+                try await postJSON(body, to: url, apiKey: apiKey, endpoint: endpoint)
                 return url.absoluteString
             } catch let error as ProviderConnectionTestError {
                 lastError = error
-                if case .requestFailed(let status, _) = error,
-                   !shouldTryNextEndpointCandidate(forHTTPStatus: status) {
-                    throw error
-                }
+                // Retry only missing/unsupported routes, never a malformed 2xx
+                // result which may already represent a billable request.
+                guard case .requestFailed(let status, _) = error,
+                      shouldTryNextEndpointCandidate(forHTTPStatus: status) else { throw error }
             } catch {
                 if error is CancellationError || (error as? URLError)?.code == .cancelled { throw error }
                 lastError = error
@@ -143,12 +168,12 @@ enum ProviderConnectionTester {
         throw ProviderConnectionTestError.noReachableEndpoint("")
     }
 
-    private static func postJSON(_ body: [String: Any], to url: URL, apiKey: String, headers: [String: String]) async throws {
+    private static func postJSON(_ body: [String: Any], to url: URL, apiKey: String, endpoint: Endpoint) async throws {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-        for (field, value) in headers {
+        for (field, value) in endpoint.headers {
             request.setValue(value, forHTTPHeaderField: field)
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: body, options: [])
@@ -160,6 +185,7 @@ enum ProviderConnectionTester {
         guard (200..<300).contains(httpResponse.statusCode) else {
             throw ProviderConnectionTestError.requestFailed(httpResponse.statusCode, String(errorMessage(from: data).prefix(300)))
         }
+        guard endpoint.accepts(data) else { throw ProviderConnectionTestError.invalidResponse }
     }
 
     private static func endpointURLs(baseURL: URL, endpoint: String) -> [URL] {

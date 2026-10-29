@@ -863,7 +863,7 @@ private final class ResponsesTestProtocol: URLProtocol {
         let status = request.url!.path.hasSuffix("/responses") ? Self.status : 200
         Self.lock.unlock()
         client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: "HTTP/1.1", headerFields: [:])!, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: Data("{}".utf8))
+        client?.urlProtocol(self, didLoad: Data(#"{"object":"response","status":"completed","output":[]}"#.utf8))
         client?.urlProtocolDidFinishLoading(self)
     }
 }

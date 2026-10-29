@@ -220,13 +220,16 @@ final class MoaMaintenanceRegressionTests: XCTestCase {
 }
 
 final class MoaProviderProbeRegressionTests: XCTestCase {
-    private func probe(statuses: [Int]) async throws -> ProviderConnectionTestResult {
-        ProbeProtocol.reset(statuses)
+    private func probe(statuses: [Int], body: String? = nil, claude: Bool = false) async throws -> ProviderConnectionTestResult {
+        ProbeProtocol.reset(statuses, body: body)
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [ProbeProtocol.self]
         let session = URLSession(configuration: configuration)
         ProviderConnectionTester.testingURLSession = session
         defer { ProviderConnectionTester.testingURLSession = nil; session.invalidateAndCancel() }
+        if claude {
+            return try await ProviderConnectionTester.testClaude(baseURL: "https://fixture.invalid", apiKey: "synthetic", models: ["fixture"])
+        }
         return try await ProviderConnectionTester.testCodex(baseURL: "https://fixture.invalid", apiKey: "synthetic", modelOverride: "fixture")
     }
 
@@ -271,26 +274,92 @@ final class MoaProviderProbeRegressionTests: XCTestCase {
         }
         XCTAssertEqual(ProbeProtocol.requests.map { $0.url!.path }, ["/v1/responses"])
     }
+
+    func testSuccessfulHTTPStatusStillRequiresTheExpectedAPIResponse() async {
+        for claude in [false, true] {
+            for body in ["<html>synthetic-private-login-page</html>", "", "{}", "[]",
+                         #"{"error":{"message":"synthetic-private-error"}}"#,
+                         #"{"object":"chat.completion","choices":[]}"#] {
+                do {
+                    _ = try await probe(statuses: [200, 200], body: body, claude: claude)
+                    XCTFail("Invalid response must fail: \(body)")
+                } catch {
+                    XCTAssertFalse(error.localizedDescription.contains("synthetic-private"))
+                }
+                XCTAssertEqual(ProbeProtocol.requests.count, 1, "An invalid 200 response must not trigger a second billable request")
+            }
+        }
+    }
+
+    func testResponsesAcceptCompletedAndTokenLimitedResults() async throws {
+        for status in ["completed", "incomplete"] {
+            let body = #"{"object":"response","status":"\#(status)","output":[],"error":null,"incomplete_details":{"reason":"max_output_tokens"},"future":true}"#
+            let result = try await probe(statuses: [200], body: body)
+            XCTAssertEqual(result.endpoint, "https://fixture.invalid/v1/responses")
+        }
+        // Optional status and Content-Type are not required for compatible providers.
+        _ = try await probe(statuses: [200], body: #"{"object":"response","output":[]}"#)
+    }
+
+    func testFailedOrMismatchedAPIResponsesAreRejected() async {
+        let responses = [
+            #"{"object":"response","status":"failed","output":[],"error":null}"#,
+            #"{"object":"response","status":"queued","output":[]}"#,
+            #"{"object":"response","status":"completed","output":[],"error":{"message":"failed"}}"#,
+            #"{"object":"response","output":"not-an-array"}"#,
+            #"{"type":"message","role":"assistant","content":[]}"#
+        ]
+        let messages = [
+            #"{"type":"message","role":"user","content":[]}"#,
+            #"{"type":"message","role":"assistant","content":"not-an-array"}"#,
+            #"{"type":"message","role":"assistant","content":[],"error":{"message":"failed"}}"#,
+            #"{"object":"response","status":"completed","output":[]}"#
+        ]
+        for (claude, bodies) in [(false, responses), (true, messages)] {
+            for body in bodies {
+                do {
+                    _ = try await probe(statuses: [200], body: body, claude: claude)
+                    XCTFail("Unexpected API response accepted: \(body)")
+                } catch {}
+                XCTAssertEqual(ProbeProtocol.requests.count, 1)
+            }
+        }
+    }
+
+    func testClaudeMessagesResponseStillPasses() async throws {
+        let body = #"{"type":"message","role":"assistant","content":[{"type":"text","text":"pong"}],"stop_reason":"max_tokens"}"#
+        let result = try await probe(statuses: [200], body: body, claude: true)
+        XCTAssertEqual(result.endpoint, "https://fixture.invalid/v1/messages")
+        XCTAssertEqual(ProbeProtocol.requests.first?.value(forHTTPHeaderField: "anthropic-version"), "2023-06-01")
+    }
 }
 
 private final class ProbeProtocol: URLProtocol {
     private static let lock = NSLock()
     nonisolated(unsafe) private static var statuses: [Int] = []
     nonisolated(unsafe) private static var recorded: [URLRequest] = []
+    nonisolated(unsafe) private static var responseBody: String?
     static var requests: [URLRequest] { lock.lock(); defer { lock.unlock() }; return recorded }
-    static func reset(_ next: [Int]) { lock.lock(); defer { lock.unlock() }; statuses = next; recorded = [] }
+    static func reset(_ next: [Int], body: String?) {
+        lock.lock(); defer { lock.unlock() }
+        statuses = next; recorded = []; responseBody = body
+    }
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
         Self.lock.lock()
         Self.recorded.append(request)
         let status = Self.statuses.isEmpty ? 500 : Self.statuses.removeFirst()
+        let responseBody = Self.responseBody
         Self.lock.unlock()
         if status == NSURLErrorCancelled {
             client?.urlProtocol(self, didFailWithError: URLError(.cancelled))
             return
         }
-        let data = Data(("first endpoint error " + String(repeating: "x", count: 1000)).utf8)
+        let body = responseBody ?? (status == 200
+            ? #"{"object":"response","status":"completed","output":[]}"#
+            : "first endpoint error " + String(repeating: "x", count: 1000))
+        let data = Data(body.utf8)
         client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: data)
         client?.urlProtocolDidFinishLoading(self)

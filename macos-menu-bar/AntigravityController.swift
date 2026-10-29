@@ -148,7 +148,16 @@ final class AntigravityController {
                     let primary = try latest.primaryLogin()
                     try preserveDifferentFallback(latest, primary: primary, in: &database)
                     if let primary { _ = try capture(primary, name: nil, in: &database) }
-                    try replaceLive(with: original, expected: latest)
+                    // A restart of the same account can rotate its grant before
+                    // failing. Restoring the old bytes would also poison the saved
+                    // snapshot on the next attempt, when the live login is captured.
+                    let recovery: LiveState
+                    if let primary, primary.identity == (try original.primaryLogin())?.identity {
+                        recovery = LiveState(primary)
+                    } else {
+                        recovery = original
+                    }
+                    try replaceLive(with: recovery, expected: latest)
                 } catch {
                     throw AntigravityError.recoveryRequired
                 }
@@ -185,10 +194,13 @@ final class AntigravityController {
     }
 
     private func preserveDifferentFallback(_ state: LiveState, primary: AntigravityLogin?, in database: inout Database) throws {
-        if let data = state.fallback {
-            let fallback = try AntigravityLogin(data)
-            if fallback.identity != primary?.identity { _ = try capture(fallback, name: nil, in: &database) }
-        }
+        guard let data = state.fallback else { return }
+        let fallback = try AntigravityLogin(data)
+        // A dormant fallback is not evidence of a newer login. Preserve unknown
+        // accounts, but never overwrite an existing account's saved grant with it.
+        guard fallback.identity != primary?.identity,
+              !database.accounts.contains(where: { $0.identity == fallback.identity }) else { return }
+        _ = try capture(fallback, name: nil, in: &database)
     }
 
     private func readFallback() throws -> Data? {

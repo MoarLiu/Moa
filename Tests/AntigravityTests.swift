@@ -205,6 +205,54 @@ final class AntigravityTests: XCTestCase {
         }
     }
 
+    func testSameAccountLaunchFailureAndRetryKeepRefreshedCredentials() throws {
+        for fileOnly in [false, true] {
+            try fixture { _, controller, store, runtime in
+                let original = try credential("a", refresh: "original", wrapper: !fileOnly)
+                let refreshed = try credential("a", refresh: "refreshed", wrapper: !fileOnly)
+                store.values[.live] = fileOnly ? nil : original
+                if fileOnly { try writeFallback(original, controller: controller) }
+                let a = try controller.saveCurrent(name: "A")
+                runtime.onLaunch = {
+                    runtime.onLaunch = nil
+                    store.values[.live] = refreshed
+                    throw AntigravityError.message("launch-failed")
+                }
+                XCTAssertThrowsError(try controller.apply(id: a.id))
+                XCTAssertTrue(runtime.isRunning)
+                XCTAssertEqual(store.values[.live], refreshed)
+                XCTAssertEqual(try Data(contentsOf: controller.fallbackURL), try AntigravityLogin(refreshed).fileData)
+                XCTAssertEqual(store.values[.saved(a.id)], refreshed)
+                _ = try controller.apply(id: a.id)
+                XCTAssertEqual(store.values[.live], refreshed)
+                XCTAssertEqual(store.values[.saved(a.id)], refreshed, "Retry must not replace the refreshed snapshot with the rolled-back token")
+            }
+        }
+    }
+
+    func testStaleFallbackCannotOverwriteSavedLoginDuringSaveSwitchOrEnrollment() throws {
+        for action in ["save", "switch", "enroll"] {
+            try fixture { _, controller, store, _ in
+                let freshB = try credential("b", refresh: "fresh-b")
+                store.values[.live] = freshB
+                let b = try controller.saveCurrent(name: "B")
+                let metadata = try XCTUnwrap(controller.accounts().first { $0.id == b.id })
+                store.values[.live] = try credential("a")
+                let a = try controller.saveCurrent(name: "A")
+                try writeFallback(credential("b", refresh: "stale-b", wrapper: false), controller: controller)
+                switch action {
+                case "save": _ = try controller.saveCurrent(name: "A")
+                case "switch": _ = try controller.apply(id: a.id)
+                default: try controller.prepareNewLogin()
+                }
+                XCTAssertEqual(store.values[.saved(b.id)], freshB, action)
+                XCTAssertEqual(try controller.accounts().first { $0.id == b.id }?.updatedAt, metadata.updatedAt, action)
+                _ = try controller.apply(id: b.id)
+                XCTAssertEqual(store.values[.live], freshB, action)
+            }
+        }
+    }
+
     func testRefusedQuitSharedClientsAndStragglersPreventCredentialWrites() throws {
         try fixture { _, controller, store, runtime in
             let a = try controller.saveCurrent(name: "A")
