@@ -3,7 +3,7 @@ import Combine
 import SwiftUI
 
 enum MoaAccountClient: Hashable {
-    case codex, claude, workbuddy, workbuddyCN, deepseek
+    case codex, claude, workbuddy, workbuddyCN, deepseek, antigravity
 }
 
 /// Shared by menu actions and account windows. All access is on the main thread.

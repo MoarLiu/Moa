@@ -9,7 +9,7 @@ APP_RELEASE_VERSION="${APP_RELEASE_VERSION:-$APP_VERSION}"
 source "$ROOT/scripts/sources.env"
 
 APP_NAME="Moa"
-APP="$ROOT/$APP_NAME.app"
+APP="$(moa_app_output_path "$ROOT")"
 # Build into a staging bundle and swap it in only after a successful compile and
 # codesign. Compiling straight into $APP required deleting it first, so any
 # failure (missing toolchain, SwiftUI macro plugin error, signature problem)
@@ -120,6 +120,7 @@ MACOSX_DEPLOYMENT_TARGET="$MACOS_DEPLOYMENT_TARGET" "$SWIFTC_BIN" \
   -framework CryptoKit \
   -framework Foundation \
   -framework ImageIO \
+  -framework Security \
   -framework SwiftUI \
   -framework UniformTypeIdentifiers \
   "${MOA_APP_ABS_SOURCES[@]}" \
@@ -127,6 +128,7 @@ MACOSX_DEPLOYMENT_TARGET="$MACOS_DEPLOYMENT_TARGET" "$SWIFTC_BIN" \
 
 chmod 755 "$EXECUTABLE"
 check_mach_o_deployment_target "$EXECUTABLE"
+moa_assert_thin_macho "$EXECUTABLE" "$APP_ARCH"
 
 /bin/cp -X "$ROOT/macos-menu-bar/Resources/CodexStatusLine.js" "$RESOURCES/CodexStatusLine.js"
 
@@ -201,8 +203,14 @@ fi
 
 # Keep the previous bundle until promotion succeeds. The EXIT trap restores it
 # on a failed move or interruption, and preserves the backup if restore fails.
+moa_assert_bundle_arch "$STAGING" "$APP_ARCH"
+mkdir -p "$(dirname "$APP")"
 if [[ -e "$APP" ]]; then mv "$APP" "$BACKUP"; fi
 mv "$STAGING" "$APP"
 rm -rf "$BACKUP"
 
 echo "Built: $APP"
+if [[ "$APP_ARCH" != "$(moa_host_arch)" ]]; then
+  echo "Cross-built $APP_ARCH bundle: $APP" >&2
+  echo "The native Moa.app was left unchanged. Opening an Intel-only Moa on Apple silicon makes macOS warn that it will not open on macOS 28." >&2
+fi

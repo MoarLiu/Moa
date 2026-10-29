@@ -504,3 +504,35 @@
 "The configuration change failed. ChatGPT was reopened with its previous configuration. %@" = "The configuration change failed. ChatGPT was reopened with its previous configuration. %@";
 "The saved pricing catalog has an unsupported version." = "The saved pricing catalog has an unsupported version.";
 "Could not access %@. %@" = "Could not access %@. %@";
+
+/* Antigravity App account management. */
+"Add Another Antigravity Account?" = "Add Another Antigravity Account?";
+"Another Moa instance is updating Antigravity. Wait for it to finish and try again." = "Another Moa instance is updating Antigravity. Wait for it to finish and try again.";
+"Antigravity Account" = "Antigravity Account";
+"Antigravity Keychain access failed (%d). Unlock the login keychain and allow Moa access, then try again." = "Antigravity Keychain access failed (%d). Unlock the login keychain and allow Moa access, then try again.";
+"Antigravity account metadata is invalid. Restore the local metadata before changing accounts; Keychain logins have not been changed." = "Antigravity account metadata is invalid. Restore the local metadata before changing accounts; Keychain logins have not been changed.";
+"Antigravity account metadata paths must not contain symbolic links." = "Antigravity account metadata paths must not contain symbolic links.";
+"Antigravity could not restore the previous login. Keep Antigravity and agy closed, unlock Keychain, and select the previous saved account again in Moa." = "Antigravity could not restore the previous login. Keep Antigravity and agy closed, unlock Keychain, and select the previous saved account again in Moa.";
+"Antigravity did not quit. Finish active tasks and quit it, then try again." = "Antigravity did not quit. Finish active tasks and quit it, then try again.";
+"Antigravity login changed during the operation. Close all shared clients and try again." = "Antigravity login changed during the operation. Close all shared clients and try again.";
+"Antigravity login format is unsupported or incomplete. Sign in with a personal Google account and save it again." = "Antigravity login format is unsupported or incomplete. Sign in with a personal Google account and save it again.";
+"Antigravity or a shared login process is still running. Close it before changing accounts." = "Antigravity or a shared login process is still running. Close it before changing accounts.";
+"Antigravity quits and reopens. Finish active tasks and close agy and Antigravity IDE extensions first; they share the active login." = "Antigravity quits and reopens. Finish active tasks and close agy and Antigravity IDE extensions first; they share the active login.";
+"Antigravity will quit normally, save its latest Google login in Keychain, and reopen. Finish active tasks and close agy and Antigravity IDE extensions first." = "Antigravity will quit normally, save its latest Google login in Keychain, and reopen. Finish active tasks and close agy and Antigravity IDE extensions first.";
+"Close agy, Antigravity IDE, and Antigravity IDE extensions before saving or switching accounts. They share the active login." = "Close agy, Antigravity IDE, and Antigravity IDE extensions before saving or switching accounts. They share the active login.";
+"Enter an account name of 1 to 200 characters." = "Enter an account name of 1 to 200 characters.";
+"Install Antigravity App 2.x before managing its accounts. Antigravity IDE uses a different login store." = "Install Antigravity App 2.x before managing its accounts. Antigravity IDE uses a different login store.";
+"Moa - Codex, Claude, ZCode, WorkBuddy, WorkBuddy AI, DeepSeek, Antigravity" = "Moa - Codex, Claude, ZCode, WorkBuddy, WorkBuddy AI, DeepSeek, Antigravity";
+"Moa saves the current login in Keychain, quits Antigravity, and opens a fresh Google sign-in. Sign in with the other account, then save it in Moa. Finish active tasks and close agy and Antigravity IDE extensions first." = "Moa saves the current login in Keychain, quits Antigravity, and opens a fresh Google sign-in. Sign in with the other account, then save it in Moa. Finish active tasks and close agy and Antigravity IDE extensions first.";
+"Save Antigravity Account" = "Save Antigravity Account";
+"Sign in to Antigravity with your Google account before saving the current login." = "Sign in to Antigravity with your Google account before saving the current login.";
+"The saved Antigravity login could not be restored after a failed delete. Save that account again after unlocking Keychain." = "The saved Antigravity login could not be restored after a failed delete. Save that account again after unlocking Keychain.";
+"The saved Antigravity login is missing or does not match its account. Sign in and save it again." = "The saved Antigravity login is missing or does not match its account. Sign in and save it again.";
+"Unable to check Antigravity processes. Close Antigravity, agy, and its IDE extensions, then try again." = "Unable to check Antigravity processes. Close Antigravity, agy, and its IDE extensions, then try again.";
+"Unable to lock the Antigravity account store. Check its local directory permissions." = "Unable to lock the Antigravity account store. Check its local directory permissions.";
+"Unable to open Antigravity. Open it manually and check the selected account." = "Unable to open Antigravity. Open it manually and check the selected account.";
+"Updating Antigravity…" = "Updating Antigravity…";
+"Use Save Current Login to allow Moa to read the Antigravity login in Keychain." = "Use Save Current Login to allow Moa to read the Antigravity login in Keychain.";
+"Open Antigravity" = "Open Antigravity";
+"Reopen Antigravity" = "Reopen Antigravity";
+"The Antigravity fallback login file is unsupported. Close Antigravity and restore its login file before switching accounts." = "The Antigravity fallback login file is unsupported. Close Antigravity and restore its login file before switching accounts.";

@@ -11,6 +11,7 @@ Moa 是一个支持 ChatGPT（原 Codex Desktop）、Claude Desktop、ZCode、Wo
 - 账号管理：各客户端菜单的「管理账号…」打开同一个按客户端分组的窗口，在其中重命名、编辑或删除已保存条目；菜单里点击账号仍会立即切换。
 - WorkBuddy / WorkBuddy AI 国际版：各有独立菜单和用量 Tab，分别保存本机登录态、添加和切换账号、重命名或删除已保存账号，并正常退出和重启对应客户端。
 - DeepSeek：保存、添加、切换、重命名和忘记本机 DeepSeek Harness 账号，并提供打开和重启入口。
+- Antigravity App：将 Google 登录保存在本机钥匙串，通过菜单切换账号，支持添加、重命名、忘记以及打开和重启应用。
 - 用量统计：基于本地 Codex / Claude / ZCode / WorkBuddy AI 日志估算用量，提供模型明细、CSV / Markdown 导出、自定义价格和每日提醒阈值。
 - Moa 数据：导出/导入完整数据包、导出脱敏诊断包，并可把数据根切换到 iCloud Drive。
 - 更新检查：可从主菜单检查 GitHub Releases，下载、校验并安装匹配当前 Mac 的 DMG。
@@ -53,6 +54,22 @@ Moa 1.5.0 移除了快速模式和远程连接设置入口、对应实现及旧�
 增强模式会让 Moa 以本机回环调试参数启动官方客户端，并通过隔离的页面脚本添加状态栏；不修改安装文件、账号或供应商请求路径，不启动代理或 HTTP 服务。只连接 Moa 本次启动的进程，目前只接受唯一的主聊天页面；多窗口、远程聊天或无法识别的页面会显示不可用状态。Moa 重新启动后需再次通过 Moa 重开客户端。`CODEX_HOME` 必须对应实际客户端的日志目录，否则显示未找到记录。
 
 关闭后会移除显示并停止采集；再次正常重开客户端才能撤掉进程级调试监听。Moa 意外退出后，页面脚本租约到期会自行移除。日志、WebSocket 协议与隔离 HTML 页面已有自动测试，预览版也已在一个客户端版本上实测显示；其他客户端版本和布局的兼容性可能不同。
+
+## Antigravity App
+
+「Antigravity」菜单适配 Antigravity App 2.x（`com.google.antigravity`），兼容性调研基于 macOS App `2.28.0`。它管理登录钥匙串中 `service=gemini`、`account=antigravity` 的 OAuth 登录，不编辑 Antigravity IDE 使用的 `state.vscdb`。企业账号／ADC 和 API Key 管理不在本适配器范围内。
+
+1. 在 Antigravity 登录 Google 账号 A。结束进行中的任务，关闭 `agy` 和 Antigravity IDE 扩展，然后在 Moa 选择「Antigravity → 管理账号… → 保存当前登录」。填写便于识别的名称；macOS 请求钥匙串访问时按需授权。
+2. 点击「再添加一个账号」。Moa 正常退出 Antigravity，保存最新登录，移除当前钥匙串登录条目及独立备用令牌文件，再重新打开 Google 登录界面。登录 B 后，在 Moa 保存 B。这个过程不会调用 Google 的令牌撤销接口，也不调用 Antigravity 的退出登录和缓存清理流程。
+3. 此后在 Antigravity 菜单选择 A 或 B。Moa 退出应用，保存当前登录，同时替换钥匙串和备用文件中的目标凭据后重新打开。请核对应用显示的 Google 账号并实际发送一次请求。在账号窗口可以重命名或忘记保存的登录；忘记不会改变当前登录。
+
+完整凭据及未知字段保存在 Moa 专用钥匙串服务 `com.moa.antigravity.accounts`，不请求 iCloud 钥匙串同步。名称、可用的邮箱标签、身份哈希和时间等信息保存在 `~/Library/Application Support/Moa/antigravity-accounts/accounts.json`，目录／文件权限为 `700`／`600`。这个目录不进入数据导出包、诊断包和 Moa 的 iCloud 数据根目录迁移。打开菜单时只在后台进行不弹授权框的刷新；保存和切换可能请求钥匙串授权，Moa 构建签名变化后也可能需要重新授权。
+
+存在 Google ID Token 时按其用户标识识别账号，否则按刷新授权的指纹识别登录。如果没有 ID Token 且授权发生变化，Moa 会另存一份，避免猜测并覆盖其他账号。适配器只接受已支持的 OAuth 格式，保存和恢复原始完整字节。设置和会话保持共享且不会被修改；此功能不隔离历史，也不增加用量统计。
+
+独立备用文件 `~/.gemini/jetski-standalone-oauth-token` 也是登录来源。Moa 会将与当前钥匙串不同的备用登录另存到钥匙串；切换时写入匹配账号的完整 JSON，添加账号时移除两个登录来源。钥匙串更新失败时，先恢复备用文件再重开；启动失败时恢复之前两份凭据的原始内容。已有 `.gemini` 目录权限保持不变，令牌文件使用私有权限写入。Gemini CLI 的 `oauth_creds.json` 和 CLI 专用令牌文件不会被修改。通过环境变量注入凭据或自定义凭据根目录的配置不在支持范围内。
+
+App、CLI 或扩展实例可能共享当前登录。Moa 会在修改前检查运行中的程序路径，并在替换前复查凭据；操作锁只协调 Moa 实例。拒绝退出或检测到其他写入进程时停止修改。启动失败时，先保留启动期间可能刷新的凭据，再恢复之前的登录；无法确认恢复成功时保持客户端关闭并给出恢复提示。隔离测试覆盖这些路径、账号信息写入失败和存储排除。真实钥匙串授权／访问控制、A → B → A 实际请求，以及服务端过期或撤销后的会话有效性仍需手动验收。适配器不会自行刷新令牌，也不承诺切换时保持正在执行的任务。
 
 ## DeepSeek
 
@@ -164,6 +181,9 @@ CODE_SIGN_IDENTITY=- ./scripts/package-dmg.sh
 ```
 
 DMG 会输出到 `dist/Moa-<release-version>-macos-<arch>.dmg`，并生成匹配的 SHA-256 文件。
+
+当前 Mac 的本机构建会更新 `Moa.app`。把 `APP_ARCH` 设成其他架构时，产物写到 `build/macos-<arch>/Moa.app`，不会替换本机应用；DMG 封好后会删除这个跨架构 bundle。在 Apple 芯片上打开仅含 Intel 架构的 Moa 时，macOS 27 会提示它无法在 macOS 28 中打开，所以在这台 Mac 上只启动原生 `arm64` bundle。
+
 
 ## Codex 本地运行按钮
 

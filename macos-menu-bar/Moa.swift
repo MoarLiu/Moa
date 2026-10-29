@@ -12,6 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     lazy var workbuddyCoordinator = MoaWorkBuddyCoordinator(app: self, edition: .international)
     lazy var workbuddyCNCoordinator = MoaWorkBuddyCoordinator(app: self, edition: .china)
     lazy var deepseekCoordinator = MoaDeepSeekCoordinator(app: self)
+    lazy var antigravityCoordinator = MoaAntigravityCoordinator(app: self)
     let dataPackageController = MoaDataPackageController()
     let updateController = MoaUpdateController()
     lazy var mainMenuCoordinator = MoaMainMenuCoordinator(app: self)
@@ -173,7 +174,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if let button = statusItem.button {
             button.image = Self.makeMenuBarIcon()
             button.imageScaling = .scaleProportionallyDown
-            button.toolTip = MoaL10n.text("Moa - Codex, Claude, ZCode, WorkBuddy, WorkBuddy AI, DeepSeek")
+            button.toolTip = MoaL10n.text("Moa - Codex, Claude, ZCode, WorkBuddy, WorkBuddy AI, DeepSeek, Antigravity")
         }
         statusItem.menu = menu
     }

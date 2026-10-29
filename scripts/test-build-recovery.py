@@ -81,5 +81,64 @@ os.execv('/bin/mv', ['/bin/mv'] + sys.argv[1:])
             print(f"PASS: {failure}", flush=True)
 
 
+
+
+def cross_arch_does_not_replace_native_app():
+    root = Path(__file__).resolve().parent.parent
+    with tempfile.TemporaryDirectory(prefix="moa-cross-arch-") as temporary:
+        base = Path(temporary)
+        source = base / "main.c"
+        source.write_text("int main(void) { return 0; }\n")
+        binary = base / "fixture-x86_64"
+        subprocess.run(
+            ["/usr/bin/xcrun", "clang", "-arch", "x86_64", "-mmacosx-version-min=12.0", str(source), "-o", str(binary)],
+            check=True,
+        )
+        fixture = base / "fixture"
+        (fixture / "scripts").mkdir(parents=True)
+        for name in ["build-menu-bar-app.sh", "version.env", "sources.env"]:
+            shutil.copy2(root / "scripts" / name, fixture / "scripts" / name)
+        shutil.copytree(root / "macos-menu-bar/Resources", fixture / "macos-menu-bar/Resources")
+        shutil.copytree(root / "assets", fixture / "assets")
+        native = fixture / "Moa.app"
+        native.mkdir()
+        marker = native / "previous-build"
+        marker.write_bytes(b"known-good native app")
+        before = digest(marker)
+        compiler = fixture / "swiftc-fixture"
+        compiler.write_text("""#!/usr/bin/env python3
+import os, shutil, sys
+shutil.copy2(os.environ['MOA_FIXTURE_BINARY'], sys.argv[sys.argv.index('-o') + 1])
+""")
+        compiler.chmod(0o755)
+        environment = dict(
+            os.environ,
+            SWIFTC=str(compiler),
+            MOA_FIXTURE_BINARY=str(binary),
+            APP_ARCH="x86_64",
+            APP_VERSION="1.6.2",
+            APP_BUILD="128",
+            MACOS_DEPLOYMENT_TARGET="12.0",
+            CODE_SIGN_IDENTITY="-",
+        )
+        result = subprocess.run(
+            ["bash", str(fixture / "scripts/build-menu-bar-app.sh")],
+            env=environment,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert result.returncode == 0, result.stderr
+        assert digest(marker) == before
+        side = fixture / "build/macos-x86_64/Moa.app/Contents/MacOS/Moa"
+        assert side.exists(), result.stderr
+        archs = subprocess.check_output(["/usr/bin/lipo", "-archs", str(side)], text=True).strip()
+        assert archs == "x86_64", archs
+        assert not list(fixture.glob(".moa-build.*"))
+        print("PASS: cross-arch", flush=True)
+
+
 if __name__ == "__main__":
     main()
+    cross_arch_does_not_replace_native_app()
+

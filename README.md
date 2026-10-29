@@ -19,6 +19,7 @@ It intentionally excludes the original Moa Companion surface: no desktop pet, AI
 - Account management: **Manage Accounts…** opens one window grouped by client. Rename, edit, or delete saved entries there; selecting an account in the menu still switches immediately.
 - WorkBuddy / WorkBuddy AI International: separate account menus and usage tabs, local logins, account enrollment and switching, rename/forget actions, and client launch helpers.
 - DeepSeek: save, enroll, switch, rename, and forget local DeepSeek Harness account logins, with open/reopen helpers.
+- Antigravity App: save Google logins in the local Keychain and switch from the menu, with enrollment, rename/forget, and open/reopen helpers.
 - Usage insights: local Codex, Claude, ZCode, and WorkBuddy AI summaries, model details, CSV / Markdown exports, custom prices, and configurable daily alerts.
 - Moa Data: export/import data packages, export redacted diagnostics, and optionally switch the active data root to iCloud Drive.
 - Updates: check GitHub Releases from the main menu, then download, verify, and install the matching macOS DMG.
@@ -49,6 +50,22 @@ Moa locates the client by its `com.openai.codex` bundle identifier, supporting b
 Moa 1.5.0 removes Fast Mode and remote connection settings controls, including their legacy headless commands. Manage these preferences in ChatGPT itself. Existing preferences remain untouched. Provider switching starts from the live client configuration, preserving other settings, unknown fields, and unrelated provider definitions.
 
 Usage scanning supports both `token_usage_record` and legacy `token_count` events without counting both, and retains cache reads, cache writes, and request boundaries. Long-context prices apply per request. Version 1.3.0 includes API prices checked on 2026-10-24 for OpenAI, Claude, GLM, and WorkBuddy models, including cache and Fast parameters. See the [complete model price and source table](MODEL_PRICING.md). These are standard API price estimates for local Codex tasks, not ChatGPT subscription invoices.
+
+## Antigravity App
+
+The **Antigravity** menu targets Antigravity App 2.x (`com.google.antigravity`), with compatibility research against macOS App `2.28.0`. It manages the OAuth login in the login Keychain (`service=gemini`, `account=antigravity`). Antigravity IDE's `state.vscdb` is a separate format and is not edited. Enterprise/ADC and API-key account management are outside this adapter's scope.
+
+1. Sign in to Antigravity with Google account A. Finish active tasks, close `agy` and Antigravity IDE extensions, then choose **Antigravity → Manage Accounts… → Save Current Login** in Moa. Give the account a recognizable name and allow Keychain access if macOS asks.
+2. Choose **Add Another Account**. Moa exits Antigravity normally, saves the latest login, removes the active Keychain item and its standalone fallback token file, and reopens the Google sign-in screen. Sign in as B, then save B in Moa. This does not call Google's token-revocation endpoint or Antigravity's logout/cache-clearing flow.
+3. Select A or B in the Antigravity menu. Moa exits the app, saves the outgoing login, replaces the active Keychain credential and fallback token file together, and reopens the app. Verify the displayed Google account and send a request. Rename or forget saved logins in the account window; forgetting leaves the active login unchanged.
+
+Snapshots preserve the complete credential envelope and unknown fields under Moa's own Keychain service, `com.moa.antigravity.accounts`, without requesting iCloud Keychain synchronization. Local metadata (names, email labels when available, hashed identities, timestamps) lives in `~/Library/Application Support/Moa/antigravity-accounts/accounts.json` with directory/file modes `700`/`600`. This directory is outside data packages, diagnostics, and Moa's iCloud data-root moves. Opening menus refreshes in the background without requesting Keychain authorization. Switching or saving can request authorization; signing changes between Moa builds can require granting access again.
+
+Google ID-token subjects identify accounts when available; otherwise a refresh-grant fingerprint identifies the saved login. If that grant changes without an ID token, Moa saves a separate entry rather than guessing which account to overwrite. Only supported OAuth envelopes are accepted, and the exact original bytes are restored. Settings and conversations remain shared and untouched; this feature does not isolate history or add usage reporting.
+
+The standalone fallback `~/.gemini/jetski-standalone-oauth-token` is also a login source. Moa preserves any distinct outgoing fallback login in Keychain, writes a matching complete JSON envelope when switching, and removes both sources for enrollment. If updating Keychain fails, the fallback file is restored before reopening. Startup failure restores the exact previous pair. Existing `.gemini` directory permissions are retained; token files are written privately. Gemini CLI `oauth_creds.json` and CLI-specific token files are not edited. Environment-injected credentials and custom credential roots are outside the supported configuration.
+
+Other App/CLI/extension instances can share the active login. Moa checks running executable paths before credential changes and rechecks the live value before replacement; its operation lock coordinates Moa instances only. Refused quits and detected shared writers prevent changes. Launch failures preserve credentials refreshed during startup before restoring the previous login; if recovery cannot be verified, the client stays closed with recovery guidance. Isolated tests cover these paths, metadata failures, and storage exclusion. Real Keychain authorization/ACL behavior, A → B → A requests, and session validity after server-side expiration or revocation remain manual acceptance checks. The adapter does not refresh tokens itself or promise an uninterrupted in-progress task.
 
 ## DeepSeek
 
@@ -160,6 +177,9 @@ CODE_SIGN_IDENTITY=- ./scripts/package-dmg.sh
 ```
 
 The DMG is written to `dist/Moa-<release-version>-macos-<arch>.dmg` with a matching SHA-256 file.
+
+A native build updates `Moa.app`. Setting `APP_ARCH` to another architecture writes `build/macos-<arch>/Moa.app` and does not replace the native app; packaging deletes that cross-built bundle after the DMG is created. macOS 27 warns when an Intel-only app is opened on Apple silicon and says it will not open on macOS 28, so launch the native `arm64` bundle on this Mac.
+
 
 ## Local Run Button
 

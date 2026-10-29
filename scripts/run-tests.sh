@@ -103,6 +103,7 @@ MACOSX_DEPLOYMENT_TARGET="$MACOS_DEPLOYMENT_TARGET" "$SWIFTC_BIN" \
   -framework CryptoKit \
   -framework Foundation \
   -framework ImageIO \
+  -framework Security \
   -framework SwiftUI \
   -framework UniformTypeIdentifiers \
   "${MOA_TEST_ABS_SOURCES[@]}" \

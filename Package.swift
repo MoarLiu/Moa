@@ -23,6 +23,7 @@ let package = Package(
                 .linkedFramework("Combine"),
                 .linkedFramework("CryptoKit"),
                 .linkedFramework("ImageIO"),
+                .linkedFramework("Security"),
                 .linkedFramework("SwiftUI"),
                 .linkedFramework("UniformTypeIdentifiers")
             ]

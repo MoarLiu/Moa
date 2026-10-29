@@ -11,6 +11,7 @@ enum MoaAccountGroup: String, CaseIterable, Identifiable {
     case workbuddy
     case workbuddyCN
     case deepseek
+    case antigravity
 
     var id: String { rawValue }
 
@@ -22,6 +23,7 @@ enum MoaAccountGroup: String, CaseIterable, Identifiable {
         case .workbuddy: return "WorkBuddy AI"
         case .workbuddyCN: return MoaL10n.text("WorkBuddy")
         case .deepseek: return "DeepSeek"
+        case .antigravity: return "Antigravity"
         }
     }
 
@@ -32,6 +34,7 @@ enum MoaAccountGroup: String, CaseIterable, Identifiable {
         case .claude: return "sparkles"
         case .workbuddy, .workbuddyCN: return "briefcase"
         case .deepseek: return "bolt"
+        case .antigravity: return "arrow.up.circle"
         }
     }
 
@@ -42,6 +45,7 @@ enum MoaAccountGroup: String, CaseIterable, Identifiable {
         case .workbuddy: return .workbuddy
         case .workbuddyCN: return .workbuddyCN
         case .deepseek: return .deepseek
+        case .antigravity: return .antigravity
         }
     }
 
@@ -49,7 +53,7 @@ enum MoaAccountGroup: String, CaseIterable, Identifiable {
     var supportsEditing: Bool {
         switch self {
         case .codexConfig, .claude: return true
-        case .codexOfficial, .workbuddy, .workbuddyCN, .deepseek: return false
+        case .codexOfficial, .workbuddy, .workbuddyCN, .deepseek, .antigravity: return false
         }
     }
 }
@@ -151,6 +155,15 @@ enum MoaAccountCatalog {
             )
         }
 
+        let antigravity = app.antigravityCoordinator.overview
+        sections.append(MoaAccountSection(
+            group: .antigravity,
+            rows: antigravity.accounts.map {
+                MoaAccountRow(group: .antigravity, id: $0.id.uuidString, name: $0.name, detail: $0.email, active: $0.id == antigravity.currentID)
+            },
+            canAddCurrentLogin: false,
+            currentLoginMessage: app.antigravityCoordinator.failure ?? antigravity.message
+        ))
         return (sections, failures)
     }
 }
@@ -226,7 +239,8 @@ final class MoaAccountManagerModel: ObservableObject {
         // from the UI while a coordinator is switching an account.
         guard !busy, !app.workbuddyCoordinator.isUpdatingAccounts,
               !app.workbuddyCNCoordinator.isUpdatingAccounts,
-              !app.deepseekCoordinator.isUpdatingAccounts else { return }
+              !app.deepseekCoordinator.isUpdatingAccounts,
+              !app.antigravityCoordinator.isUpdatingAccounts else { return }
         let loaded = MoaAccountCatalog.load(app: app)
         sections = loaded.sections
         failures = loaded.failures
@@ -234,6 +248,7 @@ final class MoaAccountManagerModel: ObservableObject {
         app.rebuildClaudeProviderMenus()
         app.rebuildWorkBuddyMenus()
         app.deepseekCoordinator.rebuildMenu()
+        app.antigravityCoordinator.rebuildMenu()
     }
 
     func add(_ group: MoaAccountGroup) {
@@ -258,6 +273,8 @@ final class MoaAccountManagerModel: ObservableObject {
             app.workbuddyCNCoordinator.saveCurrentAccount(onComplete: refresh)
         case .deepseek:
             app.deepseekCoordinator.saveCurrentAccount(onComplete: refresh)
+        case .antigravity:
+            app.antigravityCoordinator.saveCurrentAccount(onComplete: refresh)
         }
     }
 
@@ -271,6 +288,8 @@ final class MoaAccountManagerModel: ObservableObject {
             app.workbuddyCNCoordinator.addAnotherAccount(onComplete: refresh)
         case .deepseek:
             app.deepseekCoordinator.addAnotherAccount(onComplete: refresh)
+        case .antigravity:
+            app.antigravityCoordinator.addAnotherAccount(onComplete: refresh)
         case .codexOfficial, .codexConfig, .claude:
             break
         }
@@ -284,6 +303,10 @@ final class MoaAccountManagerModel: ObservableObject {
             buttonTitle: MoaL10n.text("Save"),
             initialName: row.name
         ) else { return }
+        if row.group == .antigravity, let id = UUID(uuidString: row.id) {
+            app.antigravityCoordinator.renameSavedAccount(id: id, name: name) { [weak self] in self?.reload() }
+            return
+        }
         run(row.group, MoaL10n.text("Saving…")) {
             switch row.group {
             case .codexOfficial:
@@ -306,6 +329,9 @@ final class MoaAccountManagerModel: ObservableObject {
             case .deepseek:
                 guard let id = UUID(uuidString: row.id) else { return }
                 try self.app.deepseekCoordinator.controller.rename(id: id, name: name)
+            case .antigravity:
+                guard let id = UUID(uuidString: row.id) else { return }
+                try self.app.antigravityCoordinator.controller.rename(id: id, name: name)
             }
         }
     }
@@ -341,7 +367,7 @@ final class MoaAccountManagerModel: ObservableObject {
                 )
                 if applied { self.app.claudeDesktopProfileController.reopenClaudeDesktop() }
             }
-        case .codexOfficial, .workbuddy, .workbuddyCN, .deepseek:
+        case .codexOfficial, .workbuddy, .workbuddyCN, .deepseek, .antigravity:
             break
         }
     }
@@ -354,6 +380,10 @@ final class MoaAccountManagerModel: ObservableObject {
             primaryButtonTitle: MoaL10n.text("Delete"),
             tone: .danger
         ) else { return }
+        if row.group == .antigravity, let id = UUID(uuidString: row.id) {
+            app.antigravityCoordinator.forgetSavedAccount(id: id) { [weak self] in self?.reload() }
+            return
+        }
         run(row.group, MoaL10n.text("Deleting…")) {
             switch row.group {
             case .codexOfficial:
@@ -375,6 +405,9 @@ final class MoaAccountManagerModel: ObservableObject {
             case .deepseek:
                 guard let id = UUID(uuidString: row.id) else { return }
                 try self.app.deepseekCoordinator.controller.delete(id: id)
+            case .antigravity:
+                guard let id = UUID(uuidString: row.id) else { return }
+                try self.app.antigravityCoordinator.controller.delete(id: id)
             }
         }
     }
@@ -401,6 +434,10 @@ final class MoaAccountManagerModel: ObservableObject {
             guard let id = UUID(uuidString: row.id) else { return }
             app.deepseekCoordinator.applySavedAccount(id: id, onComplete: refresh)
             return
+        case .antigravity:
+            guard let id = UUID(uuidString: row.id) else { return }
+            app.antigravityCoordinator.applySavedAccount(id: id, onComplete: refresh)
+            return
         case .codexOfficial, .codexConfig, .claude:
             break
         }
@@ -417,7 +454,7 @@ final class MoaAccountManagerModel: ObservableObject {
             case .claude:
                 _ = try self.app.claudeDesktopProfileController.applyProfile(id: row.id)
                 self.app.claudeDesktopProfileController.reopenClaudeDesktop()
-            case .workbuddy, .workbuddyCN, .deepseek:
+            case .workbuddy, .workbuddyCN, .deepseek, .antigravity:
                 break // Routed through their shared menu coordinators above.
             }
         }
@@ -444,7 +481,7 @@ final class MoaAccountManagerModel: ObservableObject {
             return MoaL10n.text("This provider is active, so Claude Desktop returns to official mode.")
         case .claude:
             return MoaL10n.text("Removes this provider from Moa. Claude Desktop keeps using its current provider.")
-        case .workbuddy, .workbuddyCN, .deepseek:
+        case .workbuddy, .workbuddyCN, .deepseek, .antigravity:
             return MoaL10n.text("Only Moa's saved copy is deleted. The app stays signed in and its local sessions are kept.")
         }
     }
@@ -461,6 +498,8 @@ final class MoaAccountManagerModel: ObservableObject {
             return MoaL10n.text("WorkBuddy quits and reopens, so finish active tasks first. Do not use Log Out.")
         case .deepseek:
             return MoaL10n.text("DeepSeek Harness quits and reopens, so finish active tasks and close other DSH instances first. Do not use Log Out.")
+        case .antigravity:
+            return MoaL10n.text("Antigravity quits and reopens. Finish active tasks and close agy and Antigravity IDE extensions first; they share the active login.")
         }
     }
 
@@ -600,6 +639,9 @@ private struct MoaAccountSectionView: View {
             case .deepseek:
                 addButton(MoaL10n.text("Save Current Login")) { model.add(.deepseek) }
                 addButton(MoaL10n.text("Add Another Account")) { model.addAnotherLogin(.deepseek) }
+            case .antigravity:
+                addButton(MoaL10n.text("Save Current Login")) { model.add(.antigravity) }
+                addButton(MoaL10n.text("Add Another Account")) { model.addAnotherLogin(.antigravity) }
             }
             Spacer()
         }

@@ -14,6 +14,13 @@ pkill -x "$APP_NAME" >/dev/null 2>&1 || true
 CODE_SIGN_IDENTITY="${CODE_SIGN_IDENTITY:--}" "$ROOT_DIR/scripts/build-menu-bar-app.sh"
 
 open_app() {
+  local host_arch app_arch
+  host_arch="$(uname -m)"
+  app_arch="$(/usr/bin/lipo -archs "$APP_BINARY" 2>/dev/null || true)"
+  if [[ "$host_arch" == "arm64" && "$app_arch" != "arm64" ]]; then
+    echo "Refusing to open $APP_BUNDLE because it is ${app_arch:-unknown}. macOS would warn that this Intel-only Moa will not open on macOS 28. Rebuild the native arm64 app." >&2
+    exit 1
+  fi
   /usr/bin/open -n "$APP_BUNDLE"
 }
 

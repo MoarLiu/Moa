@@ -12,7 +12,7 @@ fi
 source "$ROOT/scripts/version.env"
 APP_RELEASE_VERSION="${APP_RELEASE_VERSION:-$APP_VERSION}"
 APP_NAME="Moa"
-APP="$ROOT/$APP_NAME.app"
+APP="$(moa_app_output_path "$ROOT")"
 DIST_DIR="$ROOT/dist"
 DMG_ROOT="$DIST_DIR/dmg-root"
 DMG_PATH="$DIST_DIR/$APP_NAME-$APP_RELEASE_VERSION-macos-$APP_ARCH.dmg"
@@ -58,6 +58,10 @@ SENSITIVE_MATCH="$(find "$DMG_ROOT" \( \
   -name ".dsh" -o \
   -name ".credentials.yaml" -o \
   -name "deepseek-accounts" -o \
+  -name "antigravity-accounts" -o \
+  -name ".gemini" -o \
+  -name "antigravity-oauth-token" -o \
+  -name "jetski-standalone-oauth-token" -o \
   -name "accounts.json" -o \
   -name "codex_official_accounts.json" -o \
   -name "claude_desktop_profiles.json" -o \
@@ -86,6 +90,10 @@ if [[ -n "$SENSITIVE_MATCH" ]]; then
     -name ".dsh" -o \
     -name ".credentials.yaml" -o \
     -name "deepseek-accounts" -o \
+    -name "antigravity-accounts" -o \
+    -name ".gemini" -o \
+    -name "antigravity-oauth-token" -o \
+    -name "jetski-standalone-oauth-token" -o \
     -name "accounts.json" -o \
     -name "codex_official_accounts.json" -o \
     -name "claude_desktop_profiles.json" -o \
@@ -141,4 +149,8 @@ rm -rf "$DMG_ROOT"
   cd "$DIST_DIR"
   /usr/bin/shasum -a 256 "$(basename "$DMG_PATH")"
 ) | tee "$CHECKSUM_PATH"
+if [[ "$APP_ARCH" != "$(moa_host_arch)" && -d "$APP" ]]; then
+  rm -rf "$APP"
+  echo "Removed cross-built $APP_ARCH bundle so it is not left on this Mac to launch." >&2
+fi
 echo "Built: $DMG_PATH"

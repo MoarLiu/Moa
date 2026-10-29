@@ -505,3 +505,35 @@
 "The configuration change failed. ChatGPT was reopened with its previous configuration. %@" = "配置更改失败，ChatGPT 已使用原配置重新打开。%@";
 "The saved pricing catalog has an unsupported version." = "保存的价格目录版本不受支持。";
 "Could not access %@. %@" = "无法访问 %@。%@";
+
+/* Antigravity App account management. */
+"Add Another Antigravity Account?" = "再添加一个 Antigravity 账号？";
+"Another Moa instance is updating Antigravity. Wait for it to finish and try again." = "另一个 Moa 实例正在更新 Antigravity，请等待完成后重试。";
+"Antigravity Account" = "Antigravity 账号";
+"Antigravity Keychain access failed (%d). Unlock the login keychain and allow Moa access, then try again." = "访问 Antigravity 钥匙串失败（%d）。请解锁登录钥匙串并允许 Moa 访问，然后重试。";
+"Antigravity account metadata is invalid. Restore the local metadata before changing accounts; Keychain logins have not been changed." = "Antigravity 账号信息无效。请恢复本机账号信息后再切换；钥匙串中的登录尚未更改。";
+"Antigravity account metadata paths must not contain symbolic links." = "Antigravity 账号信息路径不能包含符号链接。";
+"Antigravity could not restore the previous login. Keep Antigravity and agy closed, unlock Keychain, and select the previous saved account again in Moa." = "无法恢复 Antigravity 之前的登录。请保持 Antigravity 和 agy 关闭，解锁钥匙串后，在 Moa 中重新选择之前保存的账号。";
+"Antigravity did not quit. Finish active tasks and quit it, then try again." = "Antigravity 未退出。请结束进行中的任务并退出应用，然后重试。";
+"Antigravity login changed during the operation. Close all shared clients and try again." = "操作期间 Antigravity 的登录发生了变化。请关闭所有共享登录的客户端后重试。";
+"Antigravity login format is unsupported or incomplete. Sign in with a personal Google account and save it again." = "Antigravity 登录格式不受支持或不完整。请使用个人 Google 账号登录后重新保存。";
+"Antigravity or a shared login process is still running. Close it before changing accounts." = "Antigravity 或共享登录的进程仍在运行。请关闭后再切换账号。";
+"Antigravity quits and reopens. Finish active tasks and close agy and Antigravity IDE extensions first; they share the active login." = "Antigravity 会退出并重新打开。请先结束进行中的任务，并关闭共享当前登录的 agy 和 Antigravity IDE 扩展。";
+"Antigravity will quit normally, save its latest Google login in Keychain, and reopen. Finish active tasks and close agy and Antigravity IDE extensions first." = "Antigravity 会正常退出，将最新的 Google 登录保存到钥匙串后重新打开。请先结束进行中的任务，并关闭 agy 和 Antigravity IDE 扩展。";
+"Close agy, Antigravity IDE, and Antigravity IDE extensions before saving or switching accounts. They share the active login." = "保存或切换账号前，请先关闭 agy、Antigravity IDE 及 Antigravity IDE 扩展，它们会共享当前登录。";
+"Enter an account name of 1 to 200 characters." = "请输入 1 至 200 个字符的账号名称。";
+"Install Antigravity App 2.x before managing its accounts. Antigravity IDE uses a different login store." = "请先安装 Antigravity App 2.x 再管理账号。Antigravity IDE 使用不同的登录存储。";
+"Moa - Codex, Claude, ZCode, WorkBuddy, WorkBuddy AI, DeepSeek, Antigravity" = "Moa - Codex、Claude、ZCode、WorkBuddy、WorkBuddy AI、DeepSeek、Antigravity";
+"Moa saves the current login in Keychain, quits Antigravity, and opens a fresh Google sign-in. Sign in with the other account, then save it in Moa. Finish active tasks and close agy and Antigravity IDE extensions first." = "Moa 会将当前登录保存到钥匙串，退出 Antigravity 后打开新的 Google 登录界面。请登录另一个账号，然后在 Moa 中保存。操作前请先结束进行中的任务，并关闭 agy 和 Antigravity IDE 扩展。";
+"Save Antigravity Account" = "保存 Antigravity 账号";
+"Sign in to Antigravity with your Google account before saving the current login." = "请先在 Antigravity 中登录 Google 账号，再保存当前登录。";
+"The saved Antigravity login could not be restored after a failed delete. Save that account again after unlocking Keychain." = "删除失败后无法恢复保存的 Antigravity 登录。请解锁钥匙串后重新保存该账号。";
+"The saved Antigravity login is missing or does not match its account. Sign in and save it again." = "保存的 Antigravity 登录缺失或与账号不匹配。请登录后重新保存。";
+"Unable to check Antigravity processes. Close Antigravity, agy, and its IDE extensions, then try again." = "无法检查 Antigravity 进程。请关闭 Antigravity、agy 及相关 IDE 扩展后重试。";
+"Unable to lock the Antigravity account store. Check its local directory permissions." = "无法锁定 Antigravity 账号存储，请检查本机目录权限。";
+"Unable to open Antigravity. Open it manually and check the selected account." = "无法打开 Antigravity。请手动打开并检查所选账号。";
+"Updating Antigravity…" = "正在更新 Antigravity…";
+"Use Save Current Login to allow Moa to read the Antigravity login in Keychain." = "请使用“保存当前登录”，授权 Moa 读取钥匙串中的 Antigravity 登录。";
+"Open Antigravity" = "打开 Antigravity";
+"Reopen Antigravity" = "重新打开 Antigravity";
+"The Antigravity fallback login file is unsupported. Close Antigravity and restore its login file before switching accounts." = "Antigravity 备用登录文件格式不受支持。请关闭 Antigravity 并恢复登录文件后再切换账号。";

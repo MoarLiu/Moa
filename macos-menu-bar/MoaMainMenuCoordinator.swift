@@ -28,7 +28,8 @@ final class MoaMainMenuCoordinator {
             (app.zcodeItem, app.zcodeMenu),
             (app.workbuddyCNItem, app.workbuddyCNMenu),
             (app.workbuddyItem, app.workbuddyMenu),
-            (app.deepseekCoordinator.item, app.deepseekCoordinator.menu)
+            (app.deepseekCoordinator.item, app.deepseekCoordinator.menu),
+            (app.antigravityCoordinator.item, app.antigravityCoordinator.menu)
         ] {
             submenu.autoenablesItems = false
             item.submenu = submenu
@@ -109,6 +110,7 @@ final class MoaMainMenuCoordinator {
         rebuildZCodeMenu()
         app.rebuildWorkBuddyMenus()
         app.deepseekCoordinator.rebuildMenu()
+        app.antigravityCoordinator.rebuildMenu()
         configureMoaDataMenu()
         refreshStatus()
     }
@@ -152,7 +154,7 @@ final class MoaMainMenuCoordinator {
 
     func refreshStatus() {
         if let button = app.statusItem.button {
-            button.toolTip = MoaL10n.text("Moa - Codex, Claude, ZCode, WorkBuddy, WorkBuddy AI, DeepSeek")
+            button.toolTip = MoaL10n.text("Moa - Codex, Claude, ZCode, WorkBuddy, WorkBuddy AI, DeepSeek, Antigravity")
         }
     }
 

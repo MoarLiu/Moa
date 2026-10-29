@@ -23,6 +23,10 @@ fast-toggle-backups/
 .moa/
 .workbuddy/
 .workbuddy-ai/
+.gemini/
+antigravity-accounts/
+antigravity-oauth-token
+jetski-standalone-oauth-token
 .dsh/
 .credentials.yaml
 deepseek-accounts/

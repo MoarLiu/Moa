@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.6.3 - 2026-10-29
+
+- Keep the app launched on Apple silicon native. Cross-architecture packaging no longer replaces `Moa.app` with an Intel-only build, which macOS 27 warns will not open on macOS 28.
+- Add Antigravity App 2.x account saving, enrollment, switching, rename/forget, and launch helpers to the menu and shared account window. Keep credential snapshots in the local Keychain, preserve outgoing refreshes, and recover failed launches without editing settings or conversation data.
+- Detect other Antigravity login writers before credential changes. Refresh account indicators in the background without Keychain prompts; keep account metadata outside data packages, diagnostics, and iCloud data-root moves.
+
 ## 1.6.2 - 2026-10-29
 
 - Place the inline Codex generation-rate indicator to the right of the permission selector in the composer toolbar.

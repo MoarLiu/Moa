@@ -5,7 +5,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=version.env
 source "$ROOT/scripts/version.env"
 APP_NAME="Moa"
-APP="$ROOT/$APP_NAME.app"
+APP="$(moa_app_output_path "$ROOT")"
 CONTENTS="$APP/Contents"
 MACOS="$CONTENTS/MacOS"
 RESOURCES="$CONTENTS/Resources"
@@ -72,6 +72,7 @@ plist_value() {
 
 /usr/bin/codesign --verify --deep --strict "$APP"
 check_mach_o_deployment_target "$EXECUTABLE"
+moa_assert_bundle_arch "$APP" "$APP_ARCH"
 /usr/bin/plutil -lint "$RESOURCES/en.lproj/Localizable.strings" "$RESOURCES/zh-Hans.lproj/Localizable.strings"
 
 if find "$APP" \( \
@@ -82,6 +83,10 @@ if find "$APP" \( \
   -name ".dsh" -o \
   -name ".credentials.yaml" -o \
   -name "deepseek-accounts" -o \
+  -name "antigravity-accounts" -o \
+  -name ".gemini" -o \
+  -name "antigravity-oauth-token" -o \
+  -name "jetski-standalone-oauth-token" -o \
   -name "accounts.json" -o \
   -name "codex_official_accounts.json" -o \
   -name "claude_desktop_profiles.json" -o \
