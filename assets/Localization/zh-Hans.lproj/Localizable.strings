@@ -535,6 +535,7 @@
 "Updating Antigravity…" = "正在更新 Antigravity…";
 "Use Save Current Login to allow Moa to read the Antigravity login in Keychain." = "请使用“保存当前登录”，授权 Moa 读取钥匙串中的 Antigravity 登录。";
 "Open Antigravity" = "打开 Antigravity";
+"Antigravity's app or backend signature could not be verified as Google software. Reinstall the official Antigravity App before managing logins." = "无法确认 Antigravity 应用或后端的签名来自 Google。请重新安装官方 Antigravity App 后再管理登录。";
 "Reopen Antigravity" = "重新打开 Antigravity";
 "The Antigravity fallback login file is unsupported. Close Antigravity and restore its login file before switching accounts." = "Antigravity 备用登录文件格式不受支持。请关闭 Antigravity 并恢复登录文件后再切换账号。";
 "The endpoint returned an unexpected API response. Check the provider URL and protocol." = "端点返回的内容不符合预期 API 协议，请检查服务商地址和协议类型。";

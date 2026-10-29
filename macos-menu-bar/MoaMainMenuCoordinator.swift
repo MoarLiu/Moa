@@ -236,7 +236,10 @@ final class MoaMainMenuCoordinator {
         app.codexProfilesMenu.addItem(app.codexUsageDetailsItem)
         app.codexProfilesMenu.addItem(NSMenuItem.separator())
 
-        for item in app.codexEnhancements.menuItems { app.codexProfilesMenu.addItem(item) }
+        // This legacy menu builder is entered from AppKit callbacks on the main thread.
+        MainActor.assumeIsolated {
+            for item in app.codexEnhancements.menuItems { app.codexProfilesMenu.addItem(item) }
+        }
         app.codexProfilesMenu.addItem(NSMenuItem.separator())
 
         app.codexOfficialMenu.removeAllItems()

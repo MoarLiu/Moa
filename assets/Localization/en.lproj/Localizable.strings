@@ -534,6 +534,7 @@
 "Updating Antigravity…" = "Updating Antigravity…";
 "Use Save Current Login to allow Moa to read the Antigravity login in Keychain." = "Use Save Current Login to allow Moa to read the Antigravity login in Keychain.";
 "Open Antigravity" = "Open Antigravity";
+"Antigravity's app or backend signature could not be verified as Google software. Reinstall the official Antigravity App before managing logins." = "Antigravity's app or backend signature could not be verified as Google software. Reinstall the official Antigravity App before managing logins.";
 "Reopen Antigravity" = "Reopen Antigravity";
 "The Antigravity fallback login file is unsupported. Close Antigravity and restore its login file before switching accounts." = "The Antigravity fallback login file is unsupported. Close Antigravity and restore its login file before switching accounts.";
 "The endpoint returned an unexpected API response. Check the provider URL and protocol." = "The endpoint returned an unexpected API response. Check the provider URL and protocol.";

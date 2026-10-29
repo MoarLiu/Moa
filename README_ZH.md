@@ -1,23 +1,42 @@
 # Moa
 
-Moa 是一个支持 ChatGPT（原 Codex Desktop）、Claude Desktop、ZCode、WorkBuddy、WorkBuddy AI 国际版及 DeepSeek Harness 工作流的 macOS 菜单栏应用。
+**在一个 macOS 菜单栏中管理多个 AI Agent 的账号、服务商和本地用量。**
 
-它不包含原 Moa 的 Companion 相关功能：没有桌面宠物、AI 快捷动作、提醒事项、日记、番茄钟、MCP helper、Workflow Runner、资产上传、Dashboard、皮肤和声音资源包。
+[English](README.md) · [下载最新版](https://github.com/MoarLiu/Moa/releases/latest) · [更新日志](CHANGELOG.md)
 
-## 功能范围
+Moa 是面向多 AI Agent 用户的本地管理工具，将 ChatGPT / Codex、Claude Desktop、Antigravity App、DeepSeek Harness、WorkBuddy 国内版、WorkBuddy AI 国际版及 ZCode 汇集到统一的菜单栏、账号窗口和用量总览中。各客户端继续独立运行会话和任务，Moa 负责它们已适配的账号、配置及维护操作。
 
-- ChatGPT / Codex 控制：官方账号切换、provider profile 导入导出、重新打开客户端。
-- Claude Desktop profile：写入 Claude Desktop 3P gateway profile，并复制 Claude Code 环境变量片段。
-- 账号管理：各客户端菜单的「管理账号…」打开同一个按客户端分组的窗口，在其中重命名、编辑或删除已保存条目；菜单里点击账号仍会立即切换。
-- WorkBuddy / WorkBuddy AI 国际版：各有独立菜单和用量 Tab，分别保存本机登录态、添加和切换账号、重命名或删除已保存账号，并正常退出和重启对应客户端。
-- DeepSeek：保存、添加、切换、重命名和忘记本机 DeepSeek Harness 账号，并提供打开和重启入口。
-- Antigravity App：将 Google 登录保存在本机钥匙串，通过菜单切换账号，支持添加、重命名、忘记以及打开和重启应用。
-- 用量统计：基于本地 Codex / Claude / ZCode / WorkBuddy AI 日志估算用量，提供模型明细、CSV / Markdown 导出、自定义价格和每日提醒阈值。
-- Moa 数据：导出/导入完整数据包、导出脱敏诊断包，并可把数据根切换到 iCloud Drive。
-- 更新检查：可从主菜单检查 GitHub Releases，下载、校验并安装匹配当前 Mac 的 DMG。
-- 价格热更新：主菜单点击「更新价格」，即可获取 Sub2API 参考的完整公开价格目录。支持的美元 Token 价格立即生效，自动刷新已打开的用量明细，并在重启后保留。下载失败继续使用原价格，自定义价格始终优先；每天自动检查仍保留。
+## 快速开始
 
-## 1.5.0 界面与交互改进
+1. 从 [GitHub Releases](https://github.com/MoarLiu/Moa/releases/latest) 下载 DMG：Apple 芯片选择 `arm64`，Intel Mac 选择 `x86_64`。需要 macOS 12 或更新版本，同时提供 `.sha256` 校验文件。
+2. 将 **Moa.app** 拖入「应用程序」后打开。当前发行包使用 ad-hoc 签名，尚未公证；首次运行可能需要在「系统设置 → 隐私与安全性」中允许打开。
+3. 安装并登录需要使用的客户端。在 Moa 菜单选择「账号…」，保存已支持客户端的登录或配置服务商。切换账号前请先结束客户端中的活动任务。
+4. 打开「用量总览…」查看支持的本地用量来源；各客户端子菜单提供切换、启动及专属选项。
+
+## 客户端支持范围
+
+每种客户端的适配能力不同。账号切换保存并恢复受支持的本地登录快照；服务商配置用于选择 API 端点。各客户端的账号和历史保持独立。
+
+| 客户端 | 账号与服务商 | 本地用量 | 其他功能 |
+| --- | --- | --- | --- |
+| ChatGPT / Codex | 官方登录；直连 Responses 服务商配置；配置导入导出 | Token、缓存、模型及 API 费用估算 | 打开／重开；可选生成速率状态栏 |
+| Claude Desktop / Claude Code | Desktop 3P 网关配置；复制 Claude Code 环境变量片段 | Claude Code 日志用量及 API 费用估算 | 打开／重开 Desktop；配置导入导出 |
+| Antigravity App 2.x | Google 登录保存、添加、切换、重命名／忘记 | 暂不支持 | 打开／重开；本地钥匙串快照 |
+| DeepSeek Harness | 登录保存、添加、切换、重命名／忘记 | 暂不支持 | 打开／重开；本地账号快照 |
+| WorkBuddy 国内版 | 登录保存、添加、切换、重命名／忘记 | 独立的 Token、模型及费用估算 | 打开／重开；独立账号库 |
+| WorkBuddy AI 国际版 | 登录保存、添加、切换、重命名／忘记 | 独立的 Token、模型及费用估算 | 打开／重开；独立账号库 |
+| ZCode | 暂不支持账号／服务商管理 | 本地数据库用量及 API 费用估算 | 打开／重开及文件夹入口 |
+
+## 核心功能
+
+- **账号与服务商管理**：按客户端分组的统一窗口、菜单一键切换、已支持服务商的编辑及导入导出、进行中状态和失败恢复提示。
+- **用量与费用分析**：汇总已支持的本地来源，查看模型和缓存明细，导出 CSV / Markdown，设置自定义价格及每日用量提醒。费用来自本地记录与 API 参考价格，不等同于订阅账单、积分或账号余额。
+- **模型价格更新**：「Moa → 更新价格」下载 Sub2API 参考使用的公开价格目录，支持的美元 Token 单价立即生效并持久保存。自定义价格优先；下载失败保留原表；支持每日自动检查。
+- **数据与维护**：Moa 数据包导入导出、脱敏诊断、共享数据根的可选 iCloud 存储，以及 GitHub Release 应用更新。不同凭据的存储和同步范围见[安全与凭据存储](#安全与凭据存储)。
+
+Moa 的当前定位是客户端管理和本地用量分析。Agent 执行、会话和服务认证由对应客户端负责；Codex 的可选生成速率状态栏是其中一项客户端专属功能。
+
+## 日常使用
 
 - 主菜单顶部显示版本和构建号，并提供“账号管理…”和“用量总览…”，各客户端仍保留用量摘要、刷新和一键切换；打开客户端、文件夹等辅助动作直接列在各客户端二级菜单底部，不再折叠。
 - 账号操作在菜单与窗口共享进行中状态；账号行保留“切换”，重命名、编辑、删除归入操作菜单。
@@ -25,23 +44,13 @@ Moa 是一个支持 ChatGPT（原 Codex Desktop）、Claude Desktop、ZCode、Wo
 - 快捷键：`⌘U` 用量总览、`⌘⇧A` 账号管理、`⌘R` 刷新当前用量窗口（其他场景刷新各来源用量）。
 - 维护入口位于主菜单的“Moa”子菜单，包括价格更新、更新检查与数据管理。
 
-## 1.4.0 升级说明
-
-原有账号库和自定义价格继续保留。请在客户端菜单中通过「管理账号…」保存或管理账号，在主菜单点击「更新价格」即可刷新价格，无需替换应用。新增「DeepSeek」菜单用于 DeepSeek Harness，账号录入步骤见下文。
-
-## 从 Provider Bridge 升级
-
-1.3.2 移除了 Provider Bridge、本地 HTTP 服务、协议转换和相关配置入口。Codex 服务商现在直接使用支持 OpenAI Responses 的端点；连接测试只验证 Responses，不再回退到 Chat Completions。
-
-如果此前使用 Provider Bridge，请在 Codex 菜单中选择已有的 Responses 配置，或添加服务商提供的 Responses Base URL；也可以选择官方模式。旧桥接配置不会自动转换为直连配置。旧配置文件保留在磁盘，1.3.2 不再读取独立桥接配置库；混合配置库中的桥接项仍保留在本地，但不再显示或导出，导入此类配置会提示重新添加 Responses 端点。升级本身不会改写当前 Codex 配置，完成上述选择后才会更新客户端配置并重新打开客户端。
-
 ## ChatGPT 客户端兼容
 
 客户端通过 `com.openai.codex` Bundle ID 定位，兼容 `ChatGPT.app` 和旧版 `Codex.app`，也支持 `CODEX_APP` 指定安装位置。内部配置和登录数据仍位于 `~/.codex`，或 `CODEX_HOME` 指定的目录。
 
 Moa 1.5.0 移除了快速模式和远程连接设置入口、对应实现及旧无界面命令。这些偏好由 ChatGPT 自己管理；已有设置保留。切换服务商以客户端当前配置为基础，保留其他设置、未知字段和其他服务商配置。
 
-用量读取兼容 `token_usage_record` 和旧 `token_count`，避免双重计数，分别保留缓存读取、缓存写入和每次请求的用量。费用按单次请求判断长上下文档位；1.3.0 使用 2026-10-24 核对的 API 价格快照，覆盖 OpenAI、Claude、GLM 及 WorkBuddy 模型，并保留缓存与 Fast 参数；详见[完整模型价格与来源](MODEL_PRICING.md)。这些是本地 Codex 任务的 API 标准价格估算，不是 ChatGPT 订阅账单。
+用量读取兼容 `token_usage_record` 和旧 `token_count`，避免双重计数，分别保留缓存读取、缓存写入和每次请求的用量。费用按单次请求判断长上下文档位；内置 API 价格表覆盖 OpenAI、Claude、GLM 及 WorkBuddy 模型，并保留缓存与 Fast 参数，可通过「更新价格」获取最新支持的目录；详见[完整模型价格与来源](MODEL_PRICING.md)。这些是本地 Codex 任务的 API 标准价格估算，不是 ChatGPT 订阅账单。
 
 ### 生成速率状态栏（实验功能）
 
@@ -56,6 +65,8 @@ Moa 1.5.0 移除了快速模式和远程连接设置入口、对应实现及旧�
 关闭后会移除显示并停止采集；再次正常重开客户端才能撤掉进程级调试监听。Moa 意外退出后，页面脚本租约到期会自行移除。日志、WebSocket 协议与隔离 HTML 页面已有自动测试，预览版也已在一个客户端版本上实测显示；其他客户端版本和布局的兼容性可能不同。
 
 ## Antigravity App
+
+保存或切换登录、启动应用，以及为缺失的当前登录创建钥匙串访问控制前，Moa 会验证应用和 language server 的签名来自 Google Developer ID。被修改、自签名或冒用身份的安装会被拒绝。已有钥匙串访问控制保持不变；新建当前登录条目时，为兼容客户端的 keyring 访问，仍信任 `/usr/bin/security`。这不构成对同一 macOS 用户下所有软件的凭据隔离。
 
 「Antigravity」菜单适配 Antigravity App 2.x（`com.google.antigravity`），兼容性调研基于 macOS App `2.28.0`。它管理登录钥匙串中 `service=gemini`、`account=antigravity` 的 OAuth 登录，不编辑 Antigravity IDE 使用的 `state.vscdb`。企业账号／ADC 和 API Key 管理不在本适配器范围内。
 
@@ -127,7 +138,7 @@ Moa 在 bundle、数据根、provider ID 和发布产物里统一使用主 Moa �
 
 Moa 在你执行切换动作时仍会写入真实的 Codex 和 Claude Desktop 配置文件；它自己的 profile 数据库、数据包 manifest、iCloud 状态和诊断包都存放在 Moa 数据根下。
 
-## 1.6.2 维护更新
+## 切换、恢复与用量限制
 
 Codex 切换和当前配置编辑会先请求客户端正常退出，再保存配置并重新打开。客户端拒绝退出或超时后，Moa 会停止操作，不会强制终止任务。更改失败且确认原配置仍可用时，Moa 会重新打开先前运行的客户端，并明确提示更改失败；回滚失败或无法确认配置状态时，客户端会保持关闭，并提示检查配置。配置已保存但启动失败时，会明确提示手动打开客户端。请先结束活动任务，并关闭其他共享同一配置目录的桌面或 CLI 实例。
 
@@ -194,9 +205,18 @@ Codex app 的 Run 按钮通过以下文件接入：
 
 脚本会构建 `Moa.app`，停止正在运行的 Moa 进程，然后启动新 bundle。
 
-## 安全说明
+## 安全与凭据存储
 
-- Provider API key 和 Codex 登录会话保存在 Moa 的数据文件中；Moa 不会将它们上传到自有服务器。启用 iCloud 存储后，这些文件会随数据根同步到 iCloud Drive。数据导出包和自动回滚包包含这些凭据，且未加密，请妥善保管；WorkBuddy 和 DeepSeek 的独立账号库仍排除在同步和导出之外。
+凭据按客户端分别存储，并非所有凭据都进入钥匙串。
+
+| 数据 | 保存位置 | iCloud／数据包范围 |
+| --- | --- | --- |
+| 服务商 API Key、已保存的 Codex 登录 | Moa 当前数据根中的文件 | 启用 iCloud 后同步；完整导出及回滚包包含未加密凭据 |
+| Antigravity 已保存登录 | 本地登录钥匙串；名称和身份元数据在 Application Support | Moa 不请求钥匙串同步；排除在 Moa 数据导出及数据根迁移之外 |
+| WorkBuddy 两个版本、DeepSeek 账号快照 | Application Support 下各自独立的本地账号库 | 排除在 Moa 数据导出及数据根迁移之外 |
+| 自动回滚包 | 本地 Application Support/Moa/Recovery，目标保留 12 份 | 排除在 Moa 的 iCloud 存储及完整导出之外；可能包含未加密凭据 |
+
+- Moa 不会把凭据上传到自有服务器。请妥善保管完整导出及回滚包，只导入可信来源的数据包。Schema 2 的 SHA-256 用于检测内容不一致，不验证作者身份，也不提供加密。
 - 敏感配置和供应商 profile JSON 导出通过创建时即为 `600` 的临时文件原子替换，权限设置失败会中止保存。客户端和导出目录保留既有权限，Moa 自有私有目录使用 `700`。
 - 当前自动更新依赖 GitHub Release 和同源 SHA-256 校验；它们不能独立证明发布者身份。独立更新签名尚未部署。
 - 诊断包会脱敏 auth、key、token 字段。
@@ -204,3 +224,12 @@ Codex app 的 Run 按钮通过以下文件接入：
 - Moa 不打包 `MoaMCP`，也不暴露本地 workflow tools。
 
 候选版在 `scripts/version.env` 中使用数字 `APP_VERSION` 作为 macOS 包版本，使用 `APP_RELEASE_VERSION` 作为显示版本、GitHub 标签和 DMG 文件名。两个架构应使用相同的 `APP_BUILD`；确定构建号后，通过 `MOA_AUTO_BUMP_BUILD=0` 避免分别封包时重复递增。
+
+
+## 旧版本迁移说明
+
+### Provider Bridge
+
+1.3.2 移除了 Provider Bridge、本地 HTTP 服务、协议转换和相关配置入口。Codex 服务商现在直接使用支持 OpenAI Responses 的端点；连接测试只验证 Responses，不再回退到 Chat Completions。
+
+如果此前使用 Provider Bridge，请在 Codex 菜单中选择已有的 Responses 配置，或添加服务商提供的 Responses Base URL；也可以选择官方模式。旧桥接配置不会自动转换为直连配置。旧配置文件保留在磁盘，1.3.2 不再读取独立桥接配置库；混合配置库中的桥接项仍保留在本地，但不再显示或导出，导入此类配置会提示重新添加 Responses 端点。升级本身不会改写当前 Codex 配置，完成上述选择后才会更新客户端配置并重新打开客户端。

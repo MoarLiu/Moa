@@ -8,7 +8,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let claudeDesktopProfileController = ClaudeDesktopProfileController()
     let zcodeController = ZCodeController()
     lazy var usageCoordinator = MoaUsageCoordinator()
-    lazy var codexEnhancements = CodexEnhancementCoordinator(controller: controller, operations: accountOperations)
+    @MainActor lazy var codexEnhancements = CodexEnhancementCoordinator(controller: controller, operations: accountOperations)
     lazy var workbuddyCoordinator = MoaWorkBuddyCoordinator(app: self, edition: .international)
     lazy var workbuddyCNCoordinator = MoaWorkBuddyCoordinator(app: self, edition: .china)
     lazy var deepseekCoordinator = MoaDeepSeekCoordinator(app: self)

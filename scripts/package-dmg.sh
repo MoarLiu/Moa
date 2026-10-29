@@ -14,15 +14,18 @@ APP_RELEASE_VERSION="${APP_RELEASE_VERSION:-$APP_VERSION}"
 APP_NAME="Moa"
 APP="$(moa_app_output_path "$ROOT")"
 DIST_DIR="$ROOT/dist"
-DMG_ROOT="$DIST_DIR/dmg-root"
+# A project under Downloads can inherit mandatory com.apple.macl grants.
+# Stage outside that tree so local privacy metadata never enters the image.
+DMG_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/moa-dmg.XXXXXX")"
+trap 'rm -rf "$DMG_ROOT"' EXIT
 DMG_PATH="$DIST_DIR/$APP_NAME-$APP_RELEASE_VERSION-macos-$APP_ARCH.dmg"
 CHECKSUM_PATH="$DMG_PATH.sha256"
 CODE_SIGN_IDENTITY="${CODE_SIGN_IDENTITY:-${MOA_CODE_SIGN_IDENTITY:--}}"
 NOTARIZE="${NOTARIZE:-0}"
 NOTARY_PROFILE="${NOTARY_PROFILE:-${MOA_NOTARY_PROFILE:-}}"
 
-rm -rf "$DMG_ROOT" "$DMG_PATH" "$CHECKSUM_PATH"
-mkdir -p "$DMG_ROOT" "$DIST_DIR"
+rm -f "$DMG_PATH" "$CHECKSUM_PATH"
+mkdir -p "$DIST_DIR"
 
 APP_VERSION="$APP_VERSION" \
 APP_RELEASE_VERSION="$APP_RELEASE_VERSION" \

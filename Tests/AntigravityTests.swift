@@ -27,10 +27,13 @@ final class AntigravityTests: XCTestCase {
         var otherClient = false
         var refuseQuit = false
         var straggler = false
+        var invalidInstallation = false
         var events: [String] = []
         var onQuit: (() throws -> Void)?
         var onLaunch: (() throws -> Void)?
-        func validateInstallation() throws {}
+        func validateInstallation() throws {
+            if invalidInstallation { throw AntigravityError.message("untrusted-installation") }
+        }
         func ensureNoOtherClients() throws {
             if otherClient { throw AntigravityError.message("shared-client") }
         }
@@ -70,6 +73,55 @@ final class AntigravityTests: XCTestCase {
         }
         let data = try JSONSerialization.data(withJSONObject: ["token": token, "future": ["retain": true]], options: [.sortedKeys])
         return wrapper ? Data(("go-keyring-base64:" + data.base64EncodedString()).utf8) : data
+    }
+
+    func testUntrustedInstallationStopsSaveSwitchAndEnrollmentBeforeQuitOrWrites() throws {
+        for action in 0..<3 {
+            try fixture { _, controller, store, runtime in
+                let saved = try controller.saveCurrent(name: "A")
+                let before = store.values
+                store.writes.removeAll()
+                runtime.events.removeAll()
+                runtime.invalidInstallation = true
+                XCTAssertThrowsError(try {
+                    switch action {
+                    case 0: _ = try controller.saveCurrent(name: "Again")
+                    case 1: _ = try controller.apply(id: saved.id)
+                    default: try controller.prepareNewLogin()
+                    }
+                }())
+                XCTAssertEqual(store.values, before)
+                XCTAssertTrue(store.writes.isEmpty)
+                XCTAssertTrue(runtime.events.isEmpty)
+            }
+        }
+    }
+
+    func testInstallationRejectsLookalikeBundleEvenWithAnAdHocSignature() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("moa-signature-\(UUID().uuidString)")
+        let app = root.appendingPathComponent("Antigravity.app")
+        let binary = app.appendingPathComponent("Contents/MacOS/Antigravity")
+        let backend = app.appendingPathComponent("Contents/Resources/bin/language_server")
+        defer { try? FileManager.default.removeItem(at: root) }
+        for file in [binary, backend] {
+            try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try FileManager.default.copyItem(at: URL(fileURLWithPath: "/usr/bin/true"), to: file)
+        }
+        let plist: [String: Any] = ["CFBundleIdentifier": "com.google.antigravity",
+            "CFBundleExecutable": "Antigravity", "CFBundlePackageType": "APPL", "CFBundleShortVersionString": "2.28.0"]
+        try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
+            .write(to: app.appendingPathComponent("Contents/Info.plist"))
+        // Matching names/version and a real Apple-signed binary are insufficient.
+        XCTAssertThrowsError(try AntigravityInstallation.validate(app))
+        let signer = Process()
+        signer.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
+        signer.arguments = ["--force", "--deep", "--sign", "-", app.path]
+        signer.standardOutput = FileHandle.nullDevice
+        signer.standardError = FileHandle.nullDevice
+        try signer.run()
+        signer.waitUntilExit()
+        XCTAssertEqual(signer.terminationStatus, 0)
+        XCTAssertThrowsError(try AntigravityInstallation.validate(app))
     }
 
     func testEnvelopePreservesUnknownFieldsAndStableGoogleIdentity() throws {

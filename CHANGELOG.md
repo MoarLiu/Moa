@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.6.5 - 2026-10-30
+
+- Present Moa as a macOS manager for multiple AI agent clients. Reorganize English and Chinese guides around installation, per-client capabilities, account/provider management, and local usage.
+- Clarify which credentials use Keychain, which files can sync through iCloud or appear in unencrypted data packages, and what checksum validation guarantees.
+- Verify Google Developer ID signatures for Antigravity App and its language server before account changes, app launches, and creation of live Keychain access controls. Reject modified or lookalike installations with recovery guidance.
+- Isolate Codex status-line menu and lifecycle state on the main actor while keeping log scanning on the background worker. Name scan limits and enforce the session-path cache bound.
+- Add installation-trust regression coverage and retain the existing account-recovery, response-validation, and incremental-reader checks.
+- Stage DMGs in a temporary directory and clean it on exit, keeping local macOS permission metadata out of installers.
+
 ## 1.6.4 - 2026-10-30
 
 - Prevent stale Antigravity fallback logins from overwriting existing saved accounts during saving, switching, or enrollment.

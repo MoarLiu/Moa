@@ -1,7 +1,9 @@
 import AppKit
 import Foundation
 
-final class CodexEnhancementCoordinator: NSObject, @unchecked Sendable {
+/// Menu and lifecycle state belong to the main actor; log scanning stays on the worker.
+@MainActor
+final class CodexEnhancementCoordinator: NSObject {
     private let controller: CodexAppController
     private let defaults: UserDefaults
     private let runtime: CodexEnhancementRuntime
@@ -105,12 +107,12 @@ final class CodexEnhancementCoordinator: NSObject, @unchecked Sendable {
         }
     }
 
-    @MainActor private func setStatus(_ title: String, token: UUID) {
+    private func setStatus(_ title: String, token: UUID) {
         guard running, generation == token else { return }
         stateItem.title = MoaL10n.text(title)
     }
 
-    private func run(settings: CodexStatusLineSettings, token: UUID) async {
+    nonisolated private func run(settings: CodexStatusLineSettings, token: UUID) async {
         var delay: UInt64 = 1
         while !Task.isCancelled {
             guard let launch = runtime.launch else {
@@ -218,7 +220,7 @@ final class CodexEnhancementCoordinator: NSObject, @unchecked Sendable {
         }
     }
 
-    private func evaluate(_ expression: String, context: Int, connection: CodexCDPConnection) async throws {
+    nonisolated private func evaluate(_ expression: String, context: Int, connection: CodexCDPConnection) async throws {
         let result = try await connection.command("Runtime.evaluate", ["expression": expression, "contextId": context, "returnByValue": true])
         if result["exceptionDetails"] != nil { throw CodexEnhancementError.protocolFailure }
     }

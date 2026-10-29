@@ -1,6 +1,51 @@
 import AppKit
 import Darwin
 import Foundation
+import Security
+
+/// Verify the publisher before using an installed app for credential operations or ACL creation.
+/// Bundle identifiers and executable paths alone are not proof of Google's identity.
+enum AntigravityInstallation {
+    static func validatedURL() throws -> URL {
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: AntigravityAppManager.bundleID) else {
+            throw invalidSignature
+        }
+        let resolved = url.resolvingSymlinksInPath()
+        try validate(resolved)
+        return resolved
+    }
+
+    static func validate(_ app: URL) throws {
+        try validateCode(at: app, identifier: AntigravityAppManager.bundleID)
+        // Validate the backend separately: it is explicitly granted access to the live login.
+        let backend = app.appendingPathComponent("Contents/Resources/bin/language_server")
+        guard backend.resolvingSymlinksInPath().path.hasPrefix(app.resolvingSymlinksInPath().path + "/") else {
+            throw invalidSignature
+        }
+        try validateCode(at: backend, identifier: "language_server")
+    }
+
+    private static func validateCode(at url: URL, identifier: String) throws {
+        // Google's Developer ID requirement; ad-hoc signatures and lookalike bundles fail closed.
+        let requirementText = "identifier \"\(identifier)\" and anchor apple generic "
+            + "and certificate 1[field.1.2.840.113635.100.6.2.6] exists "
+            + "and certificate leaf[field.1.2.840.113635.100.6.1.13] exists "
+            + "and certificate leaf[subject.OU] = \"EQHXZ8M8AV\""
+        var code: SecStaticCode?
+        var requirement: SecRequirement?
+        let flags = SecCSFlags(rawValue: kSecCSCheckAllArchitectures | kSecCSStrictValidate | kSecCSCheckNestedCode)
+        guard SecStaticCodeCreateWithPath(url as CFURL, [], &code) == errSecSuccess, let code,
+              SecRequirementCreateWithString(requirementText as CFString, [], &requirement) == errSecSuccess,
+              let requirement,
+              SecStaticCodeCheckValidity(code, flags, requirement) == errSecSuccess else {
+            throw invalidSignature
+        }
+    }
+
+    private static var invalidSignature: AntigravityError {
+        .message("Antigravity's app or backend signature could not be verified as Google software. Reinstall the official Antigravity App before managing logins.")
+    }
+}
 
 protocol AntigravityAppManaging {
     var isRunning: Bool { get }
@@ -25,7 +70,7 @@ final class AntigravityAppManager: AntigravityAppManaging {
         return url.resolvingSymlinksInPath()
     }
 
-    func validateInstallation() throws { _ = try appURL() }
+    func validateInstallation() throws { try AntigravityInstallation.validate(appURL()) }
 
     static func isSharedClient(executable: String) -> Bool {
         let lower = executable.lowercased()
@@ -86,6 +131,7 @@ final class AntigravityAppManager: AntigravityAppManaging {
     func launch() throws {
         precondition(!Thread.isMainThread)
         let url = try appURL()
+        try AntigravityInstallation.validate(url)
         let done = DispatchSemaphore(value: 0)
         var failure: Error?
         DispatchQueue.main.async {

@@ -7,6 +7,10 @@ final class CodexSessionIndex {
     private var paths: [String: URL] = [:]
     private var scannedAt = Date.distantPast
     private var fullScannedAt = Date.distantPast
+    private static let maximumCachedPaths = 128
+    private static let recentScanInterval: TimeInterval = 5
+    private static let fullScanInterval: TimeInterval = 60
+    private static let metadataReadLimit = 512 * 1024
 
     init(environment: [String: String]) {
         home = URL(fileURLWithPath: environment["CODEX_HOME"].flatMap { $0.isEmpty ? nil : $0 }
@@ -16,7 +20,7 @@ final class CodexSessionIndex {
     func file(for id: String, now: Date = Date()) -> URL? {
         guard CodexLiveMetrics.validThreadID(id) else { return nil }
         if let path = paths[id], FileManager.default.fileExists(atPath: path.path) { return path }
-        guard now.timeIntervalSince(scannedAt) > 5 else { return nil }
+        guard now.timeIntervalSince(scannedAt) > Self.recentScanInterval else { return nil }
         scannedAt = now
         let roots = ["sessions", "archived_sessions"].map { home.appendingPathComponent($0) }
         let formatter = DateFormatter()
@@ -37,7 +41,7 @@ final class CodexSessionIndex {
                 if let found = verified(file, id: id, roots: roots) { return found }
             }
         }
-        guard now.timeIntervalSince(fullScannedAt) > 60 else { return nil }
+        guard now.timeIntervalSince(fullScannedAt) > Self.fullScanInterval else { return nil }
         fullScannedAt = now
         for root in roots {
             guard let enumerator = FileManager.default.enumerator(at: root, includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey], options: [.skipsHiddenFiles, .skipsPackageDescendants]) else { continue }
@@ -56,19 +60,21 @@ final class CodexSessionIndex {
               values.isRegularFile == true, values.isSymbolicLink != true,
               roots.contains(where: { file.resolvingSymlinksInPath().path.hasPrefix($0.path + "/") }),
               let handle = try? FileHandle(forReadingFrom: file) else { return nil }
-        let data = (try? handle.read(upToCount: 512 * 1024)) ?? Data()
-        try? handle.close()
+        defer { try? handle.close() }
+        let data = (try? handle.read(upToCount: Self.metadataReadLimit)) ?? Data()
         guard let end = data.firstIndex(of: 10),
               let object = try? JSONSerialization.jsonObject(with: data[..<end]) as? [String: Any],
               object["type"] as? String == "session_meta",
               let meta = object["payload"] as? [String: Any],
               (meta["id"] as? String ?? meta["session_id"] as? String) == id else { return nil }
-        if paths.count > 128 { paths.removeAll() }
+        if paths.count >= Self.maximumCachedPaths { paths.removeAll() }
         paths[id] = file
         return file
     }
 }
 
+/// One reader per worker subscription. Calls are synchronous and must stay on that worker.
+/// Each read opens and closes its own handle so replaced or rotated files are rechecked.
 final class CodexLiveUsageReader {
     private let url: URL
     private let threadID: String

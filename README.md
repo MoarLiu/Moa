@@ -1,5 +1,59 @@
 # Moa
 
+**One macOS menu bar for your AI agents: accounts, providers, and local usage.**
+
+[简体中文](README_ZH.md) · [Download](https://github.com/MoarLiu/Moa/releases/latest) · [Changelog](CHANGELOG.md)
+
+Moa is a local management app for people who use multiple AI agent clients. It brings ChatGPT / Codex, Claude Desktop, Antigravity App, DeepSeek Harness, WorkBuddy, WorkBuddy AI International, and ZCode into a shared menu bar, account window, and usage overview. Each client keeps running its own conversations and tasks; Moa manages the supported account, configuration, and maintenance actions around it.
+
+## Get Started
+
+1. Download the latest DMG from [GitHub Releases](https://github.com/MoarLiu/Moa/releases/latest): choose `arm64` for Apple silicon or `x86_64` for an Intel Mac. macOS 12 or later is required. Matching `.sha256` files are provided.
+2. Drag **Moa.app** into **Applications**, then open it. Current releases are ad-hoc signed and not notarized; macOS may require approval in **System Settings → Privacy & Security** on first launch.
+3. Install and sign in to the clients you use. Open Moa's menu and choose **Accounts…** to save supported logins or configure providers. Finish active client tasks before switching accounts.
+4. Open **Usage Overview…** for the supported local usage sources. Use each client's submenu for switching, launch helpers, and client-specific options.
+
+## Supported Clients
+
+Capabilities differ by client. Account switching preserves supported local login snapshots; provider configuration selects API endpoints. Neither implies a shared login or shared history between clients.
+
+| Client | Accounts and providers | Local usage | Additional controls |
+| --- | --- | --- | --- |
+| ChatGPT / Codex | Official logins; direct Responses-compatible provider profiles; profile import/export | Tokens, cache, models, estimated API costs | Open/reopen; optional generation-rate status line |
+| Claude Desktop / Claude Code | Desktop 3P gateway profiles; copy Claude Code environment snippets | Claude Code log usage and estimated API costs | Open/reopen Desktop; profile import/export |
+| Antigravity App 2.x | Google login saving, enrollment, switching, rename/forget | Not available | Open/reopen; local Keychain snapshots |
+| DeepSeek Harness | Login saving, enrollment, switching, rename/forget | Not available | Open/reopen; local account snapshots |
+| WorkBuddy (China) | Login saving, enrollment, switching, rename/forget | Separate token, model, and estimated-cost reports | Open/reopen; independent account store |
+| WorkBuddy AI International | Login saving, enrollment, switching, rename/forget | Separate token, model, and estimated-cost reports | Open/reopen; independent account store |
+| ZCode | Account/provider management not available | Local database usage and estimated API costs | Open/reopen and folder helpers |
+
+## Core Features
+
+- **Accounts and providers:** a shared window grouped by client, one-click menu switching, provider editing and import/export where supported, progress feedback, and recovery guidance.
+- **Usage and costs:** aggregate supported local sources, inspect model and cache details, export CSV / Markdown, set custom prices and daily usage alerts. These are estimates from local records and API reference prices, not subscription bills, credits, or account balances.
+- **Model prices:** **Moa → Update Prices** fetches the public catalog used as Sub2API's reference. Supported USD token rates update immediately and persist. Custom prices take precedence; failed downloads preserve the previous table. Daily automatic checks are enabled.
+- **Data and maintenance:** import/export Moa data packages, export redacted diagnostics, optionally use iCloud for the shared data root, and check GitHub Releases for application updates. Storage and synchronization differ by credential type; see [Security and Credential Storage](#security-and-credential-storage).
+
+Moa's current scope is client management and local usage insight. Agent execution, conversations, and service authentication remain with the respective clients. The optional Codex status line is one client-specific feature within this broader tool.
+
+## Everyday Workflow
+
+- The version/build row is first in the main menu. Top-level **Accounts…** and **Usage Overview…** entries provide shared windows. Client menus retain usage summaries, refresh, and one-click switching; launch and folder helpers appear directly at the bottom of each client submenu.
+- Account windows and menus share per-client progress. Switch remains the primary row action; rename, edit, and delete are available in the actions menu.
+- Success and informational feedback do not steal focus. Long forms scroll while Save and Cancel remain visible, and usage insights adapt to narrower windows.
+- Shortcuts: **Command-U** opens usage overview, **Command-Shift-A** opens accounts, and **Command-R** refreshes the current usage window or all menu usage sources.
+- Maintenance actions, including price updates, update checks, and data management, are grouped under **Moa** in the main menu.
+
+## ChatGPT Client Compatibility
+
+Moa locates the client by its `com.openai.codex` bundle identifier, supporting both `ChatGPT.app` and legacy `Codex.app` installations. `CODEX_APP` can override the application location. Configuration and credentials remain under `~/.codex`, or the directory selected by `CODEX_HOME`.
+
+Moa 1.5.0 removes Fast Mode and remote connection settings controls, including their legacy headless commands. Manage these preferences in ChatGPT itself. Existing preferences remain untouched. Provider switching starts from the live client configuration, preserving other settings, unknown fields, and unrelated provider definitions.
+
+Usage scanning supports both `token_usage_record` and legacy `token_count` events without counting both, and retains cache reads, cache writes, and request boundaries. Long-context prices apply per request. The bundled API price table covers OpenAI, Claude, GLM, and WorkBuddy models, including cache and Fast parameters; use **Update Prices** for the latest supported catalog. See the [complete model price and source table](MODEL_PRICING.md). These are standard API price estimates for local Codex tasks, not ChatGPT subscription invoices.
+
+### Generation-rate Status Line (Experimental)
+
 Experimental Codex generation-rate status line: enable **Codex → Show Generation Rate (Estimated)**, finish active tasks, then choose **Status Line Settings → Reopen ChatGPT to Apply**. It is off by default. Optional controls show request tokens/context estimates, input cache hits, or use a layout below the composer. A refused quit stops the enhancement restart rather than force-terminating the client.
 
 If the status says the client could not close, wait for this response and other active tasks to finish, quit ChatGPT with Command-Q, then use **Moa → Codex → Open Codex**. Opening from the Dock does not add Moa's enhancement arguments. Hidden quick-chat prewarm and pet windows are excluded when finding the main chat page.
@@ -8,50 +62,9 @@ The indicator estimates throughput from adjacent local usage records in the same
 
 Moa launches the official client with a loopback debug connection and adds an isolated display script; it does not patch the app, change provider routing, or run a proxy/HTTP service. Only the process launched by this Moa instance and a single unambiguous main page are supported. After restarting Moa, reopen the client through Moa again. `CODEX_HOME` must point to that client's actual local logs. Turning the feature off removes the display; reopen normally to remove the process-level debug listener. Isolated log, WebSocket and HTML tests cover the implementation, and a preview was manually verified with one installed client version; compatibility can vary by client version and layout.
 
-Moa is a macOS menu bar app for ChatGPT (formerly Codex Desktop), Claude Desktop, ZCode, WorkBuddy, WorkBuddy AI International, and DeepSeek Harness workflows.
-
-It intentionally excludes the original Moa Companion surface: no desktop pet, AI quick actions, reminders, journal, Pomodoro, MCP helper, workflow runner, asset upload, dashboard, skins, or sounds.
-
-## Features
-
-- ChatGPT / Codex controls: official account switching, provider profile import/export, and client reopen helpers.
-- Claude Desktop profiles: write Claude Desktop 3P gateway profiles and copy Claude Code environment snippets.
-- Account management: **Manage Accounts…** opens one window grouped by client. Rename, edit, or delete saved entries there; selecting an account in the menu still switches immediately.
-- WorkBuddy / WorkBuddy AI International: separate account menus and usage tabs, local logins, account enrollment and switching, rename/forget actions, and client launch helpers.
-- DeepSeek: save, enroll, switch, rename, and forget local DeepSeek Harness account logins, with open/reopen helpers.
-- Antigravity App: save Google logins in the local Keychain and switch from the menu, with enrollment, rename/forget, and open/reopen helpers.
-- Usage insights: local Codex, Claude, ZCode, and WorkBuddy AI summaries, model details, CSV / Markdown exports, custom prices, and configurable daily alerts.
-- Moa Data: export/import data packages, export redacted diagnostics, and optionally switch the active data root to iCloud Drive.
-- Updates: check GitHub Releases from the main menu, then download, verify, and install the matching macOS DMG.
-- Model prices: choose **Update Prices** in the main menu to download the complete public price table used as Sub2API's reference. Supported USD token rates take effect immediately, refresh open usage reports, and persist across restarts. Failed downloads keep the previous table; custom prices take precedence. Daily automatic checks remain enabled.
-
-## 1.5.0 Interface and Interaction
-
-- The version/build row is first in the main menu. Top-level **Accounts…** and **Usage Overview…** entries provide shared windows. Client menus retain usage summaries, refresh, and one-click switching; launch and folder helpers appear directly at the bottom of each client submenu.
-- Account windows and menus share per-client progress. Switch remains the primary row action; rename, edit, and delete are available in the actions menu.
-- Success and informational feedback do not steal focus. Long forms scroll while Save and Cancel remain visible, and usage insights adapt to narrower windows.
-- Shortcuts: **Command-U** opens usage overview, **Command-Shift-A** opens accounts, and **Command-R** refreshes the current usage window or all menu usage sources.
-- Maintenance actions, including price updates, update checks, and data management, are grouped under **Moa** in the main menu.
-
-## Upgrading to 1.4.0
-
-Existing account stores and custom prices are retained. Use **Manage Accounts…** in a client menu for enrollment and saved-entry management, and **Update Prices** in the main menu to refresh pricing without replacing the app. The new **DeepSeek** menu controls DeepSeek Harness; see its account-enrollment instructions below.
-
-## Upgrading from Provider Bridge
-
-1.3.2 removes Provider Bridge, its local HTTP server, protocol conversion, and configuration controls. Codex providers now connect directly to OpenAI Responses-compatible endpoints. Connection tests check Responses without falling back to Chat Completions.
-
-If you used Provider Bridge, select an existing Responses profile in the Codex menu, add the provider's Responses Base URL, or select Official Mode. Old bridge profiles are not automatically converted to direct profiles. Existing files remain on disk; 1.3.2 no longer reads the separate bridge database. Bridge entries in mixed profile databases remain stored but are hidden and excluded from profile exports; importing them asks you to add a Responses endpoint instead. Upgrading does not rewrite the live Codex configuration. Selecting a replacement updates the client configuration and reopens the client.
-
-## ChatGPT Client Compatibility
-
-Moa locates the client by its `com.openai.codex` bundle identifier, supporting both `ChatGPT.app` and legacy `Codex.app` installations. `CODEX_APP` can override the application location. Configuration and credentials remain under `~/.codex`, or the directory selected by `CODEX_HOME`.
-
-Moa 1.5.0 removes Fast Mode and remote connection settings controls, including their legacy headless commands. Manage these preferences in ChatGPT itself. Existing preferences remain untouched. Provider switching starts from the live client configuration, preserving other settings, unknown fields, and unrelated provider definitions.
-
-Usage scanning supports both `token_usage_record` and legacy `token_count` events without counting both, and retains cache reads, cache writes, and request boundaries. Long-context prices apply per request. Version 1.3.0 includes API prices checked on 2026-10-24 for OpenAI, Claude, GLM, and WorkBuddy models, including cache and Fast parameters. See the [complete model price and source table](MODEL_PRICING.md). These are standard API price estimates for local Codex tasks, not ChatGPT subscription invoices.
-
 ## Antigravity App
+
+Moa verifies the app and language-server signatures against Google's Developer ID before saving or switching logins, launching the app, and creating access controls for a missing live Keychain item. Modified, ad-hoc signed, or lookalike installations are rejected. Existing Keychain access controls are preserved; `/usr/bin/security` remains trusted when creating the live item for compatibility with the client's keyring access. This does not isolate credentials from all software running as the same macOS user.
 
 The **Antigravity** menu targets Antigravity App 2.x (`com.google.antigravity`), with compatibility research against macOS App `2.28.0`. It manages the OAuth login in the login Keychain (`service=gemini`, `account=antigravity`). Antigravity IDE's `state.vscdb` is a separate format and is not edited. Enterprise/ADC and API-key account management are outside this adapter's scope.
 
@@ -123,7 +136,7 @@ Moa uses the primary Moa app identity throughout the bundle, data roots, provide
 
 Moa still edits the real Codex and Claude Desktop configuration files when you ask it to switch profiles. Its own profile databases, package manifests, iCloud state, and diagnostics are stored under the Moa data root.
 
-## 1.6.2 Maintenance Update
+## Switching, Recovery, and Usage Limits
 
 Codex switches and active-profile edits request a graceful client quit before saving and reopening. A refused or timed-out quit stops the operation without force-terminating tasks. If a change fails and the previous configuration is confirmed available, Moa reopens a previously running client and reports the failed change. If rollback fails or the configuration cannot be verified, the client stays closed with recovery guidance. If saving succeeds but launching fails, Moa reports that the client must be opened manually. Finish active tasks and close other desktop or CLI instances sharing the same configuration directory first.
 
@@ -190,9 +203,18 @@ Codex app run-button support is wired through:
 
 The script builds `Moa.app`, stops any currently running Moa process, and launches the fresh bundle.
 
-## Security Notes
+## Security and Credential Storage
 
-- Provider API keys and Codex login sessions are stored in Moa data files; Moa does not upload them to its own server. Enabling iCloud storage syncs these files through iCloud Drive. Data exports and automatic recovery packages contain these credentials without encryption and must be kept private. Separate WorkBuddy and DeepSeek account stores remain excluded from sync and exports.
+Credential storage is client-specific; not every credential is stored in Keychain.
+
+| Data | Storage | iCloud / data packages |
+| --- | --- | --- |
+| Provider API keys and saved Codex logins | Files in Moa's active data root | Synced when iCloud storage is enabled; included unencrypted in full exports and recovery packages |
+| Antigravity saved logins | Local login Keychain; labels and identity metadata in Application Support | Moa does not request Keychain synchronization; excluded from Moa data exports and data-root moves |
+| WorkBuddy, WorkBuddy AI International, DeepSeek snapshots | Separate local Application Support stores | Excluded from Moa data exports and data-root moves |
+| Automatic recovery packages | Local Application Support/Moa/Recovery, target retention of 12 | Excluded from Moa iCloud storage and full exports; may contain unencrypted credentials |
+
+- Moa does not upload credentials to its own server. Keep full exports and recovery packages private; only import packages from a trusted source. Schema 2 SHA-256 checks detect content mismatches, but do not authenticate the package's author or encrypt its contents.
 - Sensitive configuration saves and provider profile JSON exports use atomic replacement with temporary files created as `600`; permission-setting failures stop the save. Existing client and export directory permissions are preserved; Moa-owned private directories use `700`.
 - Automatic updates currently trust GitHub Releases and a SHA-256 checksum from the same source. They do not independently authenticate the publisher. Independent update signatures have not yet been deployed.
 - Diagnostic packages redact auth, key, and token fields.
@@ -200,3 +222,12 @@ The script builds `Moa.app`, stops any currently running Moa process, and launch
 - Moa does not bundle `MoaMCP` and does not expose local workflow tools.
 
 For release candidates, `scripts/version.env` keeps `APP_VERSION` numeric for macOS bundle metadata and uses `APP_RELEASE_VERSION` for the displayed version, GitHub tag, and DMG filename. Both architecture builds must use the same `APP_BUILD`; set `MOA_AUTO_BUMP_BUILD=0` after choosing that build number.
+
+
+## Legacy Upgrade Notes
+
+### Provider Bridge
+
+1.3.2 removes Provider Bridge, its local HTTP server, protocol conversion, and configuration controls. Codex providers now connect directly to OpenAI Responses-compatible endpoints. Connection tests check Responses without falling back to Chat Completions.
+
+If you used Provider Bridge, select an existing Responses profile in the Codex menu, add the provider's Responses Base URL, or select Official Mode. Old bridge profiles are not automatically converted to direct profiles. Existing files remain on disk; 1.3.2 no longer reads the separate bridge database. Bridge entries in mixed profile databases remain stored but are hidden and excluded from profile exports; importing them asks you to add a Responses endpoint instead. Upgrading does not rewrite the live Codex configuration. Selecting a replacement updates the client configuration and reopens the client.

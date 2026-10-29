@@ -84,11 +84,12 @@ final class AntigravityKeychain: AntigravityCredentialStoring {
         if item == .live {
             // A restored missing live item must remain readable by the app,
             // its language server, /usr/bin/security, and Moa itself.
-            let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.google.antigravity")
+            // Revalidate before trusting paths, including recovery after a missing live item.
+            let appURL = try AntigravityInstallation.validatedURL()
             let paths = [
                 Bundle.main.executableURL?.path,
-                appURL?.appendingPathComponent("Contents/MacOS/Antigravity").path,
-                appURL?.appendingPathComponent("Contents/Resources/bin/language_server").path,
+                appURL.appendingPathComponent("Contents/MacOS/Antigravity").path,
+                appURL.appendingPathComponent("Contents/Resources/bin/language_server").path,
                 "/usr/bin/security"
             ].compactMap { $0 }.filter { FileManager.default.isExecutableFile(atPath: $0) }
             var trusted: [SecTrustedApplication] = []
