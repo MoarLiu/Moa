@@ -121,6 +121,7 @@ enum ProviderConnectionTester {
     ) async throws -> String {
         var lastError: Error?
         for url in endpointURLs(baseURL: baseURL, endpoint: endpoint) {
+            try Task.checkCancellation()
             do {
                 try await postJSON(body, to: url, apiKey: apiKey, headers: headers)
                 return url.absoluteString
@@ -131,6 +132,7 @@ enum ProviderConnectionTester {
                     throw error
                 }
             } catch {
+                if error is CancellationError || (error as? URLError)?.code == .cancelled { throw error }
                 lastError = error
             }
         }

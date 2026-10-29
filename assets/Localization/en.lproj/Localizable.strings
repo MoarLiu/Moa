@@ -59,7 +59,6 @@
 "Cache creation USD / 1M tokens" = "Cache creation USD / 1M tokens";
 "Cache read USD / 1M tokens" = "Cache read USD / 1M tokens";
 "Cancel" = "Cancel";
-"Change all historical Codex session data to model_provider = \"%@\"?" = "Change all historical Codex session data to model_provider = \"%@\"?";
 "Choose Codex, Claude Desktop, or ZCode to view its daily usage alert threshold." = "Choose Codex, Claude Desktop, or ZCode to view its daily usage alert threshold.";
 "Choose Codex or Claude Desktop to view its daily usage alert threshold." = "Choose Codex or Claude Desktop to view its daily usage alert threshold.";
 "Claude Code config copied" = "Claude Code config copied";
@@ -489,6 +488,19 @@
 
 "ChatGPT could not be opened. Open the app manually and try again." = "ChatGPT could not be opened. Open the app manually and try again.";
 
-"The Codex configuration was saved, but ChatGPT could not be reopened. Open it manually. %@" = "The Codex configuration was saved, but ChatGPT could not be reopened. Open it manually. %@";
 
 "Opening Codex..." = "Opening Codex...";
+"Cannot replace a symbolic link: %@" = "Cannot replace a symbolic link: %@";
+"Change all historical Codex session data to model_provider = \"%@\"? Close all ChatGPT and Codex desktop and CLI instances first, and do not reopen them until migration finishes. Moa cannot prevent another process from starting during migration." = "Change all historical Codex session data to model_provider = \"%@\"? Close all ChatGPT and Codex desktop and CLI instances first, and do not reopen them until migration finishes. Moa cannot prevent another process from starting during migration.";
+"Close all ChatGPT and Codex desktop and CLI instances before migrating history, and keep them closed until migration completes." = "Close all ChatGPT and Codex desktop and CLI instances before migrating history, and keep them closed until migration completes.";
+"Codex history changed during migration: %@. Close all Codex instances and try again." = "Codex history changed during migration: %@. Close all Codex instances and try again.";
+"Could not check for running Codex processes. History migration was stopped." = "Could not check for running Codex processes. History migration was stopped.";
+"Failed to validate the exported archive." = "Failed to validate the exported archive.";
+"Some recovery packages could not be maintained. %@" = "Some recovery packages could not be maintained. %@";
+"The Codex configuration was saved, but ChatGPT could not be opened. Open it manually." = "The Codex configuration was saved, but ChatGPT could not be opened. Open it manually.";
+"The Codex configuration was saved. Open ChatGPT manually. %@" = "The Codex configuration was saved. Open ChatGPT manually. %@";
+"The configuration change failed and the previous configuration is available, but ChatGPT could not be reopened. %@ %@" = "The configuration change failed and the previous configuration is available, but ChatGPT could not be reopened. %@ %@";
+"The configuration change failed. ChatGPT was not reopened. Check the configuration before opening it manually. %@" = "The configuration change failed. ChatGPT was not reopened. Check the configuration before opening it manually. %@";
+"The configuration change failed. ChatGPT was reopened with its previous configuration. %@" = "The configuration change failed. ChatGPT was reopened with its previous configuration. %@";
+"The saved pricing catalog has an unsupported version." = "The saved pricing catalog has an unsupported version.";
+"Could not access %@. %@" = "Could not access %@. %@";

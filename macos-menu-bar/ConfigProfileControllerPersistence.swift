@@ -1,5 +1,28 @@
 import Foundation
 
+enum CodexStateTransactionError: LocalizedError {
+    case restored(Error)
+    case rollbackFailed(operation: Error, rollback: Error)
+
+    var canReopenClient: Bool {
+        switch self {
+        case .restored(let error):
+            // An outer database-only rollback cannot repair a failed inner client rollback.
+            return (error as? CodexStateTransactionError)?.canReopenClient ?? true
+        case .rollbackFailed: return false
+        }
+    }
+
+    var errorDescription: String? {
+        switch self {
+        case .restored(let error): return error.localizedDescription
+        case .rollbackFailed(let operation, let rollback):
+            return MoaL10n.format("Codex state update failed (%@), and rollback also failed: %@",
+                                  operation.localizedDescription, rollback.localizedDescription)
+        }
+    }
+}
+
 extension ConfigProfileController {
     func loadDatabase() throws -> ProfileDatabase {
         try stateLock.withLock {
@@ -70,6 +93,7 @@ extension ConfigProfileController {
     func saveOfficialAccountDatabase(_ database: CodexOfficialAccountDatabase) throws {
         try stateLock.withLock {
             #if MOA_TESTING || MOA_TEST_SUPPORT
+            try testingBeforeOfficialAccountDatabaseSave?()
             if Self.testingOfficialAccountDatabaseSaveFailuresRemaining > 0 {
                 Self.testingOfficialAccountDatabaseSaveFailuresRemaining -= 1
                 throw NSError(
@@ -366,21 +390,14 @@ extension ConfigProfileController {
                 cachedOfficialAccountDatabaseModified = cachedOfficialDatabaseModifiedBefore
                 cachedOfficialAccountDatabaseURLPath = cachedOfficialDatabaseURLPathBefore
             } catch let rollbackError {
-                throw NSError(
-                    domain: "Moa",
-                    code: 500,
-                    userInfo: [NSLocalizedDescriptionKey: MoaL10n.format(
-                        "Codex state update failed (%@), and rollback also failed: %@",
-                        operationError.localizedDescription,
-                        rollbackError.localizedDescription
-                    )]
-                )
+                throw CodexStateTransactionError.rollbackFailed(operation: operationError, rollback: rollbackError)
             }
-            throw operationError
+            throw CodexStateTransactionError.restored(operationError)
         }
     }
 
     private func snapshotDirectory(_ url: URL) throws -> StateDirectorySnapshot {
+        let url = url.resolvingSymlinksInPath().standardizedFileURL
         guard fileManager.fileExists(atPath: url.path) else {
             return StateDirectorySnapshot(url: url, existed: false, files: [:])
         }

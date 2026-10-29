@@ -1,11 +1,21 @@
 # Changelog
 
+## 1.6.2 - 2026-10-29
+
+- Place the inline Codex generation-rate indicator to the right of the permission selector in the composer toolbar.
+- Recover failed Codex switches by reopening a previously running client only after the previous configuration is confirmed available. Keep the client closed and explain recovery when rollback fails or state is uncertain; preserve both write and launch errors.
+- Support symbolic links to configuration directories while preserving existing Codex, Claude Desktop, and export directory permissions. Keep sensitive files private from creation, reject destination-file links, and include paths in file errors.
+- Save current official logins without rewriting or rolling back the client's auth file, preserving credentials refreshed while an account snapshot is saved.
+- Apply private atomic writes to provider profile JSON exports and continue recovery-package maintenance after individual file failures.
+- Preserve exact-limit CRLF log records, stop endpoint fallback after probe cancellation, and record enhancement launch errors.
+- Complete English and Chinese error translations, check localization key coverage, repair build-recovery fixtures, and document recovery files, old Downloads backups, usage limits, and legacy headless behavior.
+
 ## 1.6.1 - 2026-10-28
 
 - Quit Codex gracefully before applying account or provider changes from menus and account management. Refused quits stop writes, and launch failures report whether configuration was already saved.
 - Corrected the Responses connection probe token budget and retained the original HTTP 400 error instead of trying a different endpoint; limited displayed error text.
-- Bounded Codex and Claude JSONL line buffers and removed repeated scans of long lines while preserving Codex model context and following usage records.
-- Moved automatic data-recovery packages to a private, device-local directory with a 12-package retention limit. Manual exports retain their selected location and use private file permissions.
+- Bounded Codex and Claude usage-scanner JSONL line buffers and removed repeated scans of long lines while preserving Codex model context and following usage records.
+- Moved automatic data-recovery packages to a private, device-local directory with a 12-package retention limit. Manual data-package exports retain their selected location and use private file permissions.
 - Created sensitive configuration files with private permissions before writing and propagated permission failures. Clarified credentials in iCloud storage and unencrypted data packages, as well as the current update trust boundary.
 
 ## 1.6.0 - 2026-10-27

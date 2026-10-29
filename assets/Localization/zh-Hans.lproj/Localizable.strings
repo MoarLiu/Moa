@@ -59,7 +59,6 @@
 "Cache creation USD / 1M tokens" = "缓存创建 USD / 100万 tokens";
 "Cache read USD / 1M tokens" = "缓存读取 USD / 100万 tokens";
 "Cancel" = "取消";
-"Change all historical Codex session data to model_provider = \"%@\"?" = "是否修改所有历史会话数据为 model_provider = \"%@\"？";
 "Change all historical Codex session data to model_provider = \"%@\"? Close all ChatGPT and Codex desktop and CLI instances first, and do not reopen them until migration finishes. Moa cannot prevent another process from starting during migration." = "是否将所有 Codex 历史会话的 model_provider 修改为 \"%@\"？请先关闭所有 ChatGPT 和 Codex 桌面版及命令行实例，并在迁移完成前不要重新打开。Moa 无法阻止其他进程在迁移期间启动。";
 "Close all ChatGPT and Codex desktop and CLI instances before migrating history, and keep them closed until migration completes." = "请先关闭所有 ChatGPT 和 Codex 桌面版及命令行实例，并在迁移完成前保持关闭。";
 "Could not check for running Codex processes. History migration was stopped." = "无法检查正在运行的 Codex 进程，已停止历史迁移。";
@@ -494,6 +493,15 @@
 
 "ChatGPT could not be opened. Open the app manually and try again." = "无法打开 ChatGPT。请手动打开应用后重试。";
 
-"The Codex configuration was saved, but ChatGPT could not be reopened. Open it manually. %@" = "Codex 配置已保存，但无法重新打开 ChatGPT。请手动打开。%@";
 
 "Opening Codex..." = "正在打开 Codex…";
+"Cannot replace a symbolic link: %@" = "无法替换符号链接：%@";
+"Failed to validate the exported archive." = "导出归档校验失败。";
+"Some recovery packages could not be maintained. %@" = "部分恢复包无法完成权限设置或清理。%@";
+"The Codex configuration was saved, but ChatGPT could not be opened. Open it manually." = "Codex 配置已保存，但无法打开 ChatGPT。请手动打开。";
+"The Codex configuration was saved. Open ChatGPT manually. %@" = "Codex 配置已保存。请手动打开 ChatGPT。%@";
+"The configuration change failed and the previous configuration is available, but ChatGPT could not be reopened. %@ %@" = "配置更改失败，原配置仍可用，但无法重新打开 ChatGPT。%@ %@";
+"The configuration change failed. ChatGPT was not reopened. Check the configuration before opening it manually. %@" = "配置更改失败，ChatGPT 未重新打开。请检查配置后再手动打开。%@";
+"The configuration change failed. ChatGPT was reopened with its previous configuration. %@" = "配置更改失败，ChatGPT 已使用原配置重新打开。%@";
+"The saved pricing catalog has an unsupported version." = "保存的价格目录版本不受支持。";
+"Could not access %@. %@" = "无法访问 %@。%@";

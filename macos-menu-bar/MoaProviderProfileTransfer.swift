@@ -24,8 +24,7 @@ enum MoaProviderProfileTransfer {
 
         do {
             let data = try exporter(includeAPIKeys)
-            try data.write(to: url, options: .atomic)
-            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+            try MoaSecureFile.write(data, to: url)
             return .success(())
         } catch {
             return .failure(error)

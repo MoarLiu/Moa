@@ -48,8 +48,9 @@
     else {
       const footer = card.querySelector("[data-composer-footer-responsive]");
       const add = footer?.querySelector('[data-composer-navigation-target="add-context"]');
+      // Use the full leading group: permissions may sit beside an inner add/model group.
       for (let candidate = add?.parentElement; candidate && candidate !== footer; candidate = candidate.parentElement) {
-        if (["flex", "inline-flex"].includes(getComputedStyle(candidate).display)) { host = candidate; break; }
+        if (["flex", "inline-flex"].includes(getComputedStyle(candidate).display)) host = candidate;
       }
     }
     if (!host) return false;

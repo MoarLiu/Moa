@@ -6,6 +6,9 @@ private enum CodexAppError: LocalizedError {
     case clientUnavailable
     case launchFailed
     case configurationSavedButLaunchFailed(String)
+    case configurationChangeFailed(String)
+    case configurationRestored(String)
+    case configurationRecoveryLaunchFailed(String, String)
     case clientStillRunning
     case migrationProcessesRunning
     case processCheckFailed
@@ -17,7 +20,16 @@ private enum CodexAppError: LocalizedError {
         case .launchFailed:
             return MoaL10n.text("ChatGPT could not be opened. Open the app manually and try again.")
         case .configurationSavedButLaunchFailed(let details):
-            return MoaL10n.format("The Codex configuration was saved, but ChatGPT could not be reopened. Open it manually. %@", details)
+            if details == CodexAppError.launchFailed.localizedDescription {
+                return MoaL10n.text("The Codex configuration was saved, but ChatGPT could not be opened. Open it manually.")
+            }
+            return MoaL10n.format("The Codex configuration was saved. Open ChatGPT manually. %@", details)
+        case .configurationChangeFailed(let details):
+            return MoaL10n.format("The configuration change failed. ChatGPT was not reopened. Check the configuration before opening it manually. %@", details)
+        case .configurationRestored(let details):
+            return MoaL10n.format("The configuration change failed. ChatGPT was reopened with its previous configuration. %@", details)
+        case .configurationRecoveryLaunchFailed(let details, let launch):
+            return MoaL10n.format("The configuration change failed and the previous configuration is available, but ChatGPT could not be reopened. %@ %@", details, launch)
         case .clientStillRunning:
             return MoaL10n.text("ChatGPT could not be closed. Finish the active task and try again.")
         case .migrationProcessesRunning:
@@ -70,6 +82,7 @@ final class CodexAppController: @unchecked Sendable {
     #if MOA_TESTING || MOA_TEST_SUPPORT
     var testingQuit: (() throws -> Void)?
     var testingOpen: (() throws -> Void)?
+    var testingIsRunning: (() -> Bool)?
     #endif
 
     func reopenCodex() throws {
@@ -86,8 +99,26 @@ final class CodexAppController: @unchecked Sendable {
     /// presented as a successful switch; the saved configuration remains usable.
     func changeConfiguration<T>(if restart: Bool = true, _ change: () throws -> T) throws -> T {
         guard restart else { return try change() }
+        let wasRunning = isCodexRunning()
         try quitCodex()
-        let value = try change()
+        let value: T
+        do { value = try change() }
+        catch {
+            let safeToReopen: Bool
+            switch error {
+            case let transaction as CodexStateTransactionError: safeToReopen = transaction.canReopenClient
+            case MoaDataAccessError.busy: safeToReopen = true
+            default: safeToReopen = false
+            }
+            guard wasRunning, safeToReopen else {
+                throw CodexAppError.configurationChangeFailed(error.localizedDescription)
+            }
+            do { try openCodex() }
+            catch let launchError {
+                throw CodexAppError.configurationRecoveryLaunchFailed(error.localizedDescription, launchError.localizedDescription)
+            }
+            throw CodexAppError.configurationRestored(error.localizedDescription)
+        }
         do { try openCodex() }
         catch { throw CodexAppError.configurationSavedButLaunchFailed(error.localizedDescription) }
         return value
@@ -131,18 +162,24 @@ final class CodexAppController: @unchecked Sendable {
         if let testingOpen { try testingOpen(); return }
         #endif
         guard let codexApp else { throw CodexAppError.clientUnavailable }
-        if CodexStatusLineSettings(defaults: defaults).enabled && !isCodexRunning() {
-            try enhancementRuntime.start(app: codexApp, environment: environment)
-        } else {
-            guard run("/usr/bin/open", [codexApp.path]) == 0 else { throw CodexAppError.launchFailed }
+        do {
+            if CodexStatusLineSettings(defaults: defaults).enabled && !isCodexRunning() {
+                try enhancementRuntime.start(app: codexApp, environment: environment)
+            } else {
+                guard run("/usr/bin/open", [codexApp.path]) == 0 else { throw CodexAppError.launchFailed }
+            }
+            guard waitForCodexRunning(true, timeout: 12) else { throw CodexAppError.launchFailed }
+        } catch {
+            enhancementRuntime.recordError(error)
+            throw error
         }
-        guard waitForCodexRunning(true, timeout: 12) else { throw CodexAppError.launchFailed }
     }
 
     private func quitCodexIfNeeded() -> Bool {
         let applications = runningCodexApplications()
         guard !applications.isEmpty else { return true }
-        guard applications.allSatisfy({ $0.terminate() }) else { return false }
+        let requests = applications.map { $0.terminate() }
+        guard requests.allSatisfy({ $0 }) else { return false }
         return waitForCodexRunning(false, timeout: 12)
     }
 
@@ -159,7 +196,10 @@ final class CodexAppController: @unchecked Sendable {
     }
 
     private func isCodexRunning() -> Bool {
-        !runningCodexApplications().isEmpty
+        #if MOA_TESTING || MOA_TEST_SUPPORT
+        if let testingIsRunning { return testingIsRunning() }
+        #endif
+        return !runningCodexApplications().isEmpty
     }
 
     private func waitForCodexRunning(_ running: Bool, timeout: TimeInterval) -> Bool {

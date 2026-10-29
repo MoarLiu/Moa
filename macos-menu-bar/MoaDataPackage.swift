@@ -672,19 +672,30 @@ final class MoaDataPackageController {
 
     func pruneRecoveryPackages(preserving preservedURL: URL? = nil) throws {
         let prefixes = ["Moa-Data-Rollback-", "Moa-Data-Before-iCloud-"]
+        var failures: [Error] = []
         let packages = try fileManager.contentsOfDirectory(
             at: recoveryDirectory, includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey, .contentModificationDateKey]
         ).compactMap { url -> (URL, Date)? in
             guard url.pathExtension == "zip", prefixes.contains(where: { url.lastPathComponent.hasPrefix($0) }) else { return nil }
-            let values = try url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .contentModificationDateKey])
+            let values: URLResourceValues
+            do { values = try url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .contentModificationDateKey]) }
+            catch { failures.append(error); return nil }
             guard values.isRegularFile == true, values.isSymbolicLink != true else { return nil }
-            try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+            do { try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path) }
+            catch { failures.append(error) }
             return (url, values.contentModificationDate ?? .distantPast)
         }.sorted { $0.1 == $1.1 ? $0.0.lastPathComponent > $1.0.lastPathComponent : $0.1 > $1.1 }
         let candidates = packages.filter { $0.0.standardizedFileURL != preservedURL?.standardizedFileURL }
         let retained = Self.retainedRecoveryPackageCount - (packages.count - candidates.count)
         for (url, _) in candidates.dropFirst(max(0, retained)) {
-            try fileManager.removeItem(at: url)
+            do { try fileManager.removeItem(at: url) }
+            catch { failures.append(error) }
+        }
+        if let first = failures.first {
+            throw NSError(domain: "MoaRecovery", code: 1, userInfo: [
+                NSLocalizedDescriptionKey: MoaL10n.format("Some recovery packages could not be maintained. %@", first.localizedDescription),
+                NSUnderlyingErrorKey: first
+            ])
         }
     }
 

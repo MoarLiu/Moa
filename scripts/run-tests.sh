@@ -90,6 +90,7 @@ validate_source_lists
   "$ROOT/assets/Localization/en.lproj/Localizable.strings" \
   "$ROOT/assets/Localization/zh-Hans.lproj/Localizable.strings" \
   >/dev/null
+python3 "$ROOT/scripts/check-localizations.py"
 
 MACOSX_DEPLOYMENT_TARGET="$MACOS_DEPLOYMENT_TARGET" "$SWIFTC_BIN" \
   -target "$SWIFTC_TARGET" \

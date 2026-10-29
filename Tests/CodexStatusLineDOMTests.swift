@@ -15,11 +15,11 @@ final class CodexStatusLineDOMTests: XCTestCase, WKNavigationDelegate {
         web = WKWebView(frame: NSRect(x: 0, y: 0, width: 700, height: 400))
         web.navigationDelegate = self
         let html = """
-        <html lang="en"><head><style>body{margin:0} [data-composer-footer-responsive]{display:flex;width:650px;justify-content:space-between}.leading{display:flex;gap:8px}</style></head><body>
+        <html lang="en"><head><style>body{margin:0} [data-composer-footer-responsive]{display:flex;width:650px;justify-content:space-between}.leading,.model-controls{display:flex;gap:8px}</style></head><body>
         <div data-codex-composer-root data-composer-placement="thread">
         <div data-above-composer-conversation-id="thread-12345678"></div>
         <div data-composer-surface-variant="default"><textarea></textarea>
-        <div data-composer-footer-responsive><div class="leading"><button data-composer-navigation-target="add-context">+</button></div><button id="send">Send</button></div>
+        <div data-composer-footer-responsive><div class="leading"><div class="model-controls"><button data-composer-navigation-target="add-context">+</button><button>Model</button></div><button id="permissions">Change permissions</button></div><button id="send">Send</button></div>
         </div></div></body></html>
         """
         try await withCheckedThrowingContinuation { continuation in
@@ -58,6 +58,8 @@ final class CodexStatusLineDOMTests: XCTestCase, WKNavigationDelegate {
         XCTAssertEqual(initial, "⚡ ~80 t/s")
         let send = try await evaluate("document.getElementById('send').textContent") as? String
         XCTAssertEqual(send, "Send")
+        let placement = try await evaluate("document.getElementById('moa-codex-statusline').getBoundingClientRect().left >= document.getElementById('permissions').getBoundingClientRect().right") as? Bool
+        XCTAssertEqual(placement, true, "The rate must appear to the right of the permission selector")
         _ = try await evaluate("document.querySelector('[data-above-composer-conversation-id]').setAttribute('data-above-composer-conversation-id','thread-87654321');true")
         // The old request's delayed completion must not paint a value into the new thread.
         try await update("thread-12345678", rate: 999, subscription: 1)
@@ -89,7 +91,7 @@ final class CodexStatusLineDOMTests: XCTestCase, WKNavigationDelegate {
 
     func testUnsupportedLayoutReportsFailureAndCompatibilityLayoutWorks() async throws {
         try await loadFixture()
-        _ = try await evaluate("document.querySelector('.leading').style.display='block';true")
+        _ = try await evaluate("document.querySelectorAll('.leading,.model-controls').forEach(element=>element.style.display='block');true")
         try await install()
         let status = try await evaluate("messages.at(-1).status") as? String
         XCTAssertEqual(status, "unsupported")

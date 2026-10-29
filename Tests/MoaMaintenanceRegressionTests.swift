@@ -164,7 +164,10 @@ final class MoaMaintenanceRegressionTests: XCTestCase {
             XCTAssertEqual(try String(contentsOf: target), "unchanged")
             let directory = home.appendingPathComponent("blocked")
             try fm.createDirectory(at: directory, withIntermediateDirectories: true)
-            XCTAssertThrowsError(try MoaSecureFile.write(Data("replacement".utf8), to: directory))
+            XCTAssertThrowsError(try MoaSecureFile.write(Data("replacement".utf8), to: directory)) { error in
+                XCTAssertEqual((error as NSError).userInfo[NSFilePathErrorKey] as? String, directory.path)
+                XCTAssertTrue(error.localizedDescription.contains(directory.path))
+            }
             XCTAssertFalse(try fm.contentsOfDirectory(atPath: home.path).contains { $0.hasPrefix(".moa-private-") })
         }
     }
@@ -258,6 +261,16 @@ final class MoaProviderProbeRegressionTests: XCTestCase {
             XCTAssertEqual(ProbeProtocol.requests.map { $0.url!.path }, ["/v1/responses", "/responses"])
         }
     }
+
+    func testCancelledRequestDoesNotTryAnotherEndpoint() async {
+        do {
+            _ = try await probe(statuses: [NSURLErrorCancelled, 200])
+            XCTFail("A cancelled probe must fail")
+        } catch {
+            XCTAssertEqual((error as? URLError)?.code, .cancelled)
+        }
+        XCTAssertEqual(ProbeProtocol.requests.map { $0.url!.path }, ["/v1/responses"])
+    }
 }
 
 private final class ProbeProtocol: URLProtocol {
@@ -273,6 +286,10 @@ private final class ProbeProtocol: URLProtocol {
         Self.recorded.append(request)
         let status = Self.statuses.isEmpty ? 500 : Self.statuses.removeFirst()
         Self.lock.unlock()
+        if status == NSURLErrorCancelled {
+            client?.urlProtocol(self, didFailWithError: URLError(.cancelled))
+            return
+        }
         let data = Data(("first endpoint error " + String(repeating: "x", count: 1000)).utf8)
         client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: data)

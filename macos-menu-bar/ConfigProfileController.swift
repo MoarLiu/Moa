@@ -21,6 +21,8 @@ final class ConfigProfileController {
     #if MOA_TESTING || MOA_TEST_SUPPORT
     static var testingProfileDatabaseSaveFailuresRemaining = 0
     static var testingOfficialAccountDatabaseSaveFailuresRemaining = 0
+    var testingAfterCurrentOfficialAuthRead: (() throws -> Void)?
+    var testingBeforeOfficialAccountDatabaseSave: (() throws -> Void)?
     #endif
 
     var codexConfigURL: URL {

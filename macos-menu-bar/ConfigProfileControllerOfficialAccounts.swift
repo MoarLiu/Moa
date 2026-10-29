@@ -101,20 +101,25 @@ extension ConfigProfileController {
             guard hasOfficialAuthSession(auth) else {
                 throw CodexOfficialAccountError.noCurrentLogin
             }
+            #if MOA_TESTING || MOA_TEST_SUPPORT
+            try testingAfterCurrentOfficialAuthRead?()
+            #endif
 
             if let existing = try matchingOfficialAccount(for: auth) {
-                return try saveOfficialAccount(auth: auth, selecting: existing.id, activate: activate)
+                return try saveOfficialAccount(auth: auth, selecting: existing.id, activate: activate, updateClient: false)
             }
 
-            return try saveNewOfficialAccount(auth: auth, name: MoaL10n.text("OpenAI Current Account"), activate: activate)
+            return try saveNewOfficialAccount(auth: auth, name: MoaL10n.text("OpenAI Current Account"), activate: activate, updateClient: false)
         }
     }
 
     @discardableResult
-    func saveOfficialAccount(auth: [String: Any], selecting id: String, activate: Bool = true) throws -> CodexOfficialAccount {
+    func saveOfficialAccount(auth: [String: Any], selecting id: String, activate: Bool = true, updateClient: Bool = true) throws -> CodexOfficialAccount {
         try stateLock.withLock {
+            // Snapshot saves must not roll back a concurrently refreshed client auth file.
+            let files = [moaAuthURL, officialAccountsDatabaseURL] + (activate && updateClient ? [codexAuthURL] : [])
             return try withCodexStateTransaction(
-                files: [moaAuthURL, codexAuthURL, officialAccountsDatabaseURL],
+                files: files,
                 includeOfficialAuthDirectory: true
             ) {
                 try backupCodexFiles()
@@ -134,7 +139,7 @@ extension ConfigProfileController {
                 try writeAuthJSON(auth, to: try officialAuthURL(for: account))
                 if activate {
                     try writeAuthJSON(auth, to: moaAuthURL)
-                    try copyFile(from: moaAuthURL, to: codexAuthURL)
+                    if updateClient { try copyFile(from: moaAuthURL, to: codexAuthURL) }
                 }
                 try saveOfficialAccountDatabase(officialDatabase)
                 return account
@@ -143,10 +148,11 @@ extension ConfigProfileController {
     }
 
     @discardableResult
-    func saveNewOfficialAccount(auth: [String: Any], name: String, activate: Bool = true) throws -> CodexOfficialAccount {
+    func saveNewOfficialAccount(auth: [String: Any], name: String, activate: Bool = true, updateClient: Bool = true) throws -> CodexOfficialAccount {
         try stateLock.withLock {
+            let files = [moaAuthURL, officialAccountsDatabaseURL] + (activate && updateClient ? [codexAuthURL] : [])
             return try withCodexStateTransaction(
-                files: [moaAuthURL, codexAuthURL, officialAccountsDatabaseURL],
+                files: files,
                 includeOfficialAuthDirectory: true
             ) {
                 try backupCodexFiles()
@@ -161,7 +167,7 @@ extension ConfigProfileController {
                 officialDatabase.accounts.append(account)
                 if activate {
                     try writeAuthJSON(auth, to: moaAuthURL)
-                    try copyFile(from: moaAuthURL, to: codexAuthURL)
+                    if updateClient { try copyFile(from: moaAuthURL, to: codexAuthURL) }
                     officialDatabase.selectedAccountID = account.id
                 }
                 try saveOfficialAccountDatabase(officialDatabase)
@@ -184,11 +190,14 @@ extension ConfigProfileController {
             guard hasOfficialAuthSession(auth) else {
                 throw CodexOfficialAccountError.noCurrentLogin
             }
+            #if MOA_TESTING || MOA_TEST_SUPPORT
+            try testingAfterCurrentOfficialAuthRead?()
+            #endif
             if let existing = try matchingOfficialAccount(for: auth) {
                 throw CodexOfficialAccountError.duplicateCurrentLogin(existing.displayTitle)
             }
 
-            return try saveNewOfficialAccount(auth: auth, name: trimmedName)
+            return try saveNewOfficialAccount(auth: auth, name: trimmedName, updateClient: false)
         }
     }
 

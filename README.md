@@ -106,11 +106,17 @@ Moa uses the primary Moa app identity throughout the bundle, data roots, provide
 
 Moa still edits the real Codex and Claude Desktop configuration files when you ask it to switch profiles. Its own profile databases, package manifests, iCloud state, and diagnostics are stored under the Moa data root.
 
-## 1.6.1 Maintenance Update
+## 1.6.2 Maintenance Update
 
-Codex switches and active-profile edits request a graceful client quit before saving and reopening. A refused or timed-out quit stops the operation without force-terminating tasks. If saving succeeds but launching fails, Moa reports that the client must be opened manually. Finish active tasks and close other desktop or CLI instances sharing the same configuration directory first.
+Codex switches and active-profile edits request a graceful client quit before saving and reopening. A refused or timed-out quit stops the operation without force-terminating tasks. If a change fails and the previous configuration is confirmed available, Moa reopens a previously running client and reports the failed change. If rollback fails or the configuration cannot be verified, the client stays closed with recovery guidance. If saving succeeds but launching fails, Moa reports that the client must be opened manually. Finish active tasks and close other desktop or CLI instances sharing the same configuration directory first.
 
-Automatic recovery packages for imports and iCloud changes stay in `~/Library/Application Support/Moa/Recovery`, with directory/file modes `700`/`600` and the latest 12 packages retained on this Mac. Manual exports keep their chosen destination. Backups previously written to Downloads are not automatically deleted.
+Saving the current official login stores an account snapshot without rewriting the client's credentials. Configuration and export writes support linked parent directories, preserve existing third-party directory permissions, and reject symbolic links at the destination file.
+
+Automatic recovery packages for imports and iCloud changes stay in `~/Library/Application Support/Moa/Recovery`, with directory/file modes `700`/`600` and the latest 12 packages retained on this Mac. Cleanup continues past individual file failures and logs any failures. Manual exports keep their chosen destination. Backups previously written to Downloads are not automatically deleted: review old `Moa-Data-Rollback-*.zip` and `Moa-Data-Before-iCloud-*.zip` archives and remove them when no longer needed, because they contain unencrypted credentials.
+
+Usage scanning bounds memory by skipping oversized records. Claude records above 8 MiB and Codex usage records above 512 KiB are omitted, so local totals can undercount these records. Larger Codex model-context records are inspected separately. History migration uses a separate reader.
+
+The legacy `MoaApplyProfileID` environment command requests a graceful ChatGPT quit, applies the profile, and exits without reopening the client. It reports failures on standard error with a nonzero exit code. Use the menu switch when you want the client reopened automatically.
 
 ## Data Files
 
@@ -126,6 +132,7 @@ Moa stores its local profile and recovery data under:
 - `~/.moa/usage-pricing-catalog-v1.json`
 - `~/.moa/backups`
 - `~/Library/Application Support/Moa/usage-pricing-update-state.json`
+- `~/Library/Application Support/Moa/Recovery/*.zip` — device-local credential recovery packages, outside iCloud sync and exported data packages; directory/file modes `700`/`600`, retention target 12 packages
 
 Moa checks the [model-price-repo catalog](https://github.com/Wei-Shaw/model-price-repo), also used by Sub2API, every day at 00:20:01 local time. It catches up after a missed check and checks immediately after a source migration. Validated additions and field changes are merged into the local catalog. Custom prices remain highest priority; separately verified official corrections and the bundled snapshot remain available despite stale caches or network failures.
 
@@ -166,7 +173,7 @@ The script builds `Moa.app`, stops any currently running Moa process, and launch
 ## Security Notes
 
 - Provider API keys and Codex login sessions are stored in Moa data files; Moa does not upload them to its own server. Enabling iCloud storage syncs these files through iCloud Drive. Data exports and automatic recovery packages contain these credentials without encryption and must be kept private. Separate WorkBuddy and DeepSeek account stores remain excluded from sync and exports.
-- Sensitive configuration saves use atomic replacement with temporary files created as `600`; permission-setting failures stop the save.
+- Sensitive configuration saves and provider profile JSON exports use atomic replacement with temporary files created as `600`; permission-setting failures stop the save. Existing client and export directory permissions are preserved; Moa-owned private directories use `700`.
 - Automatic updates currently trust GitHub Releases and a SHA-256 checksum from the same source. They do not independently authenticate the publisher. Independent update signatures have not yet been deployed.
 - Diagnostic packages redact auth, key, and token fields.
 - Packaging scripts refuse to include `.moa`, `.codex`, `.dsh`, client login/account stores, auth/config/profile files, environment files, and signing keys.
