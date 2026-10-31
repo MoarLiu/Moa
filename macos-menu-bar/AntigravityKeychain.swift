@@ -45,6 +45,106 @@ protocol AntigravityCredentialStoring {
 /// Uses the login keychain, matching Antigravity's go-keyring backend. Never
 /// launches a shell, logs a secret, or puts credential bytes in process arguments.
 final class AntigravityKeychain: AntigravityCredentialStoring {
+    // The legacy login keychain ignores kSecUseAuthenticationUIFail. Its UI
+    // switch is process-wide, so every read/write must share this gate, even
+    // across different controller/store instances.
+    private static let interactionLock = NSRecursiveLock()
+
+    static func withInteraction<T>(_ allowed: Bool, _ operation: () throws -> T) throws -> T {
+        try interactionLock.withLock {
+            var previous: DarwinBoolean = false
+            let getStatus = SecKeychainGetUserInteractionAllowed(&previous)
+            guard getStatus == errSecSuccess else { throw AntigravityError.keychain(getStatus) }
+            let setStatus = SecKeychainSetUserInteractionAllowed(allowed)
+            guard setStatus == errSecSuccess else { throw AntigravityError.keychain(setStatus) }
+            defer { SecKeychainSetUserInteractionAllowed(previous.boolValue) }
+            return try operation()
+        }
+    }
+
+    /// Explicit one-time maintenance for an old Moa entry whose path stayed the
+    /// same but whose ad-hoc requirement no longer matches. Only replace Moa's
+    /// existing trusted application; preserve all other ACLs, flags and clients.
+    /// This never reads or rewrites password data and never runs during refresh.
+    static func repairMoaAccess() throws -> Int {
+        let bundle = Bundle.main
+        guard bundle.bundleIdentifier == "com.moarliu.moa", let executable = bundle.executableURL else {
+            throw AntigravityError.message("Run Keychain access repair from the installed Moa.app.")
+        }
+        var code: SecStaticCode?
+        var status = SecStaticCodeCreateWithPath(bundle.bundleURL as CFURL, [], &code)
+        guard status == errSecSuccess, let code else { throw AntigravityError.keychain(status) }
+        status = SecStaticCodeCheckValidity(code, SecCSFlags(rawValue: kSecCSStrictValidate), nil)
+        guard status == errSecSuccess else { throw AntigravityError.keychain(status) }
+        var info: CFDictionary?
+        status = SecCodeCopySigningInformation(code, SecCSFlags(rawValue: kSecCSSigningInformation), &info)
+        guard status == errSecSuccess,
+              let certificates = (info as? [String: Any])?[kSecCodeInfoCertificates as String] as? [SecCertificate],
+              !certificates.isEmpty else {
+            throw AntigravityError.message("Sign Moa with the existing code signing certificate before repairing Keychain access.")
+        }
+        var trusted: SecTrustedApplication?
+        status = SecTrustedApplicationCreateFromPath(bundle.bundleURL.path, &trusted)
+        guard status == errSecSuccess, let trusted else { throw AntigravityError.keychain(status) }
+        let ownPaths = Set([bundle.bundleURL.path, executable.path])
+        return try withInteraction(true) {
+            var repaired = 0
+            for service in ["gemini", "com.moa.antigravity.accounts"] {
+                var request: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+                    kSecAttrService as String: service, kSecMatchLimit as String: kSecMatchLimitAll,
+                    kSecReturnRef as String: true]
+                if service == "gemini" { request[kSecAttrAccount as String] = "antigravity" }
+                var result: CFTypeRef?
+                let findStatus = SecItemCopyMatching(request as CFDictionary, &result)
+                if findStatus == errSecItemNotFound { continue }
+                guard findStatus == errSecSuccess, let items = result as? [SecKeychainItem] else {
+                    throw AntigravityError.keychain(findStatus == errSecSuccess ? errSecDecode : findStatus)
+                }
+                for item in items {
+                    var access: SecAccess?
+                    let accessStatus = SecKeychainItemCopyAccess(item, &access)
+                    guard accessStatus == errSecSuccess, let access else { throw AntigravityError.keychain(accessStatus) }
+                    var list: CFArray?
+                    let listStatus = SecAccessCopyACLList(access, &list)
+                    guard listStatus == errSecSuccess, let acls = list as? [SecACL] else {
+                        throw AntigravityError.keychain(listStatus == errSecSuccess ? errSecDecode : listStatus)
+                    }
+                    var changed = false
+                    for acl in acls {
+                        var applications: CFArray?
+                        var description: CFString?
+                        var flags = SecKeychainPromptSelector()
+                        let contentsStatus = SecACLCopyContents(acl, &applications, &description, &flags)
+                        guard contentsStatus == errSecSuccess else { throw AntigravityError.keychain(contentsStatus) }
+                        guard let apps = applications as? [SecTrustedApplication] else { continue }
+                        var replaced = false
+                        let updated = try apps.map { application -> SecTrustedApplication in
+                            var data: CFData?
+                            let dataStatus = SecTrustedApplicationCopyData(application, &data)
+                            guard dataStatus == errSecSuccess, let data else { throw AntigravityError.keychain(dataStatus) }
+                            let path = String(decoding: (data as Data).prefix { $0 != 0 }, as: UTF8.self)
+                            guard ownPaths.contains(path) else { return application }
+                            replaced = true
+                            return trusted
+                        }
+                        if replaced {
+                            guard let description else { throw AntigravityError.keychain(errSecDecode) }
+                            let updateStatus = SecACLSetContents(acl, updated as CFArray, description, flags)
+                            guard updateStatus == errSecSuccess else { throw AntigravityError.keychain(updateStatus) }
+                            changed = true
+                        }
+                    }
+                    if changed {
+                        let updateStatus = SecKeychainItemSetAccess(item, access)
+                        guard updateStatus == errSecSuccess else { throw AntigravityError.keychain(updateStatus) }
+                        repaired += 1
+                    }
+                }
+            }
+            return repaired
+        }
+    }
+
     private func query(_ item: AntigravityCredentialItem) -> [String: Any] {
         [kSecClass as String: kSecClassGenericPassword,
          kSecAttrService as String: item.service,
@@ -53,59 +153,63 @@ final class AntigravityKeychain: AntigravityCredentialStoring {
 
     func read(_ item: AntigravityCredentialItem, interaction: Bool) throws -> Data? {
         precondition(!Thread.isMainThread)
-        var request = query(item)
-        request[kSecMatchLimit as String] = kSecMatchLimitOne
-        request[kSecReturnData as String] = true
-        request[kSecUseAuthenticationUI as String] = interaction ? kSecUseAuthenticationUIAllow : kSecUseAuthenticationUIFail
-        var result: CFTypeRef?
-        let status = SecItemCopyMatching(request as CFDictionary, &result)
-        if status == errSecItemNotFound { return nil }
-        guard status == errSecSuccess, let data = result as? Data else {
-            throw AntigravityError.keychain(status == errSecSuccess ? errSecDecode : status)
+        return try Self.withInteraction(interaction) {
+            var request = query(item)
+            request[kSecMatchLimit as String] = kSecMatchLimitOne
+            request[kSecReturnData as String] = true
+            request[kSecUseAuthenticationUI as String] = interaction ? kSecUseAuthenticationUIAllow : kSecUseAuthenticationUIFail
+            var result: CFTypeRef?
+            let status = SecItemCopyMatching(request as CFDictionary, &result)
+            if status == errSecItemNotFound { return nil }
+            guard status == errSecSuccess, let data = result as? Data else {
+                throw AntigravityError.keychain(status == errSecSuccess ? errSecDecode : status)
+            }
+            return data
         }
-        return data
     }
 
     func write(_ data: Data?, to item: AntigravityCredentialItem) throws {
         precondition(!Thread.isMainThread)
-        let request = query(item)
-        guard let data else {
-            let status = SecItemDelete(request as CFDictionary)
-            guard status == errSecSuccess || status == errSecItemNotFound else { throw AntigravityError.keychain(status) }
-            return
-        }
-        // Updating in place retains the existing item's access controls.
-        let status = SecItemUpdate(request as CFDictionary, [kSecValueData as String: data] as CFDictionary)
-        if status == errSecSuccess { return }
-        guard status == errSecItemNotFound else { throw AntigravityError.keychain(status) }
-        var addition = request
-        addition[kSecValueData as String] = data
-        addition[kSecAttrSynchronizable as String] = false
-        if item == .live {
-            // A restored missing live item must remain readable by the app,
-            // its language server, /usr/bin/security, and Moa itself.
-            // Revalidate before trusting paths, including recovery after a missing live item.
-            let appURL = try AntigravityInstallation.validatedURL()
-            let paths = [
-                Bundle.main.executableURL?.path,
-                appURL.appendingPathComponent("Contents/MacOS/Antigravity").path,
-                appURL.appendingPathComponent("Contents/Resources/bin/language_server").path,
-                "/usr/bin/security"
-            ].compactMap { $0 }.filter { FileManager.default.isExecutableFile(atPath: $0) }
-            var trusted: [SecTrustedApplication] = []
-            for path in paths {
-                var application: SecTrustedApplication?
-                let status = SecTrustedApplicationCreateFromPath(path, &application)
-                guard status == errSecSuccess, let application else { throw AntigravityError.keychain(status) }
-                trusted.append(application)
+        try Self.withInteraction(true) {
+            let request = query(item)
+            guard let data else {
+                let status = SecItemDelete(request as CFDictionary)
+                guard status == errSecSuccess || status == errSecItemNotFound else { throw AntigravityError.keychain(status) }
+                return
             }
-            var access: SecAccess?
-            let accessStatus = SecAccessCreate("Antigravity" as CFString, trusted as CFArray, &access)
-            guard accessStatus == errSecSuccess, let access else { throw AntigravityError.keychain(accessStatus) }
-            addition[kSecAttrAccess as String] = access
+            // Updating in place retains the existing item's access controls.
+            let status = SecItemUpdate(request as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+            if status == errSecSuccess { return }
+            guard status == errSecItemNotFound else { throw AntigravityError.keychain(status) }
+            var addition = request
+            addition[kSecValueData as String] = data
+            addition[kSecAttrSynchronizable as String] = false
+            if item == .live {
+                // A restored missing live item must remain readable by the app,
+                // its language server, /usr/bin/security, and Moa itself.
+                // Revalidate before trusting paths, including recovery after a missing live item.
+                let appURL = try AntigravityInstallation.validatedURL()
+                let paths = [
+                    Bundle.main.executableURL?.path,
+                    appURL.appendingPathComponent("Contents/MacOS/Antigravity").path,
+                    appURL.appendingPathComponent("Contents/Resources/bin/language_server").path,
+                    "/usr/bin/security"
+                ].compactMap { $0 }.filter { FileManager.default.isExecutableFile(atPath: $0) }
+                var trusted: [SecTrustedApplication] = []
+                for path in paths {
+                    var application: SecTrustedApplication?
+                    let status = SecTrustedApplicationCreateFromPath(path, &application)
+                    guard status == errSecSuccess, let application else { throw AntigravityError.keychain(status) }
+                    trusted.append(application)
+                }
+                var access: SecAccess?
+                let accessStatus = SecAccessCreate("Antigravity" as CFString, trusted as CFArray, &access)
+                guard accessStatus == errSecSuccess, let access else { throw AntigravityError.keychain(accessStatus) }
+                addition[kSecAttrAccess as String] = access
+            }
+            let addStatus = SecItemAdd(addition as CFDictionary, nil)
+            guard addStatus == errSecSuccess else { throw AntigravityError.keychain(addStatus) }
         }
-        let addStatus = SecItemAdd(addition as CFDictionary, nil)
-        guard addStatus == errSecSuccess else { throw AntigravityError.keychain(addStatus) }
     }
 }
 

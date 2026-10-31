@@ -60,6 +60,42 @@ final class MoaUpdaterRegressionTests: XCTestCase {
         }
     }
 
+    func testLocalCertificateUpdateUsesInstalledRequirementWithoutGatekeeper() throws {
+        try withInstaller { fixture in
+            XCTAssertEqual(try fixture.run(pid: 99999999, currentSignature: "local", candidateSignature: "local", failGatekeeper: true), 0)
+            XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.requirementChecked.path))
+            XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.gatekeeperChecked.path))
+        }
+    }
+
+    func testDifferentCertificateAndAdHocDowngradeKeepInstalledApp() throws {
+        for candidate in ["local", "adhoc"] {
+            try withInstaller { fixture in
+                XCTAssertNotEqual(try fixture.run(pid: 99999999, currentSignature: "local", candidateSignature: candidate, failRequirement: true), 0)
+                XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.requirementChecked.path))
+                XCTAssertEqual(try String(contentsOf: fixture.app.appendingPathComponent("version"), encoding: .utf8), "old")
+            }
+        }
+    }
+
+    func testDeveloperIDAndLegacyTransitionsStillRequireGatekeeper() throws {
+        for current in ["local", "adhoc"] {
+            try withInstaller { fixture in
+                XCTAssertNotEqual(try fixture.run(pid: 99999999, currentSignature: current, candidateSignature: "developer-id", failGatekeeper: true), 0)
+                XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.gatekeeperChecked.path))
+                XCTAssertEqual(try String(contentsOf: fixture.app.appendingPathComponent("version"), encoding: .utf8), "old")
+            }
+        }
+    }
+
+    func testMissingInstalledRequirementFailsClosed() throws {
+        try withInstaller { fixture in
+            XCTAssertNotEqual(try fixture.run(pid: 99999999, currentSignature: "local", missingRequirement: true), 0)
+            XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.requirementChecked.path))
+            XCTAssertEqual(try String(contentsOf: fixture.app.appendingPathComponent("version"), encoding: .utf8), "old")
+        }
+    }
+
     func testMountFailurePreservesAppAndReportsFailure() throws {
         try withInstaller { fixture in
             XCTAssertNotEqual(try fixture.run(pid: 99999999, failMount: true), 0)
@@ -136,6 +172,8 @@ private final class InstallerFixture {
     var alert: URL { root.appendingPathComponent("alert") }
     var mount: URL { root.appendingPathComponent("mount") }
     var work: URL { root.appendingPathComponent("work") }
+    var requirementChecked: URL { root.appendingPathComponent("requirement-checked") }
+    var gatekeeperChecked: URL { root.appendingPathComponent("gatekeeper-checked") }
 
     init() throws {
         let fm = FileManager.default
@@ -147,8 +185,28 @@ private final class InstallerFixture {
         try mock("hdiutil", "if [[ \"$1\" == attach && \"${FAIL_MOUNT:-0}\" == 1 ]]; then exit 1; fi\nexit 0")
         try mock("awk", "printf '%s\\n' \"$TEST_MOUNT\"")
         try mock("ditto", "if [[ \"${FAIL_COPY:-0}\" == 1 ]]; then exit 1; fi\n/bin/cp -R \"${@: -2:1}\" \"${@: -1}\"")
-        try mock("codesign", "exit 0")
-        try mock("spctl", "exit 0")
+        try mock("codesign", """
+        if [[ "$1" == -dv ]]; then
+          SIGNATURE="$CANDIDATE_SIGNATURE"
+          if [[ "${@: -1}" == "$TEST_APP" ]]; then SIGNATURE="$CURRENT_SIGNATURE"; fi
+          case "$SIGNATURE" in
+            adhoc) echo 'Signature=adhoc' >&2 ;;
+            local) echo 'Authority=Moa Local Development Code Signing' >&2 ;;
+            developer-id) echo 'Authority=Developer ID Application: Fixture' >&2 ;;
+          esac
+        elif [[ "$1" == -dr ]]; then
+          if [[ "$MISSING_REQUIREMENT" == 0 ]]; then echo 'designated => identifier "com.moarliu.moa" and anchor trusted' >&2; fi
+        else
+          for ARG in "$@"; do
+            if [[ "$ARG" == -R=* ]]; then
+              touch "$TEST_REQUIREMENT_CHECKED"
+              if [[ "$FAIL_REQUIREMENT" == 1 ]]; then exit 1; fi
+            fi
+          done
+        fi
+        exit 0
+        """)
+        try mock("spctl", "touch \"$TEST_GATEKEEPER_CHECKED\"\nif [[ \"$FAIL_GATEKEEPER\" == 1 ]]; then exit 1; fi")
         try mock("open", "echo open >> \"$TEST_OPENED\"\nif [[ \"${FAIL_FIRST_OPEN:-0}\" == 1 && $(/usr/bin/wc -l < \"$TEST_OPENED\") -eq 1 ]]; then exit 1; fi")
         try mock("osascript", "touch \"$TEST_ALERT\"")
     }
@@ -159,7 +217,9 @@ private final class InstallerFixture {
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
     }
 
-    func run(pid: Int32, failMount: Bool = false, failFirstOpen: Bool = false, failCopy: Bool = false, shortWait: Bool = false) throws -> Int32 {
+    func run(pid: Int32, failMount: Bool = false, failFirstOpen: Bool = false, failCopy: Bool = false, shortWait: Bool = false,
+             currentSignature: String = "adhoc", candidateSignature: String = "adhoc", failRequirement: Bool = false,
+             failGatekeeper: Bool = false, missingRequirement: Bool = false) throws -> Int32 {
         var script = MoaUpdateController.installerScript
         if shortWait { script = script.replacingOccurrences(of: "{1..300}", with: "{1..3}") }
         for path in ["/usr/bin/hdiutil", "/usr/bin/awk", "/usr/bin/ditto", "/usr/bin/codesign", "/usr/sbin/spctl", "/usr/bin/open", "/usr/bin/osascript"] {
@@ -177,6 +237,14 @@ private final class InstallerFixture {
         environment["FAIL_MOUNT"] = failMount ? "1" : "0"
         environment["FAIL_FIRST_OPEN"] = failFirstOpen ? "1" : "0"
         environment["FAIL_COPY"] = failCopy ? "1" : "0"
+        environment["TEST_APP"] = app.path
+        environment["TEST_REQUIREMENT_CHECKED"] = requirementChecked.path
+        environment["TEST_GATEKEEPER_CHECKED"] = gatekeeperChecked.path
+        environment["CURRENT_SIGNATURE"] = currentSignature
+        environment["CANDIDATE_SIGNATURE"] = candidateSignature
+        environment["FAIL_REQUIREMENT"] = failRequirement ? "1" : "0"
+        environment["FAIL_GATEKEEPER"] = failGatekeeper ? "1" : "0"
+        environment["MISSING_REQUIREMENT"] = missingRequirement ? "1" : "0"
         process.environment = environment
         try process.run()
         process.waitUntilExit()

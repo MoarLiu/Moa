@@ -5,6 +5,57 @@ import XCTest
 @testable import Moa
 
 final class AntigravityTests: XCTestCase {
+    func testLegacyKeychainInteractionIsDisabledAndRestoredAfterFailure() throws {
+        var original: DarwinBoolean = false
+        XCTAssertEqual(SecKeychainGetUserInteractionAllowed(&original), errSecSuccess)
+        defer { SecKeychainSetUserInteractionAllowed(original.boolValue) }
+        XCTAssertEqual(SecKeychainSetUserInteractionAllowed(true), errSecSuccess)
+        enum ProbeError: Error { case expected }
+        XCTAssertThrowsError(try AntigravityKeychain.withInteraction(false) {
+            var allowed: DarwinBoolean = true
+            XCTAssertEqual(SecKeychainGetUserInteractionAllowed(&allowed), errSecSuccess)
+            XCTAssertFalse(allowed.boolValue, "The legacy keychain must be unable to show its own UI")
+            throw ProbeError.expected
+        })
+        var restored: DarwinBoolean = false
+        XCTAssertEqual(SecKeychainGetUserInteractionAllowed(&restored), errSecSuccess)
+        XCTAssertTrue(restored.boolValue)
+        try AntigravityKeychain.withInteraction(false) {
+            try AntigravityKeychain.withInteraction(true) {
+                var allowed: DarwinBoolean = false
+                XCTAssertEqual(SecKeychainGetUserInteractionAllowed(&allowed), errSecSuccess)
+                XCTAssertTrue(allowed.boolValue)
+            }
+            var allowed: DarwinBoolean = true
+            XCTAssertEqual(SecKeychainGetUserInteractionAllowed(&allowed), errSecSuccess)
+            XCTAssertFalse(allowed.boolValue, "Nested operations must restore the enclosing policy")
+        }
+    }
+
+    func testInteractiveKeychainOperationsWaitForPassiveReads() throws {
+        let queued = DispatchSemaphore(value: 0)
+        let completed = DispatchSemaphore(value: 0)
+        try AntigravityKeychain.withInteraction(false) {
+            DispatchQueue.global().async {
+                queued.signal()
+                defer { completed.signal() }
+                do {
+                    try AntigravityKeychain.withInteraction(true) {
+                        var allowed: DarwinBoolean = false
+                        XCTAssertEqual(SecKeychainGetUserInteractionAllowed(&allowed), errSecSuccess)
+                        XCTAssertTrue(allowed.boolValue)
+                    }
+                } catch { XCTFail("\(error)") }
+            }
+            XCTAssertEqual(queued.wait(timeout: .now() + 5), .success)
+            XCTAssertEqual(completed.wait(timeout: .now() + 0.1), .timedOut)
+            var allowed: DarwinBoolean = true
+            XCTAssertEqual(SecKeychainGetUserInteractionAllowed(&allowed), errSecSuccess)
+            XCTAssertFalse(allowed.boolValue)
+        }
+        XCTAssertEqual(completed.wait(timeout: .now() + 5), .success)
+    }
+
     private final class Store: AntigravityCredentialStoring {
         var values: [AntigravityCredentialItem: Data] = [:]
         var reads: [(AntigravityCredentialItem, Bool)] = []

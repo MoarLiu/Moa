@@ -46,7 +46,7 @@ check_mach_o_deployment_target() {
     fail "Mach-O deployment target mismatch in $executable: expected $MACOS_DEPLOYMENT_TARGET, got $minos"
 }
 
-CODE_SIGN_IDENTITY="${CODE_SIGN_IDENTITY:--}" bash "$ROOT/scripts/build-menu-bar-app.sh"
+bash "$ROOT/scripts/build-menu-bar-app.sh"
 
 require_file "$EXECUTABLE"
 require_file "$CONTENTS/Info.plist"

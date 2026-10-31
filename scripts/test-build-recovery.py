@@ -23,7 +23,7 @@ def main():
         for failure in ["compile", "sign", "promote", "restore", "none"]:
             fixture = base / failure
             (fixture / "scripts").mkdir(parents=True)
-            for name in ["build-menu-bar-app.sh", "version.env", "sources.env"]:
+            for name in ["build-menu-bar-app.sh", "version.env", "sources.env", "code-signing.env"]:
                 shutil.copy2(root / "scripts" / name, fixture / "scripts" / name)
             shutil.copytree(root / "macos-menu-bar/Resources", fixture / "macos-menu-bar/Resources")
             shutil.copytree(root / "assets", fixture / "assets")
@@ -96,7 +96,7 @@ def cross_arch_does_not_replace_native_app():
         )
         fixture = base / "fixture"
         (fixture / "scripts").mkdir(parents=True)
-        for name in ["build-menu-bar-app.sh", "version.env", "sources.env"]:
+        for name in ["build-menu-bar-app.sh", "version.env", "sources.env", "code-signing.env"]:
             shutil.copy2(root / "scripts" / name, fixture / "scripts" / name)
         shutil.copytree(root / "macos-menu-bar/Resources", fixture / "macos-menu-bar/Resources")
         shutil.copytree(root / "assets", fixture / "assets")
@@ -138,7 +138,47 @@ shutil.copy2(os.environ['MOA_FIXTURE_BINARY'], sys.argv[sys.argv.index('-o') + 1
         print("PASS: cross-arch", flush=True)
 
 
+def local_signing_identity_survives_a_rebuild():
+    root = Path(__file__).resolve().parent.parent
+    identity = os.environ.get("MOA_CODE_SIGN_IDENTITY", "Moa Local Development Code Signing")
+    environment = dict(os.environ, CODE_SIGN_IDENTITY=identity)
+    resolve = subprocess.run(
+        ["/bin/bash", "-c", 'source "$1"; moa_resolve_signing_identity', "fixture", str(root / "scripts/code-signing.env")],
+        env=environment, capture_output=True, text=True, timeout=15,
+    )
+    if resolve.returncode:
+        print("SKIP: local-signing continuity (no unique local identity installed)", flush=True)
+        return
+    with tempfile.TemporaryDirectory(prefix="moa-signing-continuity-") as temporary:
+        base = Path(temporary)
+        binaries = []
+        requirements = []
+        for revision in [1, 2]:
+            source = base / f"revision-{revision}.c"
+            source.write_text(f"int main(void) {{ return {revision}; }}\n")
+            binary = base / f"revision-{revision}"
+            subprocess.run(["/usr/bin/xcrun", "clang", str(source), "-o", str(binary)], check=True)
+            subprocess.run(
+                ["/bin/bash", "-e", "-c", 'source "$1"; moa_resolve_signing_identity; moa_codesign "$2" --identifier com.moarliu.moa',
+                 "fixture", str(root / "scripts/code-signing.env"), str(binary)],
+                env=environment, check=True, capture_output=True, text=True, timeout=20,
+            )
+            detail = subprocess.run(["/usr/bin/codesign", "-dr", "-", str(binary)], capture_output=True, text=True, check=True)
+            output = detail.stdout + detail.stderr
+            requirements.append(next(line[len("designated => "):] for line in output.splitlines() if line.startswith("designated => ")))
+            binaries.append(binary)
+        assert digest(binaries[0]) != digest(binaries[1]), "Fixture revisions must differ"
+        assert requirements[0] == requirements[1], requirements
+        assert "cdhash" not in requirements[0], requirements[0]
+        subprocess.run(["/usr/bin/codesign", "--verify", "--strict", "-R=" + requirements[0], str(binaries[1])], check=True)
+        subprocess.run(["/usr/bin/codesign", "--force", "--sign", "-", str(binaries[1])], check=True, capture_output=True)
+        downgrade = subprocess.run(["/usr/bin/codesign", "--verify", "--strict", "-R=" + requirements[0], str(binaries[1])], capture_output=True)
+        assert downgrade.returncode != 0, "An ad-hoc replacement must fail the original certificate requirement"
+        print("PASS: local-signing continuity and ad-hoc downgrade rejection", flush=True)
+
+
 if __name__ == "__main__":
     main()
     cross_arch_does_not_replace_native_app()
+    local_signing_identity_survives_a_rebuild()
 

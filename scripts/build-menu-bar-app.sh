@@ -4,6 +4,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=version.env
 source "$ROOT/scripts/version.env"
+# shellcheck source=code-signing.env
+source "$ROOT/scripts/code-signing.env"
 APP_RELEASE_VERSION="${APP_RELEASE_VERSION:-$APP_VERSION}"
 # shellcheck source=sources.env
 source "$ROOT/scripts/sources.env"
@@ -39,7 +41,6 @@ MACOS="$CONTENTS/MacOS"
 RESOURCES="$CONTENTS/Resources"
 EXECUTABLE="$MACOS/$APP_NAME"
 BUNDLE_ID="com.moarliu.moa"
-CODE_SIGN_IDENTITY="${CODE_SIGN_IDENTITY:-Moa Local Development Code Signing}"
 
 resolve_swiftc() {
   if [[ -n "${SWIFTC:-}" ]]; then
@@ -186,17 +187,11 @@ PLIST
 /usr/bin/plutil -lint "$CONTENTS/Info.plist"
 
 if command -v codesign >/dev/null 2>&1; then
-  if [[ "$CODE_SIGN_IDENTITY" != "-" ]] &&
-     ! /usr/bin/security find-identity -v -p codesigning | grep -F "\"$CODE_SIGN_IDENTITY\"" >/dev/null; then
-    echo "Missing code signing identity: $CODE_SIGN_IDENTITY" >&2
-    echo "Run ./scripts/setup-local-code-signing.sh, or set CODE_SIGN_IDENTITY=- for ad-hoc signing." >&2
-    exit 1
-  fi
-
+  moa_resolve_signing_identity
   if [[ "$CODE_SIGN_IDENTITY" == "-" ]]; then
-    /usr/bin/codesign --force --deep --timestamp=none --sign "$CODE_SIGN_IDENTITY" "$STAGING" >/dev/null
+    moa_codesign "$STAGING" --deep >/dev/null
   else
-    /usr/bin/codesign --force --deep --timestamp --options runtime --sign "$CODE_SIGN_IDENTITY" "$STAGING" >/dev/null
+    moa_codesign "$STAGING" --deep --options runtime >/dev/null
   fi
   /usr/bin/codesign --verify --deep --strict "$STAGING"
 fi

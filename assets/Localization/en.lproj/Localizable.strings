@@ -533,6 +533,8 @@
 "Unable to open Antigravity. Open it manually and check the selected account." = "Unable to open Antigravity. Open it manually and check the selected account.";
 "Updating Antigravity…" = "Updating Antigravity…";
 "Use Save Current Login to allow Moa to read the Antigravity login in Keychain." = "Use Save Current Login to allow Moa to read the Antigravity login in Keychain.";
+"Run Keychain access repair from the installed Moa.app." = "Run Keychain access repair from the installed Moa.app.";
+"Sign Moa with the existing code signing certificate before repairing Keychain access." = "Sign Moa with the existing code signing certificate before repairing Keychain access.";
 "Open Antigravity" = "Open Antigravity";
 "Antigravity's app or backend signature could not be verified as Google software. Reinstall the official Antigravity App before managing logins." = "Antigravity's app or backend signature could not be verified as Google software. Reinstall the official Antigravity App before managing logins.";
 "Reopen Antigravity" = "Reopen Antigravity";

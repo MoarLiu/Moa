@@ -2,6 +2,16 @@ import AppKit
 import Foundation
 
 func runHeadlessCommandIfNeeded() -> Int32? {
+    if CommandLine.arguments.contains("--repair-antigravity-keychain-access") {
+        do {
+            let count = try AntigravityKeychain.repairMoaAccess()
+            print("Updated Moa access for \(count) Antigravity Keychain items; credential data was not read or changed.")
+            return 0
+        } catch {
+            fputs("Moa: \(error.localizedDescription)\n", stderr)
+            return 1
+        }
+    }
     let environment = ProcessInfo.processInfo.environment
     guard let profileID = environment["MoaApplyProfileID"], !profileID.isEmpty else {
         return nil

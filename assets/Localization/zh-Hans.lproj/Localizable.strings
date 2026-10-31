@@ -534,6 +534,8 @@
 "Unable to open Antigravity. Open it manually and check the selected account." = "无法打开 Antigravity。请手动打开并检查所选账号。";
 "Updating Antigravity…" = "正在更新 Antigravity…";
 "Use Save Current Login to allow Moa to read the Antigravity login in Keychain." = "请使用“保存当前登录”，授权 Moa 读取钥匙串中的 Antigravity 登录。";
+"Run Keychain access repair from the installed Moa.app." = "请从已安装的 Moa.app 运行钥匙串授权修复。";
+"Sign Moa with the existing code signing certificate before repairing Keychain access." = "请先用已有的代码签名证书为 Moa 签名，再修复钥匙串授权。";
 "Open Antigravity" = "打开 Antigravity";
 "Antigravity's app or backend signature could not be verified as Google software. Reinstall the official Antigravity App before managing logins." = "无法确认 Antigravity 应用或后端的签名来自 Google。请重新安装官方 Antigravity App 后再管理登录。";
 "Reopen Antigravity" = "重新打开 Antigravity";

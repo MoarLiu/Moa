@@ -11,7 +11,7 @@ APP_BINARY="$APP_BUNDLE/Contents/MacOS/$APP_NAME"
 
 pkill -x "$APP_NAME" >/dev/null 2>&1 || true
 
-CODE_SIGN_IDENTITY="${CODE_SIGN_IDENTITY:--}" "$ROOT_DIR/scripts/build-menu-bar-app.sh"
+"$ROOT_DIR/scripts/build-menu-bar-app.sh"
 
 open_app() {
   local host_arch app_arch

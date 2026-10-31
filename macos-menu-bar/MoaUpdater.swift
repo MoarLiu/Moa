@@ -349,7 +349,24 @@ final class MoaUpdateController {
           exit 1
         fi
         /usr/bin/codesign --verify --deep --strict "$MOUNT/Moa.app"
-        if ! /usr/bin/codesign -dv --verbose=4 "$MOUNT/Moa.app" 2>&1 | /usr/bin/grep -F "Signature=adhoc" >/dev/null; then
+        CURRENT_SIGNATURE="$(/usr/bin/codesign -dv --verbose=4 "$APP" 2>&1)"
+        CANDIDATE_SIGNATURE="$(/usr/bin/codesign -dv --verbose=4 "$MOUNT/Moa.app" 2>&1)"
+        if ! /usr/bin/grep -F "Signature=adhoc" <<< "$CURRENT_SIGNATURE" >/dev/null; then
+          # A local certificate is a stable update identity, even without
+          # Gatekeeper distribution trust. Pin updates to the installed app's
+          # designated requirement, including its identifier and signing anchor.
+          REQUIREMENT="$(/usr/bin/codesign -dr - "$APP" 2>&1 | /usr/bin/sed -n 's/^designated => //p')"
+          if [[ -z "$REQUIREMENT" ]]; then
+            echo "Cannot determine the installed Moa signing identity"
+            exit 1
+          fi
+          /usr/bin/codesign --verify --deep --strict -R="$REQUIREMENT" "$MOUNT/Moa.app"
+          if /usr/bin/grep -F "Authority=Developer ID Application" <<< "$CANDIDATE_SIGNATURE" >/dev/null; then
+            /usr/sbin/spctl --assess --type execute "$MOUNT/Moa.app"
+          fi
+        elif ! /usr/bin/grep -F "Signature=adhoc" <<< "$CANDIDATE_SIGNATURE" >/dev/null; then
+          # Legacy ad-hoc installs have no stable publisher to pin. A switch to
+          # a local certificate needs a one-time manual installation.
           /usr/sbin/spctl --assess --type execute "$MOUNT/Moa.app"
         fi
         if [[ ! -d "$BACKUP" ]]; then

@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.6.6 - 2026-11-01
+
+- Suppress legacy login-Keychain authorization windows during passive Antigravity menu refreshes. Serialize Keychain UI policy changes with account reads and writes, and restore the previous policy on errors.
+- Use the existing local code signing identity consistently for builds, the Run button, smoke checks, and DMG packaging. Fail when the identity is missing or ambiguous instead of silently switching to ad-hoc signing.
+- Verify certificate-signed updates against the installed app's designated requirement. Keep Gatekeeper checks for Developer ID and legacy ad-hoc transitions, and reject a certificate change or ad-hoc downgrade.
+- Add explicit maintenance to replace stale Moa access entries in Antigravity Keychain items while retaining other access controls and leaving credential data untouched.
+- Upgrade note: install this first certificate-signed release manually from its DMG when upgrading from an ad-hoc-signed version. Local signing is not Developer ID signing or notarization; macOS can require first-launch approval, and active Keychain operations can still require authorization after a rebuild.
+
 ## 1.6.5 - 2026-10-30
 
 - Present Moa as a macOS manager for multiple AI agent clients. Reorganize English and Chinese guides around installation, per-client capabilities, account/provider management, and local usage.

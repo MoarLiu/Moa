@@ -9,7 +9,7 @@ Moa is a local management app for people who use multiple AI agent clients. It b
 ## Get Started
 
 1. Download the latest DMG from [GitHub Releases](https://github.com/MoarLiu/Moa/releases/latest): choose `arm64` for Apple silicon or `x86_64` for an Intel Mac. macOS 12 or later is required. Matching `.sha256` files are provided.
-2. Drag **Moa.app** into **Applications**, then open it. Current releases are ad-hoc signed and not notarized; macOS may require approval in **System Settings → Privacy & Security** on first launch.
+2. Drag **Moa.app** into **Applications**, then open it. Starting with 1.6.6, releases use the same local code signing certificate, without Developer ID signing or notarization; macOS may require approval in **System Settings → Privacy & Security** on first launch. Install 1.6.6 manually from the DMG when upgrading from an older ad-hoc-signed version; the old updater cannot perform this signing transition.
 3. Install and sign in to the clients you use. Open Moa's menu and choose **Accounts…** to save supported logins or configure providers. Finish active client tasks before switching accounts.
 4. Open **Usage Overview…** for the supported local usage sources. Use each client's submenu for switching, launch helpers, and client-specific options.
 
@@ -176,17 +176,21 @@ If both the outer and nested legacy iCloud directories contain data, Moa preserv
 swift build
 swift test
 ./scripts/run-tests.sh
-CODE_SIGN_IDENTITY=- ./scripts/build-menu-bar-app.sh
+./scripts/build-menu-bar-app.sh
 ```
 
 The app bundle is written to `Moa.app`.
+
+App builds, the Run button, smoke checks, and DMG packaging default to the existing `Moa Local Development Code Signing` certificate. On a new development Mac, run `./scripts/setup-local-code-signing.sh` once. Keep the same certificate and private key for later builds; a missing or ambiguous identity stops the build. Override with `CODE_SIGN_IDENTITY` (or `MOA_CODE_SIGN_IDENTITY`); `CODE_SIGN_IDENTITY=-` explicitly opts into ad-hoc signing. Local signing does not provide Developer ID trust or notarization. `NOTARIZE=1` requires a Developer ID Application identity and a notary profile.
+
+Certificate-signed installations accept updates only when they satisfy the installed app's designated requirement. Moving an existing ad-hoc installation to the local certificate requires installing the first certificate-signed app manually. If an old Antigravity access entry still points to an earlier Moa build at the same location, run `/Applications/Moa.app/Contents/MacOS/Moa --repair-antigravity-keychain-access` after installing the certificate-signed app. This explicit command replaces only Moa's existing trusted entries, preserving other access controls and credential data. macOS may request authorization. Passive menu refreshes suppress legacy Keychain UI; saving or switching can still require authorization after a rebuild because macOS also tracks a separate code-hash partition.
 
 `swift test` runs the checks as individual XCTest cases in the default debug configuration; they are also discoverable in Xcode. The script retains the standalone runner and checks that every app source is compiled. Use full Xcode (`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`) if the selected command-line tools cannot expand SwiftUI macros. Run the suite serially because pricing and fault-injection checks use shared test state.
 
 To create a DMG:
 
 ```bash
-CODE_SIGN_IDENTITY=- ./scripts/package-dmg.sh
+./scripts/package-dmg.sh
 ```
 
 The DMG is written to `dist/Moa-<release-version>-macos-<arch>.dmg` with a matching SHA-256 file.
@@ -216,7 +220,7 @@ Credential storage is client-specific; not every credential is stored in Keychai
 
 - Moa does not upload credentials to its own server. Keep full exports and recovery packages private; only import packages from a trusted source. Schema 2 SHA-256 checks detect content mismatches, but do not authenticate the package's author or encrypt its contents.
 - Sensitive configuration saves and provider profile JSON exports use atomic replacement with temporary files created as `600`; permission-setting failures stop the save. Existing client and export directory permissions are preserved; Moa-owned private directories use `700`.
-- Automatic updates currently trust GitHub Releases and a SHA-256 checksum from the same source. They do not independently authenticate the publisher. Independent update signatures have not yet been deployed.
+- Automatic updates download from GitHub Releases and check the matching SHA-256 file for integrity. From 1.6.6, certificate-signed installations also verify that the new app satisfies the installed app's designated signing requirement, rejecting a different certificate or an ad-hoc downgrade. Older ad-hoc installations have no stable signing identity; install the first certificate-signed version manually from a trusted source. Local signing does not provide Developer ID trust or notarization, and a separate update-signature system has not been deployed.
 - Diagnostic packages redact auth, key, and token fields.
 - Packaging scripts refuse to include `.moa`, `.codex`, `.dsh`, client login/account stores, auth/config/profile files, environment files, and signing keys.
 - Moa does not bundle `MoaMCP` and does not expose local workflow tools.

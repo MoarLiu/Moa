@@ -9,7 +9,7 @@ Moa 是面向多 AI Agent 用户的本地管理工具，将 ChatGPT / Codex、Cl
 ## 快速开始
 
 1. 从 [GitHub Releases](https://github.com/MoarLiu/Moa/releases/latest) 下载 DMG：Apple 芯片选择 `arm64`，Intel Mac 选择 `x86_64`。需要 macOS 12 或更新版本，同时提供 `.sha256` 校验文件。
-2. 将 **Moa.app** 拖入「应用程序」后打开。当前发行包使用 ad-hoc 签名，尚未公证；首次运行可能需要在「系统设置 → 隐私与安全性」中允许打开。
+2. 将 **Moa.app** 拖入「应用程序」后打开。从 1.6.6 起，发行包持续使用同一张本地代码签名证书，但不具备 Developer ID 分发签名或公证；首次运行可能需要在「系统设置 → 隐私与安全性」中允许打开。从旧版 ad-hoc 签名升级到 1.6.6 时，请从 DMG 手动安装，旧版自动更新器无法完成这次签名迁移。
 3. 安装并登录需要使用的客户端。在 Moa 菜单选择「账号…」，保存已支持客户端的登录或配置服务商。切换账号前请先结束客户端中的活动任务。
 4. 打开「用量总览…」查看支持的本地用量来源；各客户端子菜单提供切换、启动及专属选项。
 
@@ -178,17 +178,21 @@ Moa 每天按本地时间在 `00:20:01` 检查 Sub2API 同源的 [model-price-re
 swift build
 swift test
 ./scripts/run-tests.sh
-CODE_SIGN_IDENTITY=- ./scripts/build-menu-bar-app.sh
+./scripts/build-menu-bar-app.sh
 ```
 
 构建结果会输出到 `Moa.app`。
+
+应用构建、Run 按钮、冒烟检查和 DMG 打包默认使用已有的 `Moa Local Development Code Signing` 证书。新开发机首次配置时运行一次 `./scripts/setup-local-code-signing.sh`；后续持续保留同一张证书及私钥，找不到证书或存在同名歧义时会停止构建。可用 `CODE_SIGN_IDENTITY`（或 `MOA_CODE_SIGN_IDENTITY`）指定身份；只有显式设置 `CODE_SIGN_IDENTITY=-` 才使用 ad-hoc 签名。本地签名不具备 Developer ID 的分发信任或公证资格，`NOTARIZE=1` 需要 Developer ID Application 身份和公证配置。
+
+使用证书签名的安装只接受符合当前应用签名身份要求的更新。已有 ad-hoc 安装首次迁移到本地证书时，需要手动安装第一个证书签名版本。如果 Antigravity 钥匙串中的旧 Moa 授权仍绑定同一路径的早期构建，安装后运行 `/Applications/Moa.app/Contents/MacOS/Moa --repair-antigravity-keychain-access`。此显式维护命令只替换已有的 Moa 受信任应用项，保留其他访问控制和凭据内容；macOS 可能请求授权。普通菜单刷新禁止传统钥匙串弹窗；主动保存或切换时，macOS 还有独立的程序哈希分区校验，重新构建后仍可能需要授权一次。
 
 `swift test` 在默认 debug 配置下将各项检查作为独立 XCTest 用例运行，也支持在 Xcode 中发现和调试。脚本保留独立运行器，并核对全部应用源码都参与编译。若当前 Command Line Tools 无法展开 SwiftUI 宏，请设置 `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer` 使用完整 Xcode。价格与故障注入测试包含共享状态，请串行运行测试套件。
 
 生成 DMG：
 
 ```bash
-CODE_SIGN_IDENTITY=- ./scripts/package-dmg.sh
+./scripts/package-dmg.sh
 ```
 
 DMG 会输出到 `dist/Moa-<release-version>-macos-<arch>.dmg`，并生成匹配的 SHA-256 文件。
@@ -218,7 +222,7 @@ Codex app 的 Run 按钮通过以下文件接入：
 
 - Moa 不会把凭据上传到自有服务器。请妥善保管完整导出及回滚包，只导入可信来源的数据包。Schema 2 的 SHA-256 用于检测内容不一致，不验证作者身份，也不提供加密。
 - 敏感配置和供应商 profile JSON 导出通过创建时即为 `600` 的临时文件原子替换，权限设置失败会中止保存。客户端和导出目录保留既有权限，Moa 自有私有目录使用 `700`。
-- 当前自动更新依赖 GitHub Release 和同源 SHA-256 校验；它们不能独立证明发布者身份。独立更新签名尚未部署。
+- 自动更新从 GitHub Release 下载，并使用配套 SHA-256 检查完整性。从 1.6.6 起，证书签名的安装还会验证新应用是否满足当前应用的签名身份要求，拒绝不同证书或降级为 ad-hoc 签名。旧版 ad-hoc 安装没有稳定签名身份，首次证书签名版本需从可信来源手动安装。本地签名不具备 Developer ID 分发信任或公证，独立的更新文件签名系统尚未部署。
 - 诊断包会脱敏 auth、key、token 字段。
 - 打包脚本会拒绝把 `.moa`、`.codex`、`.dsh`、客户端登录/账号库、auth/config/profile 文件、环境变量文件和签名密钥打进发布包。
 - Moa 不打包 `MoaMCP`，也不暴露本地 workflow tools。

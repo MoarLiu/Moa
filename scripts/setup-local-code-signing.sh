@@ -10,6 +10,12 @@ if /usr/bin/security find-identity -v -p codesigning "$KEYCHAIN" | grep -F "\"$I
   exit 0
 fi
 
+if /usr/bin/security find-certificate -c "$IDENTITY_NAME" "$KEYCHAIN" >/dev/null 2>&1; then
+  echo "The certificate '$IDENTITY_NAME' already exists but is not a usable signing identity." >&2
+  echo "Restore its original private key or Code Signing trust instead of creating a new same-name certificate." >&2
+  exit 1
+fi
+
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 

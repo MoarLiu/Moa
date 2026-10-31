@@ -2,6 +2,17 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=code-signing.env
+source "$ROOT/scripts/code-signing.env"
+moa_resolve_signing_identity
+NOTARIZE="${NOTARIZE:-0}"
+NOTARY_PROFILE="${NOTARY_PROFILE:-${MOA_NOTARY_PROFILE:-}}"
+if [[ "$NOTARIZE" == "1" ]]; then
+  if [[ "$MOA_SIGN_IS_DEVELOPER_ID" != "1" || -z "$NOTARY_PROFILE" ]]; then
+    echo "Notarization requires a Developer ID Application identity and NOTARY_PROFILE (or MOA_NOTARY_PROFILE)." >&2
+    exit 1
+  fi
+fi
 
 if [[ "${MOA_AUTO_BUMP_BUILD:-1}" != "0" ]]; then
   APP_BUILD="$(bash "$ROOT/scripts/bump-build.sh")"
@@ -20,9 +31,6 @@ DMG_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/moa-dmg.XXXXXX")"
 trap 'rm -rf "$DMG_ROOT"' EXIT
 DMG_PATH="$DIST_DIR/$APP_NAME-$APP_RELEASE_VERSION-macos-$APP_ARCH.dmg"
 CHECKSUM_PATH="$DMG_PATH.sha256"
-CODE_SIGN_IDENTITY="${CODE_SIGN_IDENTITY:-${MOA_CODE_SIGN_IDENTITY:--}}"
-NOTARIZE="${NOTARIZE:-0}"
-NOTARY_PROFILE="${NOTARY_PROFILE:-${MOA_NOTARY_PROFILE:-}}"
 
 rm -f "$DMG_PATH" "$CHECKSUM_PATH"
 mkdir -p "$DIST_DIR"
@@ -30,7 +38,7 @@ mkdir -p "$DIST_DIR"
 APP_VERSION="$APP_VERSION" \
 APP_RELEASE_VERSION="$APP_RELEASE_VERSION" \
 APP_BUILD="$APP_BUILD" \
-CODE_SIGN_IDENTITY="$CODE_SIGN_IDENTITY" \
+CODE_SIGN_IDENTITY="$MOA_RESOLVED_SIGN_IDENTITY" \
 bash "$ROOT/scripts/build-menu-bar-app.sh"
 
 /usr/bin/codesign --verify --deep --strict "$APP"
@@ -40,8 +48,8 @@ if [[ "$CODE_SIGN_IDENTITY" == "-" ]]; then
     exit 1
   fi
 else
-  if ! /usr/bin/codesign -dv --verbose=4 "$APP" 2>&1 | grep -F "Authority=Developer ID Application" >/dev/null; then
-    echo "Expected Developer ID Application signature for release packaging." >&2
+  if /usr/bin/codesign -dv --verbose=4 "$APP" 2>&1 | grep -F "Signature=adhoc" >/dev/null; then
+    echo "Expected a certificate-signed app, but found an ad-hoc signature." >&2
     exit 1
   fi
 fi
@@ -134,7 +142,7 @@ fi
   >/dev/null
 
 if [[ "$CODE_SIGN_IDENTITY" != "-" ]]; then
-  /usr/bin/codesign --force --timestamp --sign "$CODE_SIGN_IDENTITY" "$DMG_PATH" >/dev/null
+  moa_codesign "$DMG_PATH" >/dev/null
   /usr/bin/codesign --verify --strict "$DMG_PATH"
   if [[ "$NOTARIZE" == "1" ]]; then
     if [[ -z "$NOTARY_PROFILE" ]]; then
