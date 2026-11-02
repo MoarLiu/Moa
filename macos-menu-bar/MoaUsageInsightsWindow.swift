@@ -36,8 +36,11 @@ final class MoaUsageInsightsWindowController {
     private let usageAlertSettingsAction: UsageAlertSettingsAction
     private var window: NSWindow?
     private var model: MoaUsageInsightsViewModel?
+    var presentInWorkspace: ((MoaUsageSource?) -> Void)?
+    var workspaceVisibility: (() -> Bool)?
+    var workspacePricingChanged: (() -> Void)?
 
-    var isVisible: Bool { window?.isVisible == true }
+    var isVisible: Bool { workspaceVisibility?() ?? (window?.isVisible == true) }
 
     func refreshIfKey() -> Bool {
         guard window?.isKeyWindow == true else { return false }
@@ -46,6 +49,7 @@ final class MoaUsageInsightsWindowController {
     }
 
     func refreshAfterPricingUpdate() {
+        workspacePricingChanged?()
         if isVisible { model?.refresh(forceRefresh: true) }
     }
 
@@ -70,6 +74,10 @@ final class MoaUsageInsightsWindowController {
     }
 
     func show(initialSource: MoaUsageSource? = nil) {
+        if let presentInWorkspace {
+            presentInWorkspace(initialSource)
+            return
+        }
         let window = existingOrNewWindow(initialSource: initialSource)
         NSApp.activate(ignoringOtherApps: true)
         if !window.isVisible {
@@ -158,7 +166,7 @@ private final class MoaUsageInsightsViewModel: ObservableObject {
         self.usageAlertThresholdProvider = usageAlertThresholdProvider
         self.usageAlertSettingsAction = usageAlertSettingsAction
         selectedSource = initialSource
-        refresh(forceRefresh: false)
+        if !MoaRuntimeMode.isWorkspacePreview { refresh(forceRefresh: false) }
     }
 
     var filteredReport: MoaUsageReport {
@@ -345,6 +353,49 @@ private final class MoaUsageInsightsViewModel: ObservableObject {
             errorMessage = error.localizedDescription
             NSSound.beep()
         }
+    }
+}
+
+struct MoaWorkspaceUsageView: View {
+    @ObservedObject var navigation: MoaWorkspaceNavigation
+    @StateObject private var model: MoaUsageInsightsViewModel
+
+    init(app: AppDelegate, navigation: MoaWorkspaceNavigation) {
+        self.navigation = navigation
+        _model = StateObject(wrappedValue: MoaUsageInsightsViewModel(
+            codexScanner: app.usageCoordinator.codexScanner,
+            claudeScanner: app.usageCoordinator.claudeScanner,
+            zcodeScanner: app.usageCoordinator.zcodeScanner,
+            workbuddyScanner: app.usageCoordinator.workbuddyScanner,
+            workbuddyCNScanner: app.usageCoordinator.workbuddyCNScanner,
+            pricingOverrides: MoaUsagePricingOverrideController(),
+            usageAlertThresholdProvider: { DailyUsageAlertController.threshold(for: $0) },
+            usageAlertSettingsAction: { [weak app] kind in app?.showWorkspaceUsageAlertSettings(kind: kind) },
+            initialSource: navigation.usageSource
+        ))
+    }
+
+    var body: some View {
+        Group {
+            if MoaRuntimeMode.isWorkspacePreview {
+                VStack(alignment: .leading, spacing: 20) {
+                    workspaceHeading("Usage Analysis", subtitle: "Local records, clear estimates.")
+                    workspaceNotice(MoaL10n.text("Preview does not scan local usage records."))
+                    Spacer()
+                }.padding(32)
+            } else {
+                MoaUsageInsightsView(model: model)
+            }
+        }
+        .onReceive(navigation.$usageRequest.dropFirst()) { _ in
+            // A repeated menu entry must restore its source even if the user
+            // changed the report's picker since the previous navigation.
+            model.selectedSource = navigation.usageSource
+        }
+        .onReceive(navigation.$refreshRequest.dropFirst()) { _ in
+            if !MoaRuntimeMode.suppressesUserInteraction { model.refresh(forceRefresh: true) }
+        }
+        .accessibilityIdentifier("workspace.usage.content")
     }
 }
 

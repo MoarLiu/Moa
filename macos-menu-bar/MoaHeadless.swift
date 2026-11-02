@@ -32,13 +32,18 @@ func runHeadlessCommandIfNeeded() -> Int32? {
 @main
 private enum MoaApplication {
     static func main() {
+        if MoaRuntimeMode.isWorkspacePreview {
+            MoaRuntimeMode.suppressesUserInteraction = true
+        }
         do {
-            try MoaDataRoot.migrateLegacyMoaLiteRootsIfNeeded()
+            if !MoaRuntimeMode.isWorkspacePreview {
+                try MoaDataRoot.migrateLegacyMoaLiteRootsIfNeeded()
+            }
         } catch {
             NSLog("Moa legacy Moa-Lite data migration failed: \(error.localizedDescription)")
         }
 
-        if let exitCode = runHeadlessCommandIfNeeded() {
+        if !MoaRuntimeMode.isWorkspacePreview, let exitCode = runHeadlessCommandIfNeeded() {
             exit(exitCode)
         }
 

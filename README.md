@@ -4,14 +4,14 @@
 
 [简体中文](README_ZH.md) · [Download](https://github.com/MoarLiu/Moa/releases/latest) · [Changelog](CHANGELOG.md)
 
-Moa is a local management app for people who use multiple AI agent clients. It brings ChatGPT / Codex, Claude Desktop, Antigravity App, DeepSeek Harness, WorkBuddy, WorkBuddy AI International, and ZCode into a shared menu bar, account window, and usage overview. Each client keeps running its own conversations and tasks; Moa manages the supported account, configuration, and maintenance actions around it.
+Moa is a local management app for people who use multiple AI agent clients. It brings ChatGPT / Codex, Claude Desktop, Antigravity App, DeepSeek Harness, WorkBuddy, WorkBuddy AI International, and ZCode into a shared menu bar and unified workspace for accounts, usage, and settings. Each client keeps running its own conversations and tasks; Moa manages the supported account, configuration, and maintenance actions around it.
 
 ## Get Started
 
 1. Download the latest DMG from [GitHub Releases](https://github.com/MoarLiu/Moa/releases/latest): choose `arm64` for Apple silicon or `x86_64` for an Intel Mac. macOS 12 or later is required. Matching `.sha256` files are provided.
 2. Drag **Moa.app** into **Applications**, then open it. Starting with 1.6.6, releases use the same local code signing certificate, without Developer ID signing or notarization; macOS may require approval in **System Settings → Privacy & Security** on first launch. Install 1.6.6 manually from the DMG when upgrading from an older ad-hoc-signed version; the old updater cannot perform this signing transition.
-3. Install and sign in to the clients you use. Open Moa's menu and choose **Accounts…** to save supported logins or configure providers. Finish active client tasks before switching accounts.
-4. Open **Usage Overview…** for the supported local usage sources. Use each client's submenu for switching, launch helpers, and client-specific options.
+3. Install and sign in to the clients you use. Open Moa's menu and choose **Overview**, then select a client in the sidebar to save supported logins or configure providers. **Accounts…** opens the Codex account page directly. Finish active client tasks before switching accounts.
+4. Open **Usage Analysis** in the sidebar or **Usage Overview…** in the menu for supported local usage sources. **Settings and Data** contains data maintenance, price updates, and application update checks. Each client's menu retains switching, launch helpers, and client-specific options.
 
 ## Supported Clients
 
@@ -29,20 +29,25 @@ Capabilities differ by client. Account switching preserves supported local login
 
 ## Core Features
 
-- **Accounts and providers:** a shared window grouped by client, one-click menu switching, provider editing and import/export where supported, progress feedback, and recovery guidance.
+- **Workspace:** an overview of saved-account state and today's local usage, official client logos, light/dark appearance, and a layout that adapts to narrow windows. Unknown usage values appear as a dash.
+- **Accounts and providers:** client pages in the shared workspace, one-click menu switching, provider editing and import/export where supported, progress feedback, and recovery guidance.
 - **Usage and costs:** aggregate supported local sources, inspect model and cache details, export CSV / Markdown, set custom prices and daily usage alerts. These are estimates from local records and API reference prices, not subscription bills, credits, or account balances.
 - **Model prices:** **Moa → Update Prices** fetches the public catalog used as Sub2API's reference. Supported USD token rates update immediately and persist. Custom prices take precedence; failed downloads preserve the previous table. Daily automatic checks are enabled.
 - **Data and maintenance:** import/export Moa data packages, export redacted diagnostics, optionally use iCloud for the shared data root, and check GitHub Releases for application updates. Storage and synchronization differ by credential type; see [Security and Credential Storage](#security-and-credential-storage).
 
 Moa's current scope is client management and local usage insight. Agent execution, conversations, and service authentication remain with the respective clients. The optional Codex status line is one client-specific feature within this broader tool.
 
+Client names and logos identify their respective products and belong to their respective owners. Their use does not imply endorsement or affiliation.
+
 ## Everyday Workflow
 
-- The version/build row is first in the main menu. Top-level **Accounts…** and **Usage Overview…** entries provide shared windows. Client menus retain usage summaries, refresh, and one-click switching; launch and folder helpers appear directly at the bottom of each client submenu.
+- The version/build row is first in the main menu. **Overview**, **Accounts…**, and **Usage Overview…** open their destination in the same workspace. Client menus retain usage summaries, refresh, and one-click switching; launch and folder helpers appear directly at the bottom of each client submenu.
 - Account windows and menus share per-client progress. Switch remains the primary row action; rename, edit, and delete are available in the actions menu.
 - Success and informational feedback do not steal focus. Long forms scroll while Save and Cancel remain visible, and usage insights adapt to narrower windows.
-- Shortcuts: **Command-U** opens usage overview, **Command-Shift-A** opens accounts, and **Command-R** refreshes the current usage window or all menu usage sources.
+- Shortcuts: **Command-0** opens the overview, **Command-U** opens usage analysis, **Command-Shift-A** opens accounts, and **Command-R** refreshes the workspace or all menu usage sources.
 - Maintenance actions, including price updates, update checks, and data management, are grouped under **Moa** in the main menu.
+
+Version 1.7.0 introduces the workspace while retaining the existing usage-report and configuration-dialog presentation. The redesigned first-run flow and remaining Figma layouts are planned for later work.
 
 ## ChatGPT Client Compatibility
 

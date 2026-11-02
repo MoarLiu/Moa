@@ -128,6 +128,9 @@ final class MoaAntigravityCoordinator: NSObject {
     }
     @objc private func openApp() { perform { try self.controller.open() } }
     @objc private func reopenApp() { perform { try self.controller.reopen() } }
+    func openFromWorkspace(reopen: Bool) {
+        if reopen { reopenApp() } else { openApp() }
+    }
 
     private func perform(onComplete: (() -> Void)? = nil, _ operation: @escaping () throws -> Void) {
         guard let token = app.accountOperations.begin(.antigravity, message: MoaL10n.text("Updating Antigravity…")) else { return }

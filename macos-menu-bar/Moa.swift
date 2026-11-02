@@ -19,6 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     lazy var providerActionCoordinator = MoaProviderActionCoordinator(app: self)
     lazy var profileActionCoordinator = MoaProfileActionCoordinator(app: self)
     lazy var accountManagerWindow = MoaAccountManagerWindowController(app: self)
+    lazy var workspaceWindow = MoaWorkspaceWindowController(app: self)
     lazy var usageInsightsWindow = MoaUsageInsightsWindowController(
         codexScanner: usageCoordinator.codexScanner,
         claudeScanner: usageCoordinator.claudeScanner,
@@ -29,13 +30,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             DailyUsageAlertController.threshold(for: kind)
         },
         usageAlertSettingsAction: { [weak self] kind in
-            self?.showDailyUsageAlertPanel(kind: kind)
-            self?.rebuildProfileMenu()
-            self?.rebuildClaudeDesktopProfilesMenu()
-            self?.rebuildZCodeMenu()
-            self?.rebuildWorkBuddyMenus()
+            self?.showWorkspaceUsageAlertSettings(kind: kind)
         }
     )
+
+    func showWorkspaceUsageAlertSettings(kind: DailyUsageAlertKind) {
+        showDailyUsageAlertPanel(kind: kind)
+        rebuildProfileMenu()
+        rebuildClaudeDesktopProfilesMenu()
+        rebuildZCodeMenu()
+        rebuildWorkBuddyMenus()
+    }
 
     let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     let menu = NSMenu()
@@ -84,14 +89,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        if MoaRuntimeMode.isWorkspacePreview {
+            configureApplicationMenu()
+            workspaceWindow.show(.overview)
+            return
+        }
         repairLegacyICloudDataSplitIfNeeded()
         configureApplicationMenu()
         configureStatusItem()
         configureMenu()
         refreshStatus()
+        usageInsightsWindow.presentInWorkspace = { [weak self] source in
+            guard let self else { return }
+            self.workspaceWindow.navigation.showUsage(source)
+            self.workspaceWindow.show()
+        }
+        usageInsightsWindow.workspaceVisibility = { [weak self] in
+            self?.workspaceWindow.isVisible == true && self?.workspaceWindow.navigation.destination == .usage
+        }
+        usageInsightsWindow.workspacePricingChanged = { [weak self] in
+            self?.workspaceWindow.navigation.refreshRequest = UUID()
+        }
         configureUsageAlertCallbacks()
         usageCoordinator.start()
         codexEnhancements.start()
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        workspaceWindow.show()
+        return false
     }
 
     private func configureUsageAlertCallbacks() {
@@ -133,6 +159,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        guard !MoaRuntimeMode.isWorkspacePreview else { return }
         codexEnhancements.stop()
         usageCoordinator.stop()
     }
@@ -143,6 +170,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let appMenuItem = NSMenuItem()
         let appMenu = NSMenu()
         appMenu.addItem(NSMenuItem(title: MoaL10n.text("Close Window"), action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w"))
+        let overview = NSMenuItem(title: MoaL10n.text("Overview"), action: #selector(showWorkspaceAction), keyEquivalent: "0")
+        overview.target = self
+        appMenu.addItem(overview)
         let accounts = NSMenuItem(title: MoaL10n.text("Accounts…"), action: #selector(showAllAccountsAction), keyEquivalent: "a")
         accounts.keyEquivalentModifierMask = [.command, .shift]
         accounts.target = self

@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.7.0 - 2026-11-02
+
+- Introduce a unified workspace with an overview, client navigation, account/provider management, usage analysis, and settings. Existing menu-bar switching and client-specific tools remain available.
+- Bundle official logos for all seven client destinations, keeping WorkBuddy's domestic and international accounts and usage separate. Add light/dark appearance and layouts that adapt to narrow windows.
+- Show actual saved-account state and today's local usage in the overview. Keep unknown values distinct from zero and explain unavailable capabilities; no design sample accounts or costs enter the app.
+- Route account and usage menu entries to the relevant workspace destination. Repeated usage entries restore the requested source even after changing the report picker. Keep existing operation locks, confirmations, and failure recovery.
+- Prevent an in-flight scan from repopulating usage values or triggering alerts from a previous data root after import or migration. Refresh menu alert labels after editing them from the embedded report.
+- Bring data-package import/export, diagnostics, iCloud storage, model-price updates, and application update checks into settings. Credential storage and export exclusions are unchanged.
+- Scope: the usage report and configuration dialogs retain their existing presentation. The redesigned first-run flow and remaining Figma layouts are not included in this release.
+- Compatibility: macOS 12 or later, with separate Apple silicon and Intel DMGs. Builds use the existing local signing certificate, without Developer ID signing or notarization; first-launch approval can be required. Intel hardware, macOS 12 runtime, and live credential-switching checks were not repeated for this UI release.
+
 ## 1.6.6 - 2026-11-01
 
 - Suppress legacy login-Keychain authorization windows during passive Antigravity menu refreshes. Serialize Keychain UI policy changes with account reads and writes, and restore the previous policy on errors.

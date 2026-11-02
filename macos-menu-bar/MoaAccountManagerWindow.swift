@@ -173,44 +173,15 @@ enum MoaAccountCatalog {
 /// making an account active.
 final class MoaAccountManagerWindowController {
     unowned let app: AppDelegate
-    private var window: NSWindow?
-    private var model: MoaAccountManagerModel?
 
     init(app: AppDelegate) { self.app = app }
 
     func refreshIfVisible() {
-        if window?.isVisible == true { model?.reload() }
+        if app.workspaceWindow.isVisible { app.workspaceWindow.reloadAccounts() }
     }
 
     func show(group: MoaAccountGroup? = nil) {
-        let window = existingOrNewWindow()
-        model?.focus = group
-        model?.focusRequest = UUID()
-        model?.reload()
-        NSApp.activate(ignoringOtherApps: true)
-        if !window.isVisible { window.center() }
-        window.makeKeyAndOrderFront(nil)
-    }
-
-    private func existingOrNewWindow() -> NSWindow {
-        if let window { return window }
-        let model = MoaAccountManagerModel(app: app)
-        self.model = model
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 760, height: 640),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
-            backing: .buffered,
-            defer: false
-        )
-        window.title = MoaL10n.text("Accounts")
-        window.minSize = NSSize(width: 640, height: 480)
-        window.isReleasedWhenClosed = false
-        window.isMovableByWindowBackground = true
-        let hostingView = MoaInteractiveHostingView(rootView: MoaAccountManagerView(model: model))
-        if #available(macOS 13.0, *) { hostingView.sizingOptions = [] }
-        window.contentView = hostingView
-        self.window = window
-        return window
+        app.workspaceWindow.show(group: group ?? .codexOfficial)
     }
 }
 

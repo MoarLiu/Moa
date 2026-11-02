@@ -17,6 +17,7 @@ final class MoaMainMenuCoordinator {
         app.versionItem.title = AppDelegate.versionTitle()
         app.versionItem.isEnabled = false
         app.menu.addItem(app.versionItem)
+        app.menu.addItem(actionItem("Overview", #selector(AppDelegate.showWorkspaceAction)))
         app.menu.addItem(.separator())
         app.statusItemText.isEnabled = false
         app.statusItemText.isHidden = true
@@ -32,6 +33,22 @@ final class MoaMainMenuCoordinator {
             (app.antigravityCoordinator.item, app.antigravityCoordinator.menu)
         ] {
             submenu.autoenablesItems = false
+            let client = MoaWorkspaceClient.allCases.first {
+                switch $0 {
+                case .codex: return item === app.codexProfilesItem
+                case .claude: return item === app.claudeDesktopProfilesItem
+                case .zcode: return item === app.zcodeItem
+                case .workbuddyCN: return item === app.workbuddyCNItem
+                case .workbuddy: return item === app.workbuddyItem
+                case .deepseek: return item === app.deepseekCoordinator.item
+                case .antigravity: return item === app.antigravityCoordinator.item
+                }
+            }
+            if let client, let image = MoaUIResources.image(client.logoName) {
+                let icon = image.copy() as! NSImage
+                icon.size = NSSize(width: 18, height: 18)
+                item.image = icon
+            }
             item.submenu = submenu
             app.menu.addItem(item)
         }

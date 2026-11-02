@@ -1,11 +1,14 @@
 import AppKit
+import Combine
 import Foundation
 
 enum MoaUsageRefreshSchedule {
     static func interval(needsFrequentRefresh: Bool) -> TimeInterval { needsFrequentRefresh ? 60 : 300 }
 }
 
-final class MoaUsageCoordinator {
+final class MoaUsageCoordinator: ObservableObject {
+    @Published private(set) var workspaceSummaries: [MoaUsageSource: CodexUsageSummary] = [:]
+    @Published private(set) var workspaceFailures: [MoaUsageSource: String] = [:]
     let codexScanner: CodexUsageScanner
     let claudeScanner: ClaudeUsageScanner
     let zcodeScanner: ZCodeUsageScanner
@@ -104,7 +107,17 @@ final class MoaUsageCoordinator {
         }
         pricingUpdateCoordinator.onRefreshStateChanged = { [weak self] in self?.onPricingRefreshStateChanged?($0) }
         dataRootObserver = NotificationCenter.default.addObserver(forName: MoaDataRoot.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
-            self?.refreshAll(forceRefresh: true)
+            guard let self else { return }
+            // A scan started before import/migration must not repopulate the
+            // workspace or provide fallback values for the new data root.
+            self.generation = UUID()
+            self.workspaceSummaries.removeAll()
+            self.workspaceFailures.removeAll()
+            for pipeline in self.pipelines.values {
+                pipeline.summary = nil
+                pipeline.summaryView.apply(.idle)
+            }
+            self.refreshAll(forceRefresh: true)
         }
         pricingUpdateCoordinator.start()
         refreshAll(forceRefresh: false)
@@ -179,6 +192,7 @@ final class MoaUsageCoordinator {
                 pipeline.inFlight = false
                 guard self.running else { return }
                 guard self.generation == refreshGeneration else {
+                    pipeline.pendingForceRefresh = false
                     self.refresh(source, forceRefresh: true)
                     return
                 }
@@ -186,9 +200,12 @@ final class MoaUsageCoordinator {
                 switch result {
                 case .success(let summary):
                     pipeline.summary = summary
+                    self.workspaceSummaries[source] = summary
+                    self.workspaceFailures.removeValue(forKey: source)
                     pipeline.summaryView.apply(.loaded(summary))
                     self.summaryLoaded(summary, source: source)
                 case .failure(let error):
+                    self.workspaceFailures[source] = error.localizedDescription
                     pipeline.summaryView.apply(.failed(pipeline.summary, error.localizedDescription))
                 }
                 if pipeline.pendingForceRefresh {

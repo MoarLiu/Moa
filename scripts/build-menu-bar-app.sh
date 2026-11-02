@@ -132,6 +132,7 @@ check_mach_o_deployment_target "$EXECUTABLE"
 moa_assert_thin_macho "$EXECUTABLE" "$APP_ARCH"
 
 /bin/cp -X "$ROOT/macos-menu-bar/Resources/CodexStatusLine.js" "$RESOURCES/CodexStatusLine.js"
+/bin/cp -R -X "$ROOT/macos-menu-bar/Resources/UI" "$RESOURCES/UI"
 
 if [[ -f "$ROOT/assets/moa-icon.icns" ]]; then
   /bin/cp -X "$ROOT/assets/moa-icon.icns" "$RESOURCES/AppIcon.icns"

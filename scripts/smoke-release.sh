@@ -55,6 +55,11 @@ require_file "$RESOURCES/MoaMenuBarIcon.png"
 require_file "$RESOURCES/en.lproj/Localizable.strings"
 require_file "$RESOURCES/zh-Hans.lproj/Localizable.strings"
 require_file "$RESOURCES/CodexStatusLine.js"
+for asset in Brands/{codex,claude,antigravity,deepseek,workbuddy,zcode}.png Navigation/{overview,usage,settings,account}.svg; do
+  require_file "$RESOURCES/UI/$asset"
+  cmp -s "$ROOT/macos-menu-bar/Resources/UI/$asset" "$RESOURCES/UI/$asset" ||
+    fail "bundled workspace asset differs from the source: $asset"
+done
 cmp -s "$ROOT/macos-menu-bar/Resources/CodexStatusLine.js" "$RESOURCES/CodexStatusLine.js" ||
   fail "bundled Codex status-line script differs from the source"
 require_absent "$MACOS/MoaMCP"
