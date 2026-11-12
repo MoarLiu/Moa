@@ -6,6 +6,7 @@ struct MoaWorkspaceClientView: View {
     let client: MoaWorkspaceClient
     @ObservedObject var accounts: MoaAccountManagerModel
     @ObservedObject var navigation: MoaWorkspaceNavigation
+    @ObservedObject var usage: MoaUsageCoordinator
 
     private var group: MoaAccountGroup? {
         client.groups.contains(navigation.accountGroup) ? navigation.accountGroup : client.groups.first
@@ -28,7 +29,7 @@ struct MoaWorkspaceClientView: View {
                         workspaceNotice(accounts.failures.joined(separator: "\n"), tone: MoaTheme.coral)
                     }
                     if let group {
-                        tabs
+                        if client.groups.count > 1 { tabs }
                         if let message = accounts.progress(group) {
                             HStack(spacing: 12) {
                                 ProgressView().controlSize(.small)
@@ -70,7 +71,7 @@ struct MoaWorkspaceClientView: View {
             MoaClientLogo(client: client, size: 44)
             VStack(alignment: .leading, spacing: 6) {
                 Text(client.title).font(.system(size: 27, weight: .semibold))
-                Text(client.capability).font(.system(size: 12)).foregroundStyle(MoaWorkspaceTheme.secondary)
+                Text(headerDetail).font(.system(size: 12)).foregroundStyle(MoaWorkspaceTheme.secondary)
             }
             Spacer(minLength: 12)
             Button(MoaL10n.text("Open Client")) { app.workspaceWindow.open(client) }
@@ -96,22 +97,18 @@ struct MoaWorkspaceClientView: View {
     }
 
     private var tabs: some View {
-        HStack(spacing: 12) {
+        let selection = Binding<MoaAccountGroup>(
+            get: { group ?? client.groups.first ?? .codexOfficial },
+            set: { navigation.accountGroup = $0 })
+        return Picker(MoaL10n.text("Client Sections"), selection: selection) {
             ForEach(client.groups) { group in
-                Button { navigation.accountGroup = group } label: {
-                    Text(MoaL10n.text(tabTitle(group)))
-                        .font(.system(size: 13, weight: .medium))
-                        .padding(.horizontal, 16).frame(height: 38)
-                        .foregroundStyle(self.group == group ? MoaWorkspaceTheme.accent : MoaWorkspaceTheme.secondary)
-                        .background(self.group == group ? MoaWorkspaceTheme.selected : Color.clear,
-                                    in: RoundedRectangle(cornerRadius: 8))
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("workspace.group.\(group.rawValue)")
-                .accessibilityAddTraits(self.group == group ? .isSelected : [])
+                Text(MoaL10n.text(tabTitle(group))).tag(group)
             }
-            Spacer()
         }
+        .pickerStyle(.segmented).labelsHidden()
+        .accessibilityLabel(MoaL10n.text("Client Sections"))
+        .accessibilityIdentifier("workspace.groups.\(client.rawValue)")
+        .fixedSize()
     }
 
     private func currentLogin(_ section: MoaAccountSection) -> some View {
@@ -170,15 +167,14 @@ struct MoaWorkspaceClientView: View {
                     Divider()
                 }
             }
-            VStack(alignment: .leading, spacing: 10) {
-                Text(MoaL10n.text("Keep work and personal identities separate."))
-                    .font(.system(size: 15, weight: .medium))
+            if !section.rows.isEmpty {
                 Text(MoaL10n.text(section.group.supportsEditing
                     ? "Configurations are applied by the client. Moa does not proxy requests."
-                    : "Sign in to the client, then save its current login in Moa. Switching does not merge histories."))
-                    .font(.system(size: 12)).foregroundStyle(MoaWorkspaceTheme.secondary)
+                    : "Switching replaces the client's saved login. Histories are not merged."))
+                    .font(.system(size: 11)).foregroundStyle(MoaWorkspaceTheme.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-            }.padding(16)
+                    .padding(.top, 12)
+            }
         }
         .disabled(busy || MoaRuntimeMode.suppressesUserInteraction)
     }
@@ -186,24 +182,23 @@ struct MoaWorkspaceClientView: View {
     private func accountRow(_ row: MoaAccountRow) -> some View {
         HStack(spacing: 14) {
             Group {
-                if let image = MoaUIResources.image("account", folder: "Navigation", extension: "svg") {
-                    Image(nsImage: image).resizable().frame(width: 20, height: 20)
+                if let image = MoaUIResources.image(row.group.supportsEditing ? "settings" : "account",
+                                                    folder: "Navigation", extension: "svg") {
+                    Image(nsImage: image).renderingMode(.template).resizable().frame(width: 18, height: 18)
+                        .foregroundStyle(MoaWorkspaceTheme.secondary)
                 } else {
-                    Image(systemName: "person.crop.circle")
+                    Image(systemName: row.group.supportsEditing ? "gearshape" : "person.crop.circle")
                 }
             }
-            .frame(width: 36, height: 36)
+            .frame(width: 30, height: 30)
             .background(MoaWorkspaceTheme.selected, in: Circle())
-            VStack(alignment: .leading, spacing: 5) {
-                Text(row.name.isEmpty ? row.detail : row.name)
-                    .font(.system(size: 14, weight: .medium)).lineLimit(1)
-                if !row.detail.isEmpty && row.name != row.detail {
-                    Text(row.detail).font(.system(size: 12)).foregroundStyle(MoaWorkspaceTheme.secondary)
-                        .lineLimit(1).truncationMode(.middle)
-                }
-                Text(MoaL10n.text(row.group.supportsEditing ? "API Configuration" : "Saved Login"))
-                    .font(.system(size: 10)).foregroundStyle(MoaWorkspaceTheme.secondary)
-            }.frame(maxWidth: .infinity, alignment: .leading)
+            Text(row.name.isEmpty ? row.detail : row.name)
+                .font(.system(size: 14, weight: .medium)).lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if !row.detail.isEmpty && row.name != row.detail {
+                Text(row.detail).font(.system(size: 12)).foregroundStyle(MoaWorkspaceTheme.secondary)
+                    .lineLimit(1).truncationMode(.middle).frame(maxWidth: 280, alignment: .trailing)
+            }
             if row.active {
                 Text(MoaL10n.text("In Use")).font(.system(size: 11, weight: .medium))
                     .foregroundStyle(MoaWorkspaceTheme.success).padding(.horizontal, 8).padding(.vertical, 4)
@@ -225,7 +220,7 @@ struct MoaWorkspaceClientView: View {
             .menuStyle(.borderlessButton).fixedSize()
             .accessibilityLabel(MoaL10n.format("Actions for %@", row.name))
         }
-        .padding(14).frame(minHeight: 90)
+        .padding(.horizontal, 14).frame(minHeight: 52)
         .background(row.active ? MoaWorkspaceTheme.subtle : Color.clear)
     }
 
@@ -239,16 +234,25 @@ struct MoaWorkspaceClientView: View {
                 : "Sign in to the client, then choose Save Current Login."))
                 .font(.system(size: 13)).foregroundStyle(MoaWorkspaceTheme.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+            Text(MoaL10n.text("Keep work and personal identities separate."))
+                .font(.system(size: 12)).foregroundStyle(MoaWorkspaceTheme.secondary)
         }.padding(28).frame(maxWidth: .infinity, alignment: .leading)
             .background(MoaWorkspaceTheme.subtle, in: RoundedRectangle(cornerRadius: 12))
     }
 
     private func guidance(_ group: MoaAccountGroup) -> some View {
         VStack(alignment: .leading, spacing: 22) {
-            Text(MoaL10n.text("When switching accounts")).font(.system(size: 15, weight: .medium))
-            step("01", title: "Finish active tasks", detail: "Complete current replies and tasks in the client first.")
-            step("02", title: "Restore the selected identity", detail: "Switching uses the existing client adapter and its recovery checks.")
-            step("03", title: "Verify the client login", detail: "Check the displayed identity and send a request in the client.")
+            if group.supportsEditing {
+                Text(MoaL10n.text("When saving a provider")).font(.system(size: 15, weight: .medium))
+                step("01", title: "Enter the endpoint", detail: "Use the Base URL and API key the client should send requests to.")
+                step("02", title: "Apply the configuration", detail: "Moa writes it into the client's own config and keeps other settings.")
+                step("03", title: "Check the client", detail: "Restart the client if it keeps an existing connection open.")
+            } else {
+                Text(MoaL10n.text("When switching accounts")).font(.system(size: 15, weight: .medium))
+                step("01", title: "Finish active tasks", detail: "Complete current replies and tasks in the client first.")
+                step("02", title: "Restore the selected identity", detail: "Switching uses the existing client adapter and its recovery checks.")
+                step("03", title: "Verify the client login", detail: "Check the displayed identity and send a request in the client.")
+            }
             usageAction
         }
         .padding(22).frame(maxWidth: .infinity, alignment: .leading)
@@ -275,6 +279,15 @@ struct MoaWorkspaceClientView: View {
                 .font(.system(size: 12)).foregroundStyle(MoaWorkspaceTheme.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
+    }
+
+    /// Today's local usage for this client, or what the client does when it has none.
+    private var headerDetail: String {
+        guard let source = client.usageSource, let summary = usage.workspaceSummaries[source] else {
+            return client.capability
+        }
+        return MoaL10n.format("Today: %@ · %@ tokens", DailyUsageAlertController.currency(summary.todayCostUSD),
+                              MoaWorkspaceView.tokens(summary.todayTokens))
     }
 
     private func tabTitle(_ group: MoaAccountGroup) -> String {

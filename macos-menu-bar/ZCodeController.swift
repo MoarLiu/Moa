@@ -67,7 +67,7 @@ final class ZCodeUsageScanner {
             #endif
             output = try runSQLite("""
         select
-          date(started_at / 1000, 'unixepoch', 'localtime') as day_key,
+          started_at,
           coalesce(nullif(model_id, ''), 'unknown') as model_id,
           coalesce(input_tokens, 0) as input_tokens,
           coalesce(cache_read_input_tokens, 0) as cache_read_input_tokens,
@@ -75,7 +75,7 @@ final class ZCodeUsageScanner {
           coalesce(output_tokens, 0) as output_tokens
         from model_usage
         where status = 'completed'
-        order by day_key, model_id;
+        order by started_at, model_id;
         """)
             // A writer can commit while sqlite3 is reading its snapshot. Only
             // cache it if both database and WAL stayed unchanged across the query.
@@ -91,7 +91,10 @@ final class ZCodeUsageScanner {
         for line in output.split(separator: "\n", omittingEmptySubsequences: true) {
             let columns = line.split(separator: Character(separator), omittingEmptySubsequences: false).map(String.init)
             guard columns.count >= 6 else { continue }
-            let dayKey = columns[0]
+            // Bucket with the same calendar as every other source and as the
+            // report's own today/range keys; SQLite's date() is always Gregorian.
+            let dayKey = Int64(columns[0].trimmingCharacters(in: .whitespacesAndNewlines))
+                .map { MoaUsageReport.dayKey(from: Date(timeIntervalSince1970: Double($0) / 1000)) } ?? ""
             let model = columns[1]
             let rawInput = max(0, Self.intValue(columns[2]))
             let cacheRead = min(max(0, Self.intValue(columns[3])), rawInput)

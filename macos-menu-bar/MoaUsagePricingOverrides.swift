@@ -200,10 +200,10 @@ final class MoaUsagePricingOverrideController {
         let cacheWrite = min(max(0, cacheWriteInputTokens), max(0, inputTokens - cached))
         let nonCached = max(0, inputTokens - cached - cacheWrite)
         let cachedRate = override.cacheReadUSDPerMillion
-            ?? MoaUsagePricing.codexCacheReadUSDPerMillion(model: override.model, inputTokens: inputTokens)
+            ?? (MoaUsagePricing.hasCodexPricing(model: override.model) ? MoaUsagePricing.codexCacheReadUSDPerMillion(model: override.model, inputTokens: inputTokens) : nil)
             ?? override.inputUSDPerMillion
         let writeRate = override.cacheCreationUSDPerMillion
-            ?? MoaUsagePricing.codexCacheWriteUSDPerMillion(model: override.model, inputTokens: inputTokens)
+            ?? (MoaUsagePricing.hasCodexPricing(model: override.model) ? MoaUsagePricing.codexCacheWriteUSDPerMillion(model: override.model, inputTokens: inputTokens) : nil)
             ?? override.inputUSDPerMillion
         let cost = Self.cost(tokens: nonCached, perMillion: override.inputUSDPerMillion)
             + Self.cost(tokens: cached, perMillion: cachedRate)
@@ -227,10 +227,10 @@ final class MoaUsagePricingOverrideController {
         guard let override = override(source: .claude, model: model) else { return nil }
         let promptTokens = max(0, inputTokens) + max(0, cacheReadInputTokens) + max(0, cacheCreationInputTokens)
         let readRate = override.cacheReadUSDPerMillion
-            ?? MoaUsagePricing.claudeCacheReadUSDPerMillion(model: override.model, promptTokens: promptTokens)
+            ?? (MoaUsagePricing.hasClaudePricing(model: override.model) ? MoaUsagePricing.claudeCacheReadUSDPerMillion(model: override.model, promptTokens: promptTokens) : nil)
             ?? override.inputUSDPerMillion
         let creationRate = override.cacheCreationUSDPerMillion
-            ?? MoaUsagePricing.claudeCacheCreationUSDPerMillion(model: override.model, promptTokens: promptTokens)
+            ?? (MoaUsagePricing.hasClaudePricing(model: override.model) ? MoaUsagePricing.claudeCacheCreationUSDPerMillion(model: override.model, promptTokens: promptTokens) : nil)
             ?? override.inputUSDPerMillion
         let cost = Self.cost(tokens: inputTokens, perMillion: override.inputUSDPerMillion)
             + Self.cost(tokens: cacheReadInputTokens, perMillion: readRate)
@@ -254,10 +254,10 @@ final class MoaUsagePricingOverrideController {
         guard let override = override(source: .zcode, model: model) else { return nil }
         let promptTokens = max(0, inputTokens) + max(0, cacheReadInputTokens) + max(0, cacheCreationInputTokens)
         let readRate = override.cacheReadUSDPerMillion
-            ?? MoaUsagePricing.zcodeCacheReadUSDPerMillion(model: override.model, promptTokens: promptTokens)
+            ?? (MoaUsagePricing.hasZCodePricing(model: override.model) ? MoaUsagePricing.zcodeCacheReadUSDPerMillion(model: override.model, promptTokens: promptTokens) : nil)
             ?? override.inputUSDPerMillion
         let creationRate = override.cacheCreationUSDPerMillion
-            ?? MoaUsagePricing.zcodeCacheCreationUSDPerMillion(model: override.model, promptTokens: promptTokens)
+            ?? (MoaUsagePricing.hasZCodePricing(model: override.model) ? MoaUsagePricing.zcodeCacheCreationUSDPerMillion(model: override.model, promptTokens: promptTokens) : nil)
             ?? override.inputUSDPerMillion
         let cost = Self.cost(tokens: inputTokens, perMillion: override.inputUSDPerMillion)
             + Self.cost(tokens: cacheReadInputTokens, perMillion: readRate)

@@ -349,6 +349,26 @@ final class MoaUpdateController {
           exit 1
         fi
         /usr/bin/codesign --verify --deep --strict "$MOUNT/Moa.app"
+        # The release metadata chose this download; the bundle itself must agree.
+        # A different app, or an older build re-uploaded under a newer tag, is
+        # refused for every signing type, including unpinned ad-hoc installs.
+        plist_value() { /usr/libexec/PlistBuddy -c "Print :$2" "$1/Contents/Info.plist" 2>/dev/null || true; }
+        CURRENT_ID="$(plist_value "$APP" CFBundleIdentifier)"
+        CANDIDATE_ID="$(plist_value "$MOUNT/Moa.app" CFBundleIdentifier)"
+        if [[ -z "$CANDIDATE_ID" || "$CANDIDATE_ID" != "$CURRENT_ID" ]]; then
+          echo "Downloaded app identifier does not match the installed Moa"
+          exit 1
+        fi
+        CURRENT_BUILD="$(plist_value "$APP" CFBundleVersion)"
+        CANDIDATE_BUILD="$(plist_value "$MOUNT/Moa.app" CFBundleVersion)"
+        if [[ ! "$CANDIDATE_BUILD" =~ ^[0-9]{1,9}$ ]]; then
+          echo "Downloaded app has no valid build number"
+          exit 1
+        fi
+        if [[ "$CURRENT_BUILD" =~ ^[0-9]{1,9}$ ]] && (( 10#$CANDIDATE_BUILD < 10#$CURRENT_BUILD )); then
+          echo "Downloaded build $CANDIDATE_BUILD is older than the installed build $CURRENT_BUILD"
+          exit 1
+        fi
         CURRENT_SIGNATURE="$(/usr/bin/codesign -dv --verbose=4 "$APP" 2>&1)"
         CANDIDATE_SIGNATURE="$(/usr/bin/codesign -dv --verbose=4 "$MOUNT/Moa.app" 2>&1)"
         if ! /usr/bin/grep -F "Signature=adhoc" <<< "$CURRENT_SIGNATURE" >/dev/null; then

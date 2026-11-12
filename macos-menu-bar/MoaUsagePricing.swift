@@ -388,6 +388,13 @@ enum MoaUsagePricing {
         )
     }
 
+    /// Whether the price table knows this model itself. The cache-rate helpers
+    /// below substitute a fallback model for unknown IDs, which must not leak
+    /// into a custom price whose cache fields were left blank.
+    static func hasCodexPricing(model: String) -> Bool { codexPricing(model: normalizeCodexModel(model)) != nil }
+    static func hasClaudePricing(model: String) -> Bool { claudePricing(model: normalizeClaudeModel(model)) != nil }
+    static func hasZCodePricing(model: String) -> Bool { zcodePricing(model: normalizeZCodeModel(model)) != nil }
+
     static func codexCacheReadUSDPerMillion(model: String, inputTokens: Int = 1) -> Double? {
         let normalized = normalizeCodexModel(model)
         let pricingModel = codexPricing(model: normalized) == nil ? fallbackCodexPricingModel : normalized

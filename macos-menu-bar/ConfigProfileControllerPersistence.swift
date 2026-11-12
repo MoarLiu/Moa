@@ -453,8 +453,17 @@ extension ConfigProfileController {
         let stamp = Self.timestamp()
 
         for url in [codexConfigURL, codexAuthURL] where fileManager.fileExists(atPath: url.path) {
-            let destination = backupDir.appendingPathComponent("\(url.lastPathComponent).\(stamp)")
-            try? fileManager.removeItem(at: destination)
+            // One operation can back up twice within a second (restoring official
+            // mode applies the saved account first). Never replace an earlier
+            // backup: it may hold the only copy of the login that was live before.
+            let base = "\(url.lastPathComponent).\(stamp)"
+            var destination = backupDir.appendingPathComponent(base)
+            var suffix = 2
+            while (try? destination.checkResourceIsReachable()) == true
+                || (try? fileManager.destinationOfSymbolicLink(atPath: destination.path)) != nil {
+                destination = backupDir.appendingPathComponent("\(base)-\(suffix)")
+                suffix += 1
+            }
             try MoaSecureFile.write(Data(contentsOf: url), to: destination)
         }
         pruneCodexBackups(keepingPerFile: 12)

@@ -58,6 +58,8 @@ final class MoaUsageCoordinator: ObservableObject {
     var onPricingRefreshStateChanged: ((Bool) -> Void)?
     var isUpdatingPrices: Bool { pricingUpdateCoordinator.isRefreshing }
     var pricingModelCount: Int { pricingUpdateCoordinator.modelCount }
+    var pricesLastUpdatedAt: Date? { pricingUpdateCoordinator.lastSuccessfulCheck }
+    var pricingSourceHost: String { pricingUpdateCoordinator.sourceHost }
 
     func updatePrices(completion: @escaping (Result<MoaUsagePricingCatalogUpdate, Error>) -> Void) {
         pricingUpdateCoordinator.refreshNow(completion: completion)
@@ -105,7 +107,11 @@ final class MoaUsageCoordinator: ObservableObject {
             self?.refreshAll(forceRefresh: true)
             self?.onPricingUpdated?()
         }
-        pricingUpdateCoordinator.onRefreshStateChanged = { [weak self] in self?.onPricingRefreshStateChanged?($0) }
+        pricingUpdateCoordinator.onRefreshStateChanged = { [weak self] refreshing in
+            self?.onPricingRefreshStateChanged?(refreshing)
+            // Settings shows the refresh state and the last successful fetch.
+            DispatchQueue.main.async { self?.objectWillChange.send() }
+        }
         dataRootObserver = NotificationCenter.default.addObserver(forName: MoaDataRoot.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
             guard let self else { return }
             // A scan started before import/migration must not repopulate the

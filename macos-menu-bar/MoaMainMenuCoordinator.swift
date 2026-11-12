@@ -5,6 +5,9 @@ import Foundation
 final class MoaMainMenuCoordinator {
     unowned let app: AppDelegate
     private var observers = Set<AnyCancellable>()
+    private var clientItems: [(client: MoaWorkspaceClient, item: NSMenuItem)] = []
+    private let otherClientsItem = NSMenuItem(title: MoaL10n.text("Other Clients"), action: nil, keyEquivalent: "")
+    private let otherClientsMenu = NSMenu(title: MoaL10n.text("Other Clients"))
 
     init(app: AppDelegate) {
         self.app = app
@@ -14,6 +17,8 @@ final class MoaMainMenuCoordinator {
         app.menu.delegate = app
         app.menu.autoenablesItems = false
         app.menu.removeAllItems()
+        otherClientsMenu.removeAllItems()
+        clientItems.removeAll()
         app.versionItem.title = AppDelegate.versionTitle()
         app.versionItem.isEnabled = false
         app.menu.addItem(app.versionItem)
@@ -33,6 +38,7 @@ final class MoaMainMenuCoordinator {
             (app.antigravityCoordinator.item, app.antigravityCoordinator.menu)
         ] {
             submenu.autoenablesItems = false
+            item.menu?.removeItem(item)
             let client = MoaWorkspaceClient.allCases.first {
                 switch $0 {
                 case .codex: return item === app.codexProfilesItem
@@ -50,8 +56,12 @@ final class MoaMainMenuCoordinator {
                 item.image = icon
             }
             item.submenu = submenu
+            if let client { clientItems.append((client, item)) }
             app.menu.addItem(item)
         }
+        otherClientsMenu.autoenablesItems = false
+        otherClientsItem.submenu = otherClientsMenu
+        arrangeClientItems()
         app.menu.addItem(.separator())
         let accountsItem = actionItem("Accounts…", #selector(AppDelegate.showAllAccountsAction), key: "a")
         accountsItem.keyEquivalentModifierMask = [.command, .shift]
@@ -94,6 +104,28 @@ final class MoaMainMenuCoordinator {
         return item
     }
 
+    /// Clients this Mac does not have move into one "Other Clients" submenu, so the
+    /// top level lists what can actually be opened. They stay fully usable there.
+    func arrangeClientItems() {
+        guard let anchor = clientItems.compactMap({ app.menu.items.firstIndex(of: $0.item) }).min()
+            ?? app.menu.items.firstIndex(of: otherClientsItem) else { return }
+        for entry in clientItems { entry.item.menu?.removeItem(entry.item) }
+        otherClientsItem.menu?.removeItem(otherClientsItem)
+        let installed = MoaClientInstallation.installed()
+        // Detection found nothing or everything: keep the plain list.
+        let fold = !installed.isEmpty && installed.count < clientItems.count
+        var index = anchor
+        for entry in clientItems where !fold || installed.contains(entry.client) {
+            app.menu.insertItem(entry.item, at: index)
+            index += 1
+        }
+        guard fold else { return }
+        for entry in clientItems where !installed.contains(entry.client) {
+            otherClientsMenu.addItem(entry.item)
+        }
+        app.menu.insertItem(otherClientsItem, at: index)
+    }
+
     func updateVisibleStatus() {
         if let operation = app.accountOperations.active.values.first {
             app.statusItemText.title = AppDelegate.statusTitle(operation.message)
@@ -122,6 +154,7 @@ final class MoaMainMenuCoordinator {
             return
         }
         app.lastMenuRefreshAt = now
+        arrangeClientItems()
         rebuildProfileMenu()
         rebuildClaudeDesktopProfilesMenu()
         rebuildZCodeMenu()

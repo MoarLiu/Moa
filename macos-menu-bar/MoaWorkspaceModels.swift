@@ -85,12 +85,56 @@ enum MoaWorkspaceDestination: Hashable {
     case client(MoaWorkspaceClient)
 }
 
+/// Which clients are installed right now. The workspace dims the rest and the
+/// menu bar folds them away, so a client the user does not have stops competing
+/// with the ones they do. Detection is advisory: when it finds nothing at all
+/// (unusual locations, a test process), every client keeps its normal place.
+enum MoaClientInstallation {
+    static func installed() -> Set<MoaWorkspaceClient> {
+        guard !MoaRuntimeMode.isWorkspacePreview else { return Set(MoaWorkspaceClient.allCases) }
+        var found: Set<MoaWorkspaceClient> = []
+        for client in MoaWorkspaceClient.allCases where isInstalled(client) {
+            found.insert(client)
+        }
+        return found
+    }
+
+    static func isInstalled(_ client: MoaWorkspaceClient) -> Bool {
+        if client == .codex {
+            let override = ProcessInfo.processInfo.environment["CODEX_APP"]?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if !override.isEmpty {
+                return FileManager.default.fileExists(atPath: override)
+            }
+        }
+        return NSWorkspace.shared.urlForApplication(withBundleIdentifier: client.bundleID) != nil
+    }
+
+    /// Installed first in their original order, then the missing ones. The second
+    /// element is false for a client this Mac does not have.
+    static func orderedClients(_ installed: Set<MoaWorkspaceClient>) -> [(client: MoaWorkspaceClient, present: Bool)] {
+        let all = MoaWorkspaceClient.allCases
+        guard !installed.isEmpty, installed.count < all.count else {
+            return all.map { ($0, true) }
+        }
+        return all.filter(installed.contains).map { ($0, true) }
+            + all.filter { !installed.contains($0) }.map { ($0, false) }
+    }
+}
+
 final class MoaWorkspaceNavigation: ObservableObject {
     @Published var destination: MoaWorkspaceDestination = .overview
     @Published var accountGroup: MoaAccountGroup = .codexOfficial
     @Published var usageSource: MoaUsageSource?
     @Published private(set) var usageRequest = UUID()
     @Published var refreshRequest = UUID()
+    @Published var installedClients = MoaClientInstallation.installed()
+
+    func refreshInstalledClients() {
+        guard !MoaRuntimeMode.suppressesUserInteraction else { return }
+        let found = MoaClientInstallation.installed()
+        if found != installedClients { installedClients = found }
+    }
 
     func showAccount(_ group: MoaAccountGroup) {
         accountGroup = group
@@ -116,6 +160,18 @@ struct MoaWorkspaceUsageTotal {
             tokens: summaries.values.reduce(0) { $0 + $1.todayTokens },
             loadedSources: summaries.count
         )
+    }
+}
+
+enum MoaWorkspaceCopy {
+    /// The one place these two disclaimers live, so a surface that already shows
+    /// one does not repeat it.
+    static var estimateDisclaimer: String {
+        MoaL10n.text("Local estimates use API reference prices, not subscription bills, credits, or balances.")
+    }
+
+    static var independenceNote: String {
+        MoaL10n.text("Accounts stay independent. Sessions run in each client.")
     }
 }
 

@@ -558,6 +558,9 @@ final class MoaUsagePricingUpdateCoordinator {
     var onCatalogUpdated: (() -> Void)?
     var onRefreshStateChanged: ((Bool) -> Void)?
     var isRefreshing: Bool { refreshInFlight }
+    /// When the public catalog was last fetched successfully, and from which host.
+    var lastSuccessfulCheck: Date? { updater.store.lastSuccessfulCheck() }
+    var sourceHost: String { updater.sourceURL.host ?? updater.sourceURL.absoluteString }
 
     private let updater: MoaUsagePricingUpdater
     private let notificationCenter: NotificationCenter

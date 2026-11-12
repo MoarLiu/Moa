@@ -4,18 +4,29 @@ import SwiftUI
 
 struct MoaWorkspaceSettingsView: View {
     unowned let app: AppDelegate
+    @ObservedObject var usage: MoaUsageCoordinator
     @State private var tab = 0
     @State private var refresh = Date()
-    private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+    // Storage location and long data operations announce themselves; no polling.
+    private let stateChanges = NotificationCenter.default.publisher(for: MoaDataAccessCoordinator.busyStateDidChange)
+        .merge(with: NotificationCenter.default.publisher(for: MoaDataRoot.didChangeNotification))
+        .receive(on: RunLoop.main)
+
+    init(app: AppDelegate, initialTab: Int = 0) {
+        self.app = app
+        usage = app.usageCoordinator
+        _tab = State(initialValue: initialTab)
+    }
 
     private var disabled: Bool {
-        MoaRuntimeMode.suppressesUserInteraction || app.dataPackageController.isDataOperationInProgress
+        _ = refresh
+        return MoaRuntimeMode.suppressesUserInteraction || app.dataPackageController.isDataOperationInProgress
     }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                workspaceHeading("Settings and Data", subtitle: "Quiet tools. Clear data boundaries.")
+                workspaceHeading("Settings and Data", subtitle: "Storage, prices, and updates.")
                 Picker(MoaL10n.text("Settings and Data"), selection: $tab) {
                     Text(MoaL10n.text("Data and Storage")).tag(0)
                     Text(MoaL10n.text("Model Prices")).tag(1)
@@ -27,7 +38,7 @@ struct MoaWorkspaceSettingsView: View {
                 else { about }
             }.padding(32).frame(maxWidth: .infinity, alignment: .leading)
         }
-        .onReceive(timer) { refresh = $0 }
+        .onReceive(stateChanges) { _ in refresh = Date() }
         .accessibilityIdentifier("workspace.settings.content")
     }
 
@@ -77,23 +88,52 @@ struct MoaWorkspaceSettingsView: View {
 
     private var priceSettings: some View {
         VStack(alignment: .leading, spacing: 20) {
-            workspaceNotice(MoaL10n.text("Local estimates use API reference prices, not subscription bills, credits, or balances."))
-            Button(MoaL10n.text(app.usageCoordinator.isUpdatingPrices ? "Updating Prices…" : "Update Prices")) {
-                app.updatePricesAction()
+            VStack(alignment: .leading, spacing: 14) {
+                HStack {
+                    Text(MoaL10n.text("Reference Price Table")).font(.system(size: 16, weight: .medium))
+                    Spacer()
+                    if usage.isUpdatingPrices { ProgressView().controlSize(.small) }
+                    Button(MoaL10n.text(usage.isUpdatingPrices ? "Updating Prices…" : "Update Prices")) {
+                        app.updatePricesAction()
+                    }
+                    .buttonStyle(MoaWorkspaceButtonStyle(prominent: true))
+                    .disabled(disabled || usage.isUpdatingPrices)
+                }
+                priceFact("Last Updated", value: MoaRuntimeMode.isWorkspacePreview ? "—" : Self.updatedText(usage.pricesLastUpdatedAt))
+                priceFact("Source", value: usage.pricingSourceHost)
+                priceFact("Models with Prices", value: MoaRuntimeMode.isWorkspacePreview ? "—" : "\(usage.pricingModelCount)")
             }
-            .buttonStyle(MoaWorkspaceButtonStyle(prominent: true))
-            .disabled(disabled || app.usageCoordinator.isUpdatingPrices)
-            Button(MoaL10n.text("Usage Overview…")) { app.workspaceWindow.navigation.showUsage() }
-                .buttonStyle(MoaWorkspaceButtonStyle())
-            Text(MoaL10n.text("Custom prices and usage alerts remain available in Usage Analysis."))
+            .padding(24).background(MoaWorkspaceTheme.subtle, in: RoundedRectangle(cornerRadius: 12))
+            actionRow("Custom Prices and Alerts",
+                      detail: "Set a price for any model row, and daily usage alerts, in Usage Analysis.",
+                      button: "View Usage Analysis") { app.workspaceWindow.navigation.showUsage() }
+            Text(MoaWorkspaceCopy.estimateDisclaimer)
                 .font(.system(size: 12)).foregroundStyle(MoaWorkspaceTheme.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
+    }
+
+    private func priceFact(_ label: String, value: String) -> some View {
+        HStack {
+            Text(MoaL10n.text(label)).foregroundStyle(MoaWorkspaceTheme.secondary)
+            Spacer()
+            Text(value).monospacedDigit().textSelection(.enabled)
+        }.font(.system(size: 13))
+    }
+
+    private static func updatedText(_ date: Date?) -> String {
+        guard let date else { return MoaL10n.text("Not updated yet") }
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        formatter.doesRelativeDateFormatting = true
+        return formatter.string(from: date)
     }
 
     private var about: some View {
         VStack(alignment: .leading, spacing: 20) {
             Text(AppDelegate.versionTitle()).font(.system(size: 24, weight: .semibold))
-            Text(MoaL10n.text("Accounts stay independent. Sessions run in each client."))
+            Text(MoaWorkspaceCopy.independenceNote)
                 .font(.system(size: 13)).foregroundStyle(MoaWorkspaceTheme.secondary)
             Button(MoaL10n.text("Check Update")) { app.checkUpdateAction() }
                 .buttonStyle(MoaWorkspaceButtonStyle())

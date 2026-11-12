@@ -88,6 +88,22 @@ final class MoaUpdaterRegressionTests: XCTestCase {
         }
     }
 
+    func testOlderBuildAndForeignBundleKeepInstalledApp() throws {
+        for (identifier, build) in [("com.moarliu.moa", "99"), ("com.example.other", "101"), ("com.moarliu.moa", "")] {
+            try withInstaller { fixture in
+                try fixture.writeInfo(fixture.candidate, identifier: identifier, build: build)
+                XCTAssertNotEqual(try fixture.run(pid: 999_999), 0)
+                XCTAssertEqual(try String(contentsOf: fixture.app.appendingPathComponent("version"), encoding: .utf8), "old")
+                XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.alert.path))
+            }
+        }
+        try withInstaller { fixture in
+            try fixture.writeInfo(fixture.candidate, identifier: "com.moarliu.moa", build: "100")
+            XCTAssertEqual(try fixture.run(pid: 999_999), 0)
+            XCTAssertEqual(try String(contentsOf: fixture.app.appendingPathComponent("version"), encoding: .utf8), "new")
+        }
+    }
+
     func testMissingInstalledRequirementFailsClosed() throws {
         try withInstaller { fixture in
             XCTAssertNotEqual(try fixture.run(pid: 99999999, currentSignature: "local", missingRequirement: true), 0)
@@ -181,6 +197,8 @@ private final class InstallerFixture {
             try fm.createDirectory(at: dir, withIntermediateDirectories: true)
         }
         try "old".write(to: app.appendingPathComponent("version"), atomically: true, encoding: .utf8)
+        try writeInfo(app, identifier: "com.moarliu.moa", build: "100")
+        try writeInfo(mount.appendingPathComponent("Moa.app"), identifier: "com.moarliu.moa", build: "101")
         try "new".write(to: mount.appendingPathComponent("Moa.app/version"), atomically: true, encoding: .utf8)
         try mock("hdiutil", "if [[ \"$1\" == attach && \"${FAIL_MOUNT:-0}\" == 1 ]]; then exit 1; fi\nexit 0")
         try mock("awk", "printf '%s\\n' \"$TEST_MOUNT\"")
@@ -210,6 +228,15 @@ private final class InstallerFixture {
         try mock("open", "echo open >> \"$TEST_OPENED\"\nif [[ \"${FAIL_FIRST_OPEN:-0}\" == 1 && $(/usr/bin/wc -l < \"$TEST_OPENED\") -eq 1 ]]; then exit 1; fi")
         try mock("osascript", "touch \"$TEST_ALERT\"")
     }
+
+    func writeInfo(_ bundle: URL, identifier: String, build: String) throws {
+        let contents = bundle.appendingPathComponent("Contents")
+        try FileManager.default.createDirectory(at: contents, withIntermediateDirectories: true)
+        let data = try PropertyListSerialization.data(
+            fromPropertyList: ["CFBundleIdentifier": identifier, "CFBundleVersion": build], format: .xml, options: 0)
+        try data.write(to: contents.appendingPathComponent("Info.plist"))
+    }
+    var candidate: URL { mount.appendingPathComponent("Moa.app") }
 
     private func mock(_ name: String, _ body: String) throws {
         let url = root.appendingPathComponent("bin/\(name)")

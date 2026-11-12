@@ -11,6 +11,8 @@ enum MoaDataAccessError: LocalizedError {
 /// Long data operations release the mutex after marking the root busy, so UI
 /// actions receive a retryable error instead of waiting for a ZIP or copy.
 final class MoaDataAccessCoordinator: @unchecked Sendable {
+    /// A long data operation started or finished, so views can stop polling `isBusy`.
+    static let busyStateDidChange = Notification.Name("MoaDataAccessBusyStateDidChange")
     private static let registryLock = NSLock()
     nonisolated(unsafe) private static var registry: [String: MoaDataAccessCoordinator] = [:]
     private let gate = NSRecursiveLock()
@@ -58,13 +60,18 @@ final class MoaDataAccessCoordinator: @unchecked Sendable {
         }
         owner = Thread.current
         depth += 1
+        let began = depth == 1
         metadata.unlock()
         gate.unlock()
+        // Posted on the operation's own thread; UI observers hop to the main queue.
+        if began { NotificationCenter.default.post(name: Self.busyStateDidChange, object: self) }
         defer {
             metadata.lock()
             depth -= 1
-            if depth == 0 { owner = nil; generation &+= 1 }
+            let ended = depth == 0
+            if ended { owner = nil; generation &+= 1 }
             metadata.unlock()
+            if ended { NotificationCenter.default.post(name: Self.busyStateDidChange, object: self) }
         }
         return try operation()
     }
