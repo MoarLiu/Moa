@@ -47,7 +47,7 @@ Client names and logos identify their respective products and belong to their re
 - Shortcuts: **Command-0** opens the overview, **Command-U** opens usage analysis, **Command-Shift-A** opens accounts, and **Command-R** refreshes the workspace or all menu usage sources.
 - Maintenance actions, including price updates, update checks, and data management, are grouped under **Moa** in the main menu.
 
-Version 1.7.0 introduces the workspace while retaining the existing usage-report and configuration-dialog presentation. The redesigned first-run flow and remaining Figma layouts are planned for later work.
+Version 1.8.0 refines the workspace with installed-client ordering, keyboard sidebar navigation, getting-started guidance, and model-price update details in settings.
 
 ## ChatGPT Client Compatibility
 

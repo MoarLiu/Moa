@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.8.0 - 2026-11-12
+
+- Preserve consecutive Codex configuration and login backups created within the same second, keeping each earlier snapshot available for recovery.
+- Check downloaded update bundle identifiers and build numbers before installation. Reject foreign apps, invalid build numbers, and builds older than the installed app.
+- Use the custom input price for unknown models when their custom cache price fields are blank. Group ZCode usage with the same calendar and day keys as the usage report.
+- Prioritize installed clients in the workspace and group other clients under an Other Clients menu. Add getting-started guidance, keyboard sidebar navigation, and clearer account and usage rows.
+- Show the model-price source, last successful update, and model count in settings. Refresh data-operation state through notifications.
+- Add regression coverage for backup preservation, update validation, custom pricing, usage day keys, and client menus, plus offscreen workspace rendering checks.
+- Requires macOS 12 or later, with separate Apple silicon and Intel DMGs. Packages use the existing local signing certificate and can require first-launch approval. Runtime acceptance covers Apple silicon on the current macOS version. Intel hardware, macOS 12, and live credential-switching acceptance remain pending. Notarization is not configured.
+
 ## 1.7.0 - 2026-11-02
 
 - Introduce a unified workspace with an overview, client navigation, account/provider management, usage analysis, and settings. Existing menu-bar switching and client-specific tools remain available.

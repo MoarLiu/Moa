@@ -24,7 +24,7 @@ final class MoaWorkspaceWindowController: NSObject, NSWindowDelegate {
                 styleMask: [.titled, .closable, .miniaturizable, .resizable],
                 backing: .buffered, defer: false
             )
-            window.title = MoaRuntimeMode.isWorkspacePreview ? "Moa — 1.7.0 Preview" : "Moa"
+            window.title = MoaRuntimeMode.isWorkspacePreview ? "Moa — 1.8.0 Preview" : "Moa"
             window.minSize = NSSize(width: 720, height: 560)
             window.isReleasedWhenClosed = false
             window.delegate = self
