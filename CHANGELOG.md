@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.8.1 - 2026-11-26
+
+- Fix a process-check error when saving or switching Antigravity logins after a background extension's executable has been removed. Moa uses the process's original launch path when the current path is unavailable and continues to detect running clients that share the login.
+
 ## 1.8.0 - 2026-11-12
 
 - Preserve consecutive Codex configuration and login backups created within the same second, keeping each earlier snapshot available for recovery.

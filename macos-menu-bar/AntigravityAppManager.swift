@@ -58,6 +58,7 @@ protocol AntigravityAppManaging {
 
 final class AntigravityAppManager: AntigravityAppManaging {
     static let bundleID = "com.google.antigravity"
+    private static let inspectionError = AntigravityError.message("Unable to check Antigravity processes. Close Antigravity, agy, and its IDE extensions, then try again.")
     var isRunning: Bool { !NSRunningApplication.runningApplications(withBundleIdentifier: Self.bundleID).isEmpty }
 
     private func appURL() throws -> URL {
@@ -79,21 +80,50 @@ final class AntigravityAppManager: AntigravityAppManaging {
             || (name.hasPrefix("language_server") && (lower.contains("antigravity") || lower.contains("/.gemini/")))
     }
 
+    private static func originalExecutablePath(pid: pid_t) -> String? {
+        // The kernel stores the executable's launch path after argc, even if
+        // an app update has since removed the running executable from disk.
+        let argcSize = MemoryLayout<Int32>.size
+        var bytes = [UInt8](repeating: 0, count: argcSize + Int(MAXPATHLEN) * 4)
+        var length = bytes.count
+        var mib = [CTL_KERN, KERN_PROCARGS2, pid]
+        let result = bytes.withUnsafeMutableBytes {
+            sysctl(&mib, u_int(mib.count), $0.baseAddress, &length, nil, 0)
+        }
+        guard result == 0, length > argcSize, length <= bytes.count else { return nil }
+        let pathBytes = bytes[argcSize..<length]
+        guard let end = pathBytes.firstIndex(of: 0),
+              let path = String(bytes: pathBytes[..<end], encoding: .utf8),
+              path.hasPrefix("/") else { return nil }
+        return path
+    }
+
+    static func executablePath(pid: pid_t) throws -> String? {
+        var path = [CChar](repeating: 0, count: Int(MAXPATHLEN) * 4)
+        let (length, pathError) = path.withUnsafeMutableBytes { buffer in
+            let length = proc_pidpath(pid, buffer.baseAddress, UInt32(buffer.count))
+            return (length, errno)
+        }
+        if length > 0 { return String(cString: path) }
+        if pathError == ENOENT, let originalPath = originalExecutablePath(pid: pid) {
+            return originalPath
+        }
+        if Darwin.kill(pid, 0) == 0 { throw inspectionError }
+        return nil
+    }
+
     private func clientExecutables() throws -> [String] {
         let count = proc_listallpids(nil, 0)
-        guard count > 0 else { throw AntigravityError.message("Unable to check Antigravity processes. Close Antigravity, agy, and its IDE extensions, then try again.") }
+        guard count > 0 else { throw Self.inspectionError }
         var pids = [pid_t](repeating: 0, count: Int(count) + 1024)
         let found = pids.withUnsafeMutableBytes { proc_listallpids($0.baseAddress, Int32($0.count)) }
-        guard found > 0, Int(found) < pids.count else { throw AntigravityError.message("Unable to check Antigravity processes. Close Antigravity, agy, and its IDE extensions, then try again.") }
+        guard found > 0, Int(found) < pids.count else { throw Self.inspectionError }
         var paths: [String] = []
         for pid in pids.prefix(Int(found)) where pid > 0 {
             var info = proc_bsdinfo()
             let size = Int32(MemoryLayout<proc_bsdinfo>.size)
             guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size, info.pbi_uid == getuid() else { continue }
-            var path = [CChar](repeating: 0, count: Int(MAXPATHLEN) * 4)
-            let length = path.withUnsafeMutableBytes { proc_pidpath(pid, $0.baseAddress, UInt32($0.count)) }
-            if length > 0 { paths.append(String(cString: path)) }
-            else if Darwin.kill(pid, 0) == 0 { throw AntigravityError.message("Unable to check Antigravity processes. Close Antigravity, agy, and its IDE extensions, then try again.") }
+            if let path = try Self.executablePath(pid: pid) { paths.append(path) }
         }
         return paths
     }

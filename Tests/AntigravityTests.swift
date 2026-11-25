@@ -461,6 +461,37 @@ final class AntigravityTests: XCTestCase {
         }
     }
 
+    func testRunningProcessesCanStillBeClassifiedAfterExecutableIsRemoved() throws {
+        let files = FileManager.default
+        let root = files.temporaryDirectory.appendingPathComponent("moa-process-\(UUID().uuidString)").resolvingSymlinksInPath()
+        defer { try? files.removeItem(at: root) }
+
+        for (relativePath, sharesLogin) in [
+            ("Other.app/Contents/PlugIns/ServiceExtension.appex/Contents/MacOS/ServiceExtension", false),
+            ("bin/agy", true),
+            ("Antigravity IDE.app/Contents/MacOS/Electron", true),
+            (".vscode/extensions/google.antigravity/bin/language_server_macos_arm", true)
+        ] {
+            let executable = root.appendingPathComponent(relativePath)
+            try files.createDirectory(at: executable.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try files.copyItem(at: URL(fileURLWithPath: "/bin/sleep"), to: executable)
+            let process = Process()
+            process.executableURL = executable
+            process.arguments = ["30"]
+            try process.run()
+            defer {
+                if process.isRunning { process.terminate() }
+                process.waitUntilExit()
+            }
+
+            try files.removeItem(at: executable)
+            XCTAssertTrue(process.isRunning, relativePath)
+            let path = try XCTUnwrap(AntigravityAppManager.executablePath(pid: process.processIdentifier))
+            XCTAssertEqual(path, executable.path)
+            XCTAssertEqual(AntigravityAppManager.isSharedClient(executable: path), sharesLogin, relativePath)
+        }
+    }
+
     func testMetadataFailurePreventsLiveSwitchAndDeleteRestoresSavedSecret() throws {
         try fixture { _, controller, store, _ in
             let a = try controller.saveCurrent(name: "A")
