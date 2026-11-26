@@ -253,6 +253,8 @@ final class MoaAccountManagerModel: ObservableObject {
         guard !isBusy(group) else { return }
         let refresh: () -> Void = { [weak self] in self?.reload() }
         switch group {
+        case .codexOfficial:
+            app.profileActionCoordinator.addAnotherCodexOfficialAccountAction(onComplete: refresh)
         case .workbuddy:
             app.workbuddyCoordinator.addAnotherAccount(onComplete: refresh)
         case .workbuddyCN:
@@ -261,9 +263,53 @@ final class MoaAccountManagerModel: ObservableObject {
             app.deepseekCoordinator.addAnotherAccount(onComplete: refresh)
         case .antigravity:
             app.antigravityCoordinator.addAnotherAccount(onComplete: refresh)
-        case .codexOfficial, .codexConfig, .claude:
+        case .codexConfig, .claude:
             break
         }
+    }
+
+    func copyClaudeCodeEnv(_ row: MoaAccountRow) {
+        guard row.group == .claude,
+              let profile = try? app.claudeDesktopProfileController.profiles().first(where: { $0.id == row.id }) else {
+            return
+        }
+        app.profileActionCoordinator.copyClaudeCodeConfig(for: profile)
+    }
+
+    func restoreOfficialMode(for client: MoaWorkspaceClient) {
+        switch client {
+        case .codex:
+            guard !isBusy(.codexConfig) else { return }
+            guard MoaNonBlockingAlert.confirm(
+                messageText: MoaL10n.text("Switch to Codex Official Mode?"),
+                informativeText: MoaL10n.text("Codex quits and reopens using official endpoints while keeping your saved providers. Finish active tasks first."),
+                primaryButtonTitle: MoaL10n.text("Switch"),
+                tone: .warning
+            ) else { return }
+            app.restoreCodexOfficialAction()
+        case .claude:
+            guard !isBusy(.claude) else { return }
+            guard MoaNonBlockingAlert.confirm(
+                messageText: MoaL10n.text("Switch to Claude Desktop Official?"),
+                informativeText: MoaL10n.text("Claude Desktop quits and reopens without the 3P provider override. Finish active tasks first."),
+                primaryButtonTitle: MoaL10n.text("Switch"),
+                tone: .warning
+            ) else { return }
+            app.restoreClaudeDesktopOfficialAction()
+        default:
+            break
+        }
+    }
+
+    func applyCodexNoAccountMode() {
+        guard !isBusy(.codexOfficial) else { return }
+        guard MoaNonBlockingAlert.confirm(
+            messageText: MoaL10n.text("Use Codex Without an Official Account?"),
+            informativeText: MoaL10n.text("Moa saves the current login (if any), switches auth to API key mode, and reopens Codex. Finish active tasks first."),
+            primaryButtonTitle: MoaL10n.text("Continue"),
+            tone: .warning
+        ) else { return }
+        app.applyCodexOfficialNoAccountAction()
     }
 
     func rename(_ row: MoaAccountRow) {

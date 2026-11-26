@@ -24,7 +24,7 @@ final class MoaWorkspaceWindowController: NSObject, NSWindowDelegate {
                 styleMask: [.titled, .closable, .miniaturizable, .resizable],
                 backing: .buffered, defer: false
             )
-            window.title = MoaRuntimeMode.isWorkspacePreview ? "Moa — 1.8.0 Preview" : "Moa"
+            window.title = MoaRuntimeMode.isWorkspacePreview ? "Moa — 1.9.0 Preview" : "Moa"
             window.minSize = NSSize(width: 720, height: 560)
             window.isReleasedWhenClosed = false
             window.delegate = self
@@ -37,7 +37,8 @@ final class MoaWorkspaceWindowController: NSObject, NSWindowDelegate {
                 window.setFrameAutosaveName("MoaWorkspaceWindow")
             }
             let host = MoaInteractiveHostingView(rootView: MoaWorkspaceView(
-                app: app, navigation: navigation, accounts: accounts, usage: app.usageCoordinator))
+                app: app, navigation: navigation, accounts: accounts, usage: app.usageCoordinator,
+                updates: app.updateCoordinator))
             if #available(macOS 13.0, *) { host.sizingOptions = [] }
             window.contentView = host
             self.window = window
@@ -89,6 +90,23 @@ struct MoaWorkspaceView: View {
     @ObservedObject var navigation: MoaWorkspaceNavigation
     @ObservedObject var accounts: MoaAccountManagerModel
     @ObservedObject var usage: MoaUsageCoordinator
+    @ObservedObject var updates: MoaUpdateCoordinator
+    @State private var languageRevision = UUID()
+    @State private var languageChanged = false
+
+    init(
+        app: AppDelegate,
+        navigation: MoaWorkspaceNavigation,
+        accounts: MoaAccountManagerModel,
+        usage: MoaUsageCoordinator,
+        updates: MoaUpdateCoordinator? = nil
+    ) {
+        self.app = app
+        self.navigation = navigation
+        self.accounts = accounts
+        self.usage = usage
+        self.updates = updates ?? app.updateCoordinator
+    }
 
     private var clients: [(client: MoaWorkspaceClient, present: Bool)] {
         MoaClientInstallation.orderedClients(navigation.installedClients)
@@ -111,7 +129,7 @@ struct MoaWorkspaceView: View {
                     case .usage:
                         MoaWorkspaceUsageView(app: app, navigation: navigation)
                     case .settings:
-                        MoaWorkspaceSettingsView(app: app)
+                        MoaWorkspaceSettingsView(app: app, navigation: navigation, languageChanged: languageChanged)
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -120,6 +138,11 @@ struct MoaWorkspaceView: View {
             .background(MoaWorkspaceTheme.canvas)
             .accentColor(MoaWorkspaceTheme.accent)
             .moaFeedbackBanner()
+        }
+        .id(languageRevision)
+        .onReceive(NotificationCenter.default.publisher(for: MoaAppLanguage.didChangeNotification).receive(on: RunLoop.main)) { _ in
+            languageChanged = true
+            languageRevision = UUID()
         }
     }
 
@@ -161,7 +184,8 @@ struct MoaWorkspaceView: View {
                     }
                 }
                 Section {
-                    navigationRow("Settings and Data", destination: .settings, icon: "settings", rail: rail)
+                    navigationRow("Settings and Data", destination: .settings, icon: "settings", rail: rail,
+                                  showsBadge: updates.availableUpdate != nil)
                 }
             }
             .listStyle(.sidebar)
@@ -198,14 +222,24 @@ struct MoaWorkspaceView: View {
         .accessibilityIdentifier("workspace.client.\(client.rawValue)")
     }
 
-    private func navigationRow(_ title: String, destination: MoaWorkspaceDestination, icon: String, rail: Bool) -> some View {
+    private func navigationRow(_ title: String, destination: MoaWorkspaceDestination, icon: String, rail: Bool, showsBadge: Bool = false) -> some View {
         HStack(spacing: 10) {
-            if let image = MoaUIResources.image(icon, folder: "Navigation", extension: "svg") {
-                Image(nsImage: image).renderingMode(.template).resizable().frame(width: 18, height: 18)
-                    .frame(width: 20)
+            ZStack(alignment: .topTrailing) {
+                if let image = MoaUIResources.image(icon, folder: "Navigation", extension: "svg") {
+                    Image(nsImage: image).renderingMode(.template).resizable().frame(width: 18, height: 18)
+                        .frame(width: 20)
+                }
+                if rail && showsBadge {
+                    Circle().fill(MoaWorkspaceTheme.accent).frame(width: 7, height: 7)
+                        .offset(x: 3, y: -2)
+                }
             }
             if !rail {
                 Text(MoaL10n.text(title)).font(.system(size: 13)).lineLimit(1)
+                if showsBadge {
+                    Spacer(minLength: 4)
+                    Circle().fill(MoaWorkspaceTheme.accent).frame(width: 7, height: 7)
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: rail ? .center : .leading)
@@ -269,7 +303,20 @@ struct MoaWorkspaceView: View {
             Text(MoaL10n.text("Get started")).font(.system(size: 18, weight: .semibold))
             if knowsInstalls {
                 HStack(spacing: 8) {
-                    ForEach(detected) { MoaClientLogo(client: $0, size: 22) }
+                    ForEach(detected) { client in
+                        Button {
+                            if !client.groups.contains(navigation.accountGroup) {
+                                navigation.accountGroup = client.groups.first ?? .codexOfficial
+                            }
+                            navigation.destination = .client(client)
+                        } label: {
+                            MoaClientLogo(client: client, size: 22)
+                                .padding(4)
+                                .background(MoaWorkspaceTheme.canvas, in: RoundedRectangle(cornerRadius: 6))
+                        }
+                        .buttonStyle(.plain)
+                        .help(client.title)
+                    }
                     Text(MoaL10n.format("%lld supported clients found on this Mac", detected.count))
                         .font(.system(size: 12)).foregroundStyle(MoaWorkspaceTheme.secondary)
                 }

@@ -1,9 +1,12 @@
 import AppKit
+import Combine
 import Foundation
 
 /// Menu and lifecycle state belong to the main actor; log scanning stays on the worker.
 @MainActor
-final class CodexEnhancementCoordinator: NSObject {
+final class CodexEnhancementCoordinator: NSObject, ObservableObject {
+    @Published private(set) var settings: CodexStatusLineSettings
+    @Published private(set) var statusText: String
     private let controller: CodexAppController
     private let defaults: UserDefaults
     private let runtime: CodexEnhancementRuntime
@@ -22,6 +25,8 @@ final class CodexEnhancementCoordinator: NSObject {
          defaults: UserDefaults = .standard, runtime: CodexEnhancementRuntime = .shared) {
         self.controller = controller; self.defaults = defaults; self.runtime = runtime
         self.operations = operations
+        self.settings = CodexStatusLineSettings(defaults: defaults)
+        self.statusText = MoaL10n.text("Status line: off")
         super.init()
         toggleItem.title = MoaL10n.text("Show Generation Rate (Estimated)")
         toggleItem.target = self; toggleItem.action = #selector(toggle)
@@ -42,7 +47,7 @@ final class CodexEnhancementCoordinator: NSObject {
         explanation.isEnabled = false; options.addItem(explanation)
         optionsItem.submenu = options
         refreshChecks()
-        stateItem.title = MoaL10n.text("Status line: off")
+        stateItem.title = statusText
     }
 
     var menuItems: [NSMenuItem] { [toggleItem, stateItem, optionsItem] }
@@ -53,6 +58,12 @@ final class CodexEnhancementCoordinator: NSObject {
     }
 
     func stop() { running = false; generation = UUID(); worker?.cancel(); worker = nil }
+
+    func setEnabled(_ value: Bool) { change { $0.enabled = value } }
+    func setShowContext(_ value: Bool) { change { $0.showContext = value } }
+    func setShowCache(_ value: Bool) { change { $0.showCache = value } }
+    func setBelowComposer(_ value: Bool) { change { $0.belowComposer = value } }
+    func reopenFromWorkspace() { reopen() }
 
     @objc private func toggle() { change { $0.enabled.toggle() } }
     @objc private func toggleContext() { change { $0.showContext.toggle() } }
@@ -69,17 +80,19 @@ final class CodexEnhancementCoordinator: NSObject {
     }
 
     private func change(_ edit: (inout CodexStatusLineSettings) -> Void) {
-        var settings = CodexStatusLineSettings(defaults: defaults)
-        edit(&settings); settings.save(to: defaults)
+        var next = CodexStatusLineSettings(defaults: defaults)
+        edit(&next); next.save(to: defaults)
+        settings = next
         refreshChecks(); restartWorker()
     }
 
     private func refreshChecks() {
-        let settings = CodexStatusLineSettings(defaults: defaults)
-        toggleItem.state = settings.enabled ? .on : .off
-        contextItem.state = settings.showContext ? .on : .off
-        cacheItem.state = settings.showCache ? .on : .off
-        belowItem.state = settings.belowComposer ? .on : .off
+        let current = CodexStatusLineSettings(defaults: defaults)
+        settings = current
+        toggleItem.state = current.enabled ? .on : .off
+        contextItem.state = current.showContext ? .on : .off
+        cacheItem.state = current.showCache ? .on : .off
+        belowItem.state = current.belowComposer ? .on : .off
     }
 
     private func restartWorker() {
@@ -109,7 +122,9 @@ final class CodexEnhancementCoordinator: NSObject {
 
     private func setStatus(_ title: String, token: UUID) {
         guard running, generation == token else { return }
-        stateItem.title = MoaL10n.text(title)
+        let localized = MoaL10n.text(title)
+        statusText = localized
+        stateItem.title = localized
     }
 
     nonisolated private func run(settings: CodexStatusLineSettings, token: UUID) async {

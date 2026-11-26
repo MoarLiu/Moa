@@ -40,6 +40,7 @@ extension AppDelegate {
     }
 
     @objc func addCodexOfficialAccountAction() { profileActionCoordinator.addCodexOfficialAccountAction() }
+    @objc func addAnotherCodexOfficialAccountAction() { profileActionCoordinator.addAnotherCodexOfficialAccountAction() }
     @objc func renameCodexOfficialAccountAction() { profileActionCoordinator.renameCodexOfficialAccountAction() }
     @objc func deleteCodexOfficialAccountAction() { profileActionCoordinator.deleteCodexOfficialAccountAction() }
     @objc func applyProfileAction(_ sender: NSMenuItem) { profileActionCoordinator.applyProfileAction(sender) }
@@ -84,18 +85,22 @@ extension AppDelegate {
         let title = String(format: MoaL10n.text("Set %@ Daily Usage Alert"), kind.displayName)
         let initialThreshold = DailyUsageAlertController.threshold(for: kind)
         let initialText = initialThreshold.map { String(format: "%.2f", $0) } ?? ""
+        let initialWarnAt80 = DailyUsageAlertController.warning80Enabled(for: kind)
 
         var didSave = false
         var savedThreshold: Double?
+        var savedWarnAt80 = false
 
-        MoaGlassModalHost.runModal(width: 500, fallbackHeight: 360, title: title) {
+        MoaGlassModalHost.runModal(width: 500, fallbackHeight: 400, title: title) {
             DailyUsageAlertFormView(
                 title: title,
                 initialEnabled: initialThreshold != nil,
                 initialThresholdText: initialText,
-                onSave: { threshold in
+                initialWarnAt80: initialWarnAt80,
+                onSave: { threshold, warnAt80 in
                     didSave = true
                     savedThreshold = threshold
+                    savedWarnAt80 = warnAt80
                     MoaGlassModalHost.finish(.OK)
                 },
                 onCancel: {
@@ -106,22 +111,44 @@ extension AppDelegate {
 
         guard didSave else { return }
         DailyUsageAlertController.setThreshold(savedThreshold, for: kind)
+        DailyUsageAlertController.setWarning80Enabled(savedThreshold != nil && savedWarnAt80, for: kind)
+        if savedThreshold != nil {
+            notificationManager.requestAuthorizationIfNeeded()
+        }
         statusItemText.title = Self.statusTitle("Updated %@ daily usage alert", kind.displayName)
     }
 
     func maybeShowDailyUsageAlert(kind: DailyUsageAlertKind, summary: CodexUsageSummary) {
-        guard DailyUsageAlertController.shouldAlert(kind: kind, summary: summary),
+        guard let level = DailyUsageAlertController.pendingAlertLevel(kind: kind, summary: summary),
               let threshold = DailyUsageAlertController.threshold(for: kind)
         else {
             return
         }
 
-        NSSound.beep()
-        statusItemText.title = Self.statusTitle("%@ daily usage reached threshold", kind.displayName)
-        MoaNonBlockingAlert.present(
-            messageText: String(format: MoaL10n.text("%@ daily usage reached the alert threshold"), kind.displayName),
-            informativeText: String(format: MoaL10n.text("Today's local estimate is %@, reaching your threshold of %@."), DailyUsageAlertController.currency(summary.todayCostUSD), DailyUsageAlertController.currency(threshold)),
-            tone: .warning
+        let todayText = DailyUsageAlertController.currency(summary.todayCostUSD)
+        let thresholdText = DailyUsageAlertController.currency(threshold)
+        let title: String
+        let body: String
+        let identifierSuffix: String
+
+        switch level {
+        case .warning80:
+            title = String(format: MoaL10n.text("%@ daily usage reached 80%% of threshold"), kind.displayName)
+            body = String(format: MoaL10n.text("Today's local estimate is %@, approaching your %@ threshold."), todayText, thresholdText)
+            statusItemText.title = Self.statusTitle("%@ daily usage reached 80%% of threshold", kind.displayName)
+            identifierSuffix = "warn80"
+        case .reached:
+            title = String(format: MoaL10n.text("%@ daily usage reached the alert threshold"), kind.displayName)
+            body = String(format: MoaL10n.text("Today's local estimate is %@, reaching your threshold of %@."), todayText, thresholdText)
+            statusItemText.title = Self.statusTitle("%@ daily usage reached threshold", kind.displayName)
+            identifierSuffix = "reached"
+        }
+
+        notificationManager.post(
+            identifier: "moa.daily-usage.\(kind.rawValue).\(identifierSuffix).\(MoaUsageReport.dayKey(from: summary.updatedAt))",
+            title: title,
+            body: body,
+            action: .openUsage(kind.usageSource)
         )
     }
 

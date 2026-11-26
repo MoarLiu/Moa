@@ -122,8 +122,10 @@ MACOSX_DEPLOYMENT_TARGET="$MACOS_DEPLOYMENT_TARGET" "$SWIFTC_BIN" \
   -framework Foundation \
   -framework ImageIO \
   -framework Security \
+  -framework ServiceManagement \
   -framework SwiftUI \
   -framework UniformTypeIdentifiers \
+  -framework UserNotifications \
   "${MOA_APP_ABS_SOURCES[@]}" \
   -o "$EXECUTABLE"
 

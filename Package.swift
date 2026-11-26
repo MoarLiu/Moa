@@ -24,8 +24,10 @@ let package = Package(
                 .linkedFramework("CryptoKit"),
                 .linkedFramework("ImageIO"),
                 .linkedFramework("Security"),
+                .linkedFramework("ServiceManagement"),
                 .linkedFramework("SwiftUI"),
-                .linkedFramework("UniformTypeIdentifiers")
+                .linkedFramework("UniformTypeIdentifiers"),
+                .linkedFramework("UserNotifications")
             ]
         ),
         .testTarget(name: "MoaTests", dependencies: ["Moa"], path: "Tests")

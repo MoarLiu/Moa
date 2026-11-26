@@ -47,7 +47,7 @@ Client names and logos identify their respective products and belong to their re
 - Shortcuts: **Command-0** opens the overview, **Command-U** opens usage analysis, **Command-Shift-A** opens accounts, and **Command-R** refreshes the workspace or all menu usage sources.
 - Maintenance actions, including price updates, update checks, and data management, are grouped under **Moa** in the main menu.
 
-Version 1.8.0 refines the workspace with installed-client ordering, keyboard sidebar navigation, getting-started guidance, and model-price update details in settings.
+Version 1.9.0 completes workspace parity for Codex, Claude Desktop, Antigravity, and ZCode, adds native Notification Center alerts (with optional 80% early warnings), Launch at Login on macOS 13+, an optional menu-bar today's usage display, in-app language selection, and daily background update checks.
 
 ## ChatGPT Client Compatibility
 

@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import Foundation
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
@@ -15,11 +16,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     lazy var antigravityCoordinator = MoaAntigravityCoordinator(app: self)
     let dataPackageController = MoaDataPackageController()
     let updateController = MoaUpdateController()
+    lazy var updateCoordinator = MoaUpdateCoordinator(controller: updateController)
+    lazy var notificationManager = MoaNotificationManager()
+    lazy var launchAtLoginController = MoaLaunchAtLoginController()
     lazy var mainMenuCoordinator = MoaMainMenuCoordinator(app: self)
     lazy var providerActionCoordinator = MoaProviderActionCoordinator(app: self)
     lazy var profileActionCoordinator = MoaProfileActionCoordinator(app: self)
     lazy var accountManagerWindow = MoaAccountManagerWindowController(app: self)
     lazy var workspaceWindow = MoaWorkspaceWindowController(app: self)
+    private var appObservers = Set<AnyCancellable>()
     lazy var usageInsightsWindow = MoaUsageInsightsWindowController(
         codexScanner: usageCoordinator.codexScanner,
         claudeScanner: usageCoordinator.claudeScanner,
@@ -111,8 +116,87 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.workspaceWindow.navigation.refreshRequest = UUID()
         }
         configureUsageAlertCallbacks()
+        configureNotificationCallbacks()
+        configureStatusBarObservers()
         usageCoordinator.start()
         codexEnhancements.start()
+        updateCoordinator.start()
+    }
+
+    private func configureNotificationCallbacks() {
+        notificationManager.onAction = { [weak self] action in
+            guard let self else { return }
+            switch action {
+            case .openUsage(let source):
+                self.workspaceWindow.navigation.showUsage(source)
+                self.workspaceWindow.show()
+            case .openSettingsAbout:
+                self.workspaceWindow.navigation.showSettings(.about)
+                self.workspaceWindow.show()
+            }
+        }
+        updateCoordinator.onBackgroundUpdateDiscovered = { [weak self] update in
+            guard let self else { return }
+            let buildText = update.build.map { " (\($0))" } ?? ""
+            let title = MoaL10n.text("Moa Update Available")
+            let body = MoaL10n.format("Moa %@ is available. Open Settings → About to review and install.", "\(update.version)\(buildText)")
+            self.notificationManager.post(
+                identifier: "moa.update.\(MoaUpdateCoordinator.releaseSignature(for: update))",
+                title: title,
+                body: body,
+                action: .openSettingsAbout,
+                allowsAuthorizationPrompt: false,
+                fallbackOnDenied: false
+            )
+            self.mainMenuCoordinator.refreshUpdateIndicator()
+        }
+    }
+
+    private func configureStatusBarObservers() {
+        appObservers.removeAll()
+        usageCoordinator.$workspaceSummaries
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.updateStatusItemDisplay() }
+            .store(in: &appObservers)
+        updateCoordinator.$availableUpdate
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.mainMenuCoordinator.refreshUpdateIndicator() }
+            .store(in: &appObservers)
+        NotificationCenter.default.publisher(for: MoaMenuBarDisplayPreferences.didChangeNotification)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.updateStatusItemDisplay() }
+            .store(in: &appObservers)
+        NotificationCenter.default.publisher(for: MoaAppLanguage.didChangeNotification)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                self.configureApplicationMenu()
+                self.configureMenu()
+                self.refreshStatus()
+                self.workspaceWindow.navigation.refreshRequest = UUID()
+            }
+            .store(in: &appObservers)
+    }
+
+    func updateStatusItemDisplay() {
+        guard let button = statusItem.button else { return }
+        let showTodayCost = MoaMenuBarDisplayPreferences.showsTodayCost()
+        let title = MoaMenuBarDisplayPreferences.statusItemTitle(
+            summaries: usageCoordinator.workspaceSummaries,
+            showTodayCost: showTodayCost
+        )
+        if showTodayCost {
+            statusItem.length = NSStatusItem.variableLength
+            button.imagePosition = .imageLeading
+            button.attributedTitle = NSAttributedString(
+                string: title,
+                attributes: [.font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium)]
+            )
+        } else {
+            statusItem.length = NSStatusItem.squareLength
+            button.imagePosition = .imageOnly
+            button.title = ""
+        }
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -160,6 +244,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         guard !MoaRuntimeMode.isWorkspacePreview else { return }
+        updateCoordinator.stop()
         codexEnhancements.stop()
         usageCoordinator.stop()
     }
@@ -206,6 +291,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             button.imageScaling = .scaleProportionallyDown
             button.toolTip = MoaL10n.text("Moa - Codex, Claude, ZCode, WorkBuddy, WorkBuddy AI, DeepSeek, Antigravity")
         }
+        updateStatusItemDisplay()
         statusItem.menu = menu
     }
 

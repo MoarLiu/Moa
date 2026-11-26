@@ -132,6 +132,42 @@ final class MoaAntigravityCoordinator: NSObject {
         if reopen { reopenApp() } else { openApp() }
     }
 
+    func repairKeychainAccess(onComplete: (() -> Void)? = nil) {
+        guard !isUpdatingAccounts, MoaNonBlockingAlert.confirm(
+            messageText: MoaL10n.text("Repair Antigravity Keychain Access?"),
+            informativeText: MoaL10n.text("Moa updates only its own trusted-app entry on Antigravity Keychain items without reading or modifying credential data. macOS may ask for Keychain authorization."),
+            primaryButtonTitle: MoaL10n.text("Repair"),
+            tone: .warning
+        ) else { return }
+
+        guard let token = app.accountOperations.begin(.antigravity, message: MoaL10n.text("Repairing Keychain access…")) else { return }
+        revision += 1
+        renderMenu()
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result = Result { try AntigravityKeychain.repairMoaAccess() }
+            let refreshed = Result { try self.controller.overview() }
+            DispatchQueue.main.async {
+                self.app.accountOperations.finish(.antigravity, id: token)
+                self.accept(refreshed)
+                self.renderMenu()
+                if let onComplete { onComplete() }
+                else { self.app.accountManagerWindow.refreshIfVisible() }
+                switch result {
+                case .success(let count):
+                    self.app.statusItemText.title = AppDelegate.statusTitle("Repaired Keychain access")
+                    MoaNonBlockingAlert.present(
+                        messageText: MoaL10n.text("Antigravity Keychain Access Repaired"),
+                        informativeText: MoaL10n.format("Updated Moa access for %lld Antigravity Keychain items. Credential data was not changed.", count),
+                        tone: .success
+                    )
+                case .failure(let error):
+                    self.app.statusItemText.title = AppDelegate.statusTitle("Failed")
+                    self.app.showError(error.localizedDescription)
+                }
+            }
+        }
+    }
+
     private func perform(onComplete: (() -> Void)? = nil, _ operation: @escaping () throws -> Void) {
         guard let token = app.accountOperations.begin(.antigravity, message: MoaL10n.text("Updating Antigravity…")) else { return }
         revision += 1

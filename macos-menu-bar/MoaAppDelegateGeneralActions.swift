@@ -40,7 +40,7 @@ extension AppDelegate {
 
         Task {
             do {
-                let result = try await updateController.checkForUpdate()
+                let result = try await updateCoordinator.checkNow(userInitiated: true)
                 await MainActor.run {
                     switch result {
                     case .upToDate(let version, let build):
@@ -62,6 +62,25 @@ extension AppDelegate {
                     showUpdateCheckError(error)
                 }
             }
+        }
+    }
+
+    @objc func openSettingsAboutAction() {
+        workspaceWindow.navigation.showSettings(.about)
+        workspaceWindow.show()
+    }
+
+    @objc func relaunchMoaAction() {
+        guard !MoaRuntimeMode.suppressesUserInteraction,
+              Bundle.main.bundleURL.pathExtension == "app" else { return }
+        let appURL = Bundle.main.bundleURL
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        process.arguments = ["-n", appURL.path]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        if (try? process.run()) != nil {
+            NSApp.terminate(nil)
         }
     }
 

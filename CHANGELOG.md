@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.9.0 - 2026-11-26
+
+- Complete workspace and menu-bar capability parity across Codex, Claude Desktop, Antigravity, and ZCode:
+  - Expose Codex experimental generation-rate status line controls, live status, history `model_provider` migration, Official Mode / Do Not Use Account switching, and an Add Another Account enrollment flow (saving the current login and restoring Official Mode safely inside a transaction).
+  - Expose Claude Desktop Official Mode switching in the workspace and wire Copy Claude Code Env into both workspace provider actions and the Claude Desktop menu.
+  - Add confirmed Repair Keychain Access… to Antigravity workspace actions and Reapply Official Configuration… to ZCode workspace actions.
+  - Make detected client badges in Overview getting-started guidance clickable.
+- Deliver daily usage alerts through macOS Notification Center (`UNUserNotificationCenter`) without stealing focus, with click-to-open navigation to the matching usage source, graceful banner fallback when permission is denied or unavailable, and an optional per-source 80% early warning.
+- Add Settings → General with Launch at Login (`SMAppService` on macOS 13+ with explicit macOS 12 guidance), optional menu-bar today's local usage summary, in-app language preference (System / Simplified Chinese / English), notification permission status, and daily background update checks with non-intrusive indicators in the sidebar, menu bar, and Settings → About.
+- Keep the menu bar available after switching languages and keep the Reopen Moa action visible after the workspace refreshes.
+- Add regression tests covering Codex new-login enrollment, Claude Code snippet escaping, 80% / 100% alert deduplication, notification delivery/fallback routing, language bundle resolution, menu-bar summary formatting, Launch at Login states, background update scheduling, and workspace parity.
+
 ## 1.8.1 - 2026-11-26
 
 - Fix a process-check error when saving or switching Antigravity logins after a background extension's executable has been removed. Moa uses the process's original launch path when the current path is unavailable and continues to detect running clients that share the login.

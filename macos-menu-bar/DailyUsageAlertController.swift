@@ -22,16 +22,32 @@ enum DailyUsageAlertKind: String {
             return WorkBuddyEdition.china.title
         }
     }
+
+    var usageSource: MoaUsageSource {
+        switch self {
+        case .codex: return .codex
+        case .claude: return .claude
+        case .zcode: return .zcode
+        case .workbuddy: return .workbuddy
+        case .workbuddyCN: return .workbuddyCN
+        }
+    }
+}
+
+enum DailyUsageAlertLevel: Equatable {
+    case warning80
+    case reached
 }
 
 // 每日用量提醒弹窗:统一的玻璃风格 SwiftUI 表单(原生复选框 -> SwiftUI Toggle)。
 struct DailyUsageAlertFormView: View {
     let title: String
-    let onSave: (Double?) -> Void
+    let onSave: (Double?, Bool) -> Void
     let onCancel: () -> Void
 
     @State private var enabled: Bool
     @State private var thresholdText: String
+    @State private var warnAt80: Bool
     @State private var statusText: String = ""
     @FocusState private var thresholdFocused: Bool
 
@@ -39,7 +55,8 @@ struct DailyUsageAlertFormView: View {
         title: String,
         initialEnabled: Bool,
         initialThresholdText: String,
-        onSave: @escaping (Double?) -> Void,
+        initialWarnAt80: Bool = false,
+        onSave: @escaping (Double?, Bool) -> Void,
         onCancel: @escaping () -> Void
     ) {
         self.title = title
@@ -47,6 +64,7 @@ struct DailyUsageAlertFormView: View {
         self.onCancel = onCancel
         _enabled = State(initialValue: initialEnabled)
         _thresholdText = State(initialValue: initialThresholdText)
+        _warnAt80 = State(initialValue: initialWarnAt80)
     }
 
     var body: some View {
@@ -54,7 +72,7 @@ struct DailyUsageAlertFormView: View {
             MoaModalHeader(
                 icon: "bell.badge.fill",
                 title: title,
-                message: MoaL10n.text("Moa alerts you when today's local estimated cost reaches the threshold. This is only a local estimate, not an official bill.")
+                message: MoaL10n.text("Moa sends a notification when today's local estimated cost reaches the threshold. This is only a local estimate, not an official bill.")
             )
         } fields: {
             VStack(alignment: .leading, spacing: 16) {
@@ -72,6 +90,12 @@ struct DailyUsageAlertFormView: View {
                         .opacity(enabled ? 1 : 0.5)
                         .onSubmit(save)
                 }
+
+                Toggle(MoaL10n.text("Also notify at 80% of threshold"), isOn: $warnAt80)
+                    .toggleStyle(.checkbox)
+                    .font(.system(size: 13))
+                    .disabled(!enabled)
+                    .opacity(enabled ? 1 : 0.5)
 
                 Text(statusText.isEmpty ? " " : statusText)
                     .id("moa-form-status")
@@ -97,7 +121,7 @@ struct DailyUsageAlertFormView: View {
 
     private func save() {
         guard enabled else {
-            onSave(nil)
+            onSave(nil, false)
             return
         }
         let raw = thresholdText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -106,13 +130,15 @@ struct DailyUsageAlertFormView: View {
             thresholdFocused = true
             return
         }
-        onSave(value)
+        onSave(value, warnAt80)
     }
 }
 
 enum DailyUsageAlertController {
     private static let thresholdPrefix = "Moa.dailyUsageAlert.threshold."
     private static let alertPrefix = "Moa.dailyUsageAlert.lastAlert."
+    private static let warn80EnabledPrefix = "Moa.dailyUsageAlert.warn80Enabled."
+    private static let warn80AlertPrefix = "Moa.dailyUsageAlert.lastWarn80."
 
     static func threshold(for kind: DailyUsageAlertKind, defaults: UserDefaults = .standard) -> Double? {
         let value = defaults.double(forKey: thresholdPrefix + kind.rawValue)
@@ -126,6 +152,21 @@ enum DailyUsageAlertController {
         } else {
             defaults.removeObject(forKey: key)
             defaults.removeObject(forKey: alertPrefix + kind.rawValue)
+            defaults.removeObject(forKey: warn80AlertPrefix + kind.rawValue)
+        }
+    }
+
+    static func warning80Enabled(for kind: DailyUsageAlertKind, defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: warn80EnabledPrefix + kind.rawValue)
+    }
+
+    static func setWarning80Enabled(_ enabled: Bool, for kind: DailyUsageAlertKind, defaults: UserDefaults = .standard) {
+        let key = warn80EnabledPrefix + kind.rawValue
+        if enabled {
+            defaults.set(true, forKey: key)
+        } else {
+            defaults.removeObject(forKey: key)
+            defaults.removeObject(forKey: warn80AlertPrefix + kind.rawValue)
         }
     }
 
@@ -137,19 +178,48 @@ enum DailyUsageAlertController {
     }
 
     static func shouldAlert(kind: DailyUsageAlertKind, summary: CodexUsageSummary, defaults: UserDefaults = .standard) -> Bool {
-        guard let threshold = threshold(for: kind, defaults: defaults), summary.todayCostUSD >= threshold else {
+        pendingAlertLevel(kind: kind, summary: summary, defaults: defaults) == .reached
+    }
+
+    static func pendingAlertLevel(
+        kind: DailyUsageAlertKind,
+        summary: CodexUsageSummary,
+        defaults: UserDefaults = .standard
+    ) -> DailyUsageAlertLevel? {
+        guard let threshold = threshold(for: kind, defaults: defaults) else {
             defaults.removeObject(forKey: alertPrefix + kind.rawValue)
-            return false
+            defaults.removeObject(forKey: warn80AlertPrefix + kind.rawValue)
+            return nil
         }
 
         let signature = "\(dayKey(from: summary.updatedAt))|\(String(format: "%.2f", threshold))"
-        let key = alertPrefix + kind.rawValue
-        guard defaults.string(forKey: key) != signature else {
-            return false
+        let reachedKey = alertPrefix + kind.rawValue
+        let warnKey = warn80AlertPrefix + kind.rawValue
+
+        if summary.todayCostUSD >= threshold {
+            // Once the full threshold is reached for this day/threshold, suppress
+            // any later 80% warning for the same signature.
+            defaults.set(signature, forKey: warnKey)
+            guard defaults.string(forKey: reachedKey) != signature else {
+                return nil
+            }
+            defaults.set(signature, forKey: reachedKey)
+            return .reached
         }
 
-        defaults.set(signature, forKey: key)
-        return true
+        defaults.removeObject(forKey: reachedKey)
+
+        if warning80Enabled(for: kind, defaults: defaults),
+           summary.todayCostUSD >= threshold * 0.8 {
+            guard defaults.string(forKey: warnKey) != signature else {
+                return nil
+            }
+            defaults.set(signature, forKey: warnKey)
+            return .warning80
+        }
+
+        defaults.removeObject(forKey: warnKey)
+        return nil
     }
 
     static func currency(_ value: Double) -> String {

@@ -16,10 +16,19 @@ struct MoaWorkspaceClientView: View {
         accounts.sections.first { $0.group == group }
     }
 
+    private var codexAPIProviderActive: Bool {
+        accounts.sections.first { $0.group == .codexConfig }?.rows.contains(where: \.active) == true
+    }
+
+    private var claudeProviderActive: Bool {
+        accounts.sections.first { $0.group == .claude }?.rows.contains(where: \.active) == true
+    }
+
     private var busy: Bool {
         client.operationClient.map { accounts.operations.active[$0] != nil } ?? false
     }
 
+    @MainActor
     var body: some View {
         GeometryReader { geometry in
             ScrollView {
@@ -54,12 +63,20 @@ struct MoaWorkspaceClientView: View {
                         } else {
                             workspaceNotice(MoaL10n.text("Preview uses no saved accounts or credentials."))
                         }
+                        if client == .codex {
+                            MoaCodexStatusLineCard(coordinator: app.codexEnhancements, busy: busy)
+                        }
                     } else {
                         workspaceNotice(MoaL10n.text("This client supports local usage and launch, not account or provider management."))
-                        usageAction
-                        Button(MoaL10n.text("Open ZCode Folder")) { app.zcodeController.openZCodeFolder() }
-                            .buttonStyle(MoaWorkspaceButtonStyle())
-                            .disabled(MoaRuntimeMode.suppressesUserInteraction)
+                        HStack(spacing: 12) {
+                            usageAction
+                            Button(MoaL10n.text("Reapply Official Configuration…")) { app.applyZCodeOfficialModeAction() }
+                                .buttonStyle(MoaWorkspaceButtonStyle())
+                                .disabled(MoaRuntimeMode.suppressesUserInteraction)
+                            Button(MoaL10n.text("Open ZCode Folder")) { app.zcodeController.openZCodeFolder() }
+                                .buttonStyle(MoaWorkspaceButtonStyle())
+                                .disabled(MoaRuntimeMode.suppressesUserInteraction)
+                        }
                     }
                 }.padding(32).frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -80,12 +97,33 @@ struct MoaWorkspaceClientView: View {
             Menu {
                 Button(MoaL10n.text("Reopen Client")) { app.workspaceWindow.open(client, reopen: true) }
                 if client == .codex {
+                    if codexAPIProviderActive {
+                        Button(MoaL10n.text("Use Codex Official Mode")) { accounts.restoreOfficialMode(for: .codex) }
+                    }
+                    Button(MoaL10n.text("Do Not Use Account")) { accounts.applyCodexNoAccountMode() }
+                    Divider()
+                    Button(MoaL10n.text("Migrate History model_provider")) { app.migrateCodexSessionModelProviderAction() }
                     Button(MoaL10n.text("Open Codex Folder")) { app.openCodexFolderAction() }
+                    Button(MoaL10n.text("Open Moa Folder")) { app.openMoaFolderAction() }
                 } else if client == .claude {
+                    if claudeProviderActive {
+                        Button(MoaL10n.text("Claude Desktop Official")) { accounts.restoreOfficialMode(for: .claude) }
+                        Button(MoaL10n.text("Copy Claude Code Env")) { app.copyClaudeCodeConfigAction() }
+                        Divider()
+                    }
                     Button(MoaL10n.text("Open Claude Desktop Folder")) { app.openClaudeDesktopFolderAction() }
                     Button(MoaL10n.text("Open Claude Desktop 3P Folder")) { app.openClaudeDesktop3PFolderAction() }
+                } else if client == .antigravity {
+                    Divider()
+                    Button(MoaL10n.text("Repair Keychain Access…")) {
+                        app.antigravityCoordinator.repairKeychainAccess { accounts.reload() }
+                    }
+                } else if client == .zcode {
+                    Button(MoaL10n.text("Reapply Official Configuration…")) { app.applyZCodeOfficialModeAction() }
+                    Button(MoaL10n.text("Open ZCode Folder")) { app.zcodeController.openZCodeFolder() }
                 }
                 if client.usageSource != nil {
+                    Divider()
                     Button(MoaL10n.text("View Usage Analysis")) { navigation.showUsage(client.usageSource) }
                 }
             } label: {
@@ -111,12 +149,25 @@ struct MoaWorkspaceClientView: View {
         .fixedSize()
     }
 
+    static func activeStatusTitle(for section: MoaAccountSection) -> String {
+        if let active = section.rows.first(where: \.active) {
+            return MoaL10n.format("Currently using: %@", active.name)
+        }
+        switch section.group {
+        case .claude:
+            return MoaL10n.format("Currently using: %@", MoaL10n.text("Claude Desktop Official"))
+        case .codexConfig:
+            return MoaL10n.format("Currently using: %@", MoaL10n.text("Codex Official Mode"))
+        default:
+            return MoaL10n.text("No saved active account")
+        }
+    }
+
     private func currentLogin(_ section: MoaAccountSection) -> some View {
-        HStack(spacing: 16) {
+        let active = section.rows.first(where: \.active)
+        return HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 5) {
-                let active = section.rows.first(where: \.active)
-                Text(active.map { MoaL10n.format("Currently using: %@", $0.name) }
-                     ?? MoaL10n.text("No saved active account"))
+                Text(Self.activeStatusTitle(for: section))
                     .font(.system(size: 13, weight: .medium))
                 if let message = section.currentLoginMessage {
                     Text(message).font(.system(size: 11)).foregroundStyle(MoaWorkspaceTheme.secondary)
@@ -127,6 +178,22 @@ struct MoaWorkspaceClientView: View {
                 }
             }
             Spacer()
+            if section.group == .codexConfig && active != nil {
+                Button(MoaL10n.text("Use Codex Official Mode")) { accounts.restoreOfficialMode(for: .codex) }
+                    .buttonStyle(MoaWorkspaceButtonStyle())
+                    .disabled(busy || MoaRuntimeMode.suppressesUserInteraction)
+            } else if section.group == .codexOfficial && codexAPIProviderActive {
+                Button(MoaL10n.text("Use Codex Official Mode")) { accounts.restoreOfficialMode(for: .codex) }
+                    .buttonStyle(MoaWorkspaceButtonStyle())
+                    .disabled(busy || MoaRuntimeMode.suppressesUserInteraction)
+            } else if section.group == .claude && active != nil {
+                Button(MoaL10n.text("Copy Claude Code Env")) { app.copyClaudeCodeConfigAction() }
+                    .buttonStyle(MoaWorkspaceButtonStyle())
+                    .disabled(busy || MoaRuntimeMode.suppressesUserInteraction)
+                Button(MoaL10n.text("Use Official Mode")) { accounts.restoreOfficialMode(for: .claude) }
+                    .buttonStyle(MoaWorkspaceButtonStyle())
+                    .disabled(busy || MoaRuntimeMode.suppressesUserInteraction)
+            }
             if !section.group.supportsEditing {
                 Button(MoaL10n.text("Save Current Login")) { accounts.add(section.group) }
                     .buttonStyle(MoaWorkspaceButtonStyle())
@@ -153,7 +220,7 @@ struct MoaWorkspaceClientView: View {
                     }.fixedSize()
                     Button(MoaL10n.text("Add Provider")) { accounts.add(section.group) }
                         .buttonStyle(MoaWorkspaceButtonStyle(prominent: true))
-                } else if section.group != .codexOfficial {
+                } else {
                     Button(MoaL10n.text("Add Another Account")) { accounts.addAnotherLogin(section.group) }
                         .buttonStyle(MoaWorkspaceButtonStyle(prominent: true))
                 }
@@ -211,6 +278,9 @@ struct MoaWorkspaceClientView: View {
                 Button(MoaL10n.text("Rename")) { accounts.rename(row) }
                 if row.group.supportsEditing {
                     Button(MoaL10n.text("Edit")) { accounts.edit(row) }
+                }
+                if row.group == .claude {
+                    Button(MoaL10n.text("Copy Claude Code Env")) { accounts.copyClaudeCodeEnv(row) }
                 }
                 Divider()
                 Button(role: .destructive) { accounts.delete(row) } label: { Text(MoaL10n.text("Delete")) }
@@ -306,5 +376,68 @@ struct MoaWorkspaceClientView: View {
             if exporting { app.exportCodexProfilesAction() } else { app.importCodexProfilesAction() }
         }
         accounts.reload()
+    }
+}
+
+@MainActor
+private struct MoaCodexStatusLineCard: View {
+    @ObservedObject var coordinator: CodexEnhancementCoordinator
+    let busy: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(MoaL10n.text("Generation Rate Status Line (Experimental)"))
+                        .font(.system(size: 15, weight: .medium))
+                    Text(coordinator.statusText)
+                        .font(.system(size: 12))
+                        .foregroundStyle(MoaWorkspaceTheme.secondary)
+                }
+                Spacer()
+                Button(MoaL10n.text("Reopen ChatGPT to Apply")) {
+                    coordinator.reopenFromWorkspace()
+                }
+                .buttonStyle(MoaWorkspaceButtonStyle())
+                .disabled(busy || MoaRuntimeMode.suppressesUserInteraction)
+            }
+            Divider()
+            Toggle(MoaL10n.text("Show Generation Rate (Estimated)"), isOn: Binding(
+                get: { coordinator.settings.enabled },
+                set: { coordinator.setEnabled($0) }
+            ))
+            .toggleStyle(.switch)
+            .font(.system(size: 13))
+            .disabled(MoaRuntimeMode.suppressesUserInteraction)
+
+            VStack(alignment: .leading, spacing: 10) {
+                Toggle(MoaL10n.text("Show Request Tokens and Context"), isOn: Binding(
+                    get: { coordinator.settings.showContext },
+                    set: { coordinator.setShowContext($0) }
+                ))
+                Toggle(MoaL10n.text("Show Input Cache Hit Rate"), isOn: Binding(
+                    get: { coordinator.settings.showCache },
+                    set: { coordinator.setShowCache($0) }
+                ))
+                Toggle(MoaL10n.text("Use Layout Below the Composer"), isOn: Binding(
+                    get: { coordinator.settings.belowComposer },
+                    set: { coordinator.setBelowComposer($0) }
+                ))
+            }
+            .toggleStyle(.checkbox)
+            .font(.system(size: 12))
+            .padding(.leading, 4)
+            .disabled(!coordinator.settings.enabled || MoaRuntimeMode.suppressesUserInteraction)
+            .opacity(coordinator.settings.enabled ? 1 : 0.55)
+
+            Text(MoaL10n.text("Uses a local debug connection; finish active tasks before reopening."))
+                .font(.system(size: 11))
+                .foregroundStyle(MoaWorkspaceTheme.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(MoaWorkspaceTheme.subtle, in: RoundedRectangle(cornerRadius: 12))
+        .accessibilityIdentifier("workspace.codex.status-line")
     }
 }

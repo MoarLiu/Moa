@@ -77,30 +77,35 @@ final class MoaProfileActionCoordinator {
         }
     }
 
-    func copyClaudeCodeConfigAction() {
-        guard let profile = try? claudeDesktopProfileController.selectedProfile() else {
-            showError(MoaL10n.text("Select a Claude Desktop provider before copying."))
-            return
-        }
-
+    static func claudeCodeEnvironmentSnippet(for profile: ClaudeDesktopProviderProfile) -> String {
         let model = profile.models.first?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
             ? profile.models[0].trimmingCharacters(in: .whitespacesAndNewlines)
             : ProviderConnectionTester.claudeDefaultTestModel
-        let snippet = """
+        return """
         # Claude Code
         export ANTHROPIC_BASE_URL="\(AppDelegate.shellEscaped(profile.baseURL))"
         export ANTHROPIC_AUTH_TOKEN="\(AppDelegate.shellEscaped(profile.apiKey))"
         export ANTHROPIC_MODEL="\(AppDelegate.shellEscaped(model))"
         export ANTHROPIC_SMALL_FAST_MODEL="\(AppDelegate.shellEscaped(model))"
         """
+    }
 
-        copyToPasteboard(snippet)
+    func copyClaudeCodeConfig(for profile: ClaudeDesktopProviderProfile) {
+        copyToPasteboard(Self.claudeCodeEnvironmentSnippet(for: profile))
         statusItemText.title = AppDelegate.statusTitle("Claude Code config copied")
         MoaNonBlockingAlert.present(
             messageText: MoaL10n.text("Claude Code config copied"),
-            informativeText: MoaL10n.text("The selected Claude Code environment snippet is on the clipboard."),
+            informativeText: MoaL10n.format("Copied Claude Code environment variables for \"%@\".", profile.name),
             tone: .success
         )
+    }
+
+    func copyClaudeCodeConfigAction() {
+        guard let profile = try? claudeDesktopProfileController.selectedProfile() else {
+            showError(MoaL10n.text("Select a Claude Desktop provider before copying."))
+            return
+        }
+        copyClaudeCodeConfig(for: profile)
     }
     func editProfileAction(_ sender: NSMenuItem) {
         guard app.accountOperations.active[.codex] == nil else { return }
@@ -568,6 +573,49 @@ final class MoaProfileActionCoordinator {
                 case .success:
                     self.refreshStatus()
                     self.statusItemText.title = AppDelegate.statusTitle("Codex · %@ · Reopened", self.currentCodexSelectionName())
+                case .failure(let error):
+                    NSSound.beep()
+                    self.statusItemText.title = AppDelegate.statusTitle("Failed")
+                    self.showError(error.localizedDescription)
+                }
+            }
+        }
+    }
+
+    func addAnotherCodexOfficialAccountAction(onComplete: (() -> Void)? = nil) {
+        guard app.accountOperations.active[.codex] == nil else { return }
+        guard MoaNonBlockingAlert.confirm(
+            messageText: MoaL10n.text("Add Another Codex Official Account?"),
+            informativeText: MoaL10n.text("Moa saves the current login (if any), switches Codex to Official Mode without a login, and reopens ChatGPT. Sign in with the other account, then click Save Current Login in Moa. Finish active tasks first."),
+            primaryButtonTitle: MoaL10n.text("Continue"),
+            tone: .warning
+        ) else {
+            return
+        }
+
+        statusItemText.title = AppDelegate.statusTitle("Preparing Codex sign-in...")
+        guard let token = app.accountOperations.begin(.codex, message: MoaL10n.text("Preparing sign-in…")) else { return }
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result = Result {
+                try self.controller.changeConfiguration {
+                    try self.profileController.prepareNewOfficialAccountLogin()
+                }
+            }
+
+            DispatchQueue.main.async {
+                self.app.accountOperations.finish(.codex, id: token)
+                self.rebuildCodexProviderMenus()
+                if let onComplete { onComplete() }
+                else { self.app.accountManagerWindow.refreshIfVisible() }
+                switch result {
+                case .success:
+                    self.refreshStatus()
+                    self.statusItemText.title = AppDelegate.statusTitle("Codex reopened for sign-in")
+                    MoaNonBlockingAlert.present(
+                        messageText: MoaL10n.text("Sign In to Add Account"),
+                        informativeText: MoaL10n.text("Sign in with the new account in ChatGPT, then choose Save Current Login in Moa."),
+                        tone: .info
+                    )
                 case .failure(let error):
                     NSSound.beep()
                     self.statusItemText.title = AppDelegate.statusTitle("Failed")

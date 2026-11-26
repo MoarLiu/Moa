@@ -4,18 +4,37 @@ import SwiftUI
 
 struct MoaWorkspaceSettingsView: View {
     unowned let app: AppDelegate
+    @ObservedObject var navigation: MoaWorkspaceNavigation
     @ObservedObject var usage: MoaUsageCoordinator
-    @State private var tab = 0
+    @ObservedObject var updates: MoaUpdateCoordinator
+    @ObservedObject var launchAtLogin: MoaLaunchAtLoginController
+    @ObservedObject var notifications: MoaNotificationManager
     @State private var refresh = Date()
+    @State private var showTodayCostInMenuBar: Bool
+    @State private var selectedLanguage: MoaAppLanguage
+    let languageChanged: Bool
+
     // Storage location and long data operations announce themselves; no polling.
     private let stateChanges = NotificationCenter.default.publisher(for: MoaDataAccessCoordinator.busyStateDidChange)
         .merge(with: NotificationCenter.default.publisher(for: MoaDataRoot.didChangeNotification))
         .receive(on: RunLoop.main)
 
-    init(app: AppDelegate, initialTab: Int = 0) {
+    init(app: AppDelegate, navigation: MoaWorkspaceNavigation, languageChanged: Bool = false) {
         self.app = app
-        usage = app.usageCoordinator
-        _tab = State(initialValue: initialTab)
+        self.navigation = navigation
+        self.languageChanged = languageChanged
+        self.usage = app.usageCoordinator
+        self.updates = app.updateCoordinator
+        self.launchAtLogin = app.launchAtLoginController
+        self.notifications = app.notificationManager
+        _showTodayCostInMenuBar = State(initialValue: MoaMenuBarDisplayPreferences.showsTodayCost())
+        _selectedLanguage = State(initialValue: MoaAppLanguage.current())
+    }
+
+    init(app: AppDelegate, initialTab: MoaWorkspaceSettingsTab = .general) {
+        let nav = MoaWorkspaceNavigation()
+        nav.settingsTab = initialTab
+        self.init(app: app, navigation: nav)
     }
 
     private var disabled: Bool {
@@ -26,20 +45,181 @@ struct MoaWorkspaceSettingsView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                workspaceHeading("Settings and Data", subtitle: "Storage, prices, and updates.")
-                Picker(MoaL10n.text("Settings and Data"), selection: $tab) {
-                    Text(MoaL10n.text("Data and Storage")).tag(0)
-                    Text(MoaL10n.text("Model Prices")).tag(1)
-                    Text(MoaL10n.text("About")).tag(2)
-                }.pickerStyle(.segmented).labelsHidden()
-                    .accessibilityLabel(MoaL10n.text("Settings and Data")).frame(maxWidth: 500)
-                if tab == 0 { dataSettings }
-                else if tab == 1 { priceSettings }
-                else { about }
+                workspaceHeading("Settings and Data", subtitle: "Preferences, storage, prices, and updates.")
+                Picker(MoaL10n.text("Settings and Data"), selection: $navigation.settingsTab) {
+                    Text(MoaL10n.text("General")).tag(MoaWorkspaceSettingsTab.general)
+                    Text(MoaL10n.text("Data and Storage")).tag(MoaWorkspaceSettingsTab.data)
+                    Text(MoaL10n.text("Model Prices")).tag(MoaWorkspaceSettingsTab.prices)
+                    Text(MoaL10n.text("About")).tag(MoaWorkspaceSettingsTab.about)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .accessibilityLabel(MoaL10n.text("Settings and Data"))
+                .frame(maxWidth: 560)
+
+                switch navigation.settingsTab {
+                case .general: generalSettings
+                case .data: dataSettings
+                case .prices: priceSettings
+                case .about: about
+                }
             }.padding(32).frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .onAppear {
+            launchAtLogin.refresh()
+            notifications.refreshAuthorizationState()
         }
         .onReceive(stateChanges) { _ in refresh = Date() }
         .accessibilityIdentifier("workspace.settings.content")
+    }
+
+    private var generalSettings: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 14) {
+                Text(MoaL10n.text("Desktop & Menu Bar")).font(.system(size: 16, weight: .medium))
+
+                if launchAtLogin.status == .unsupportedOS {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(MoaL10n.text("Launch Moa at Login")).font(.system(size: 13, weight: .medium))
+                        Text(MoaL10n.text("Automatic Launch at Login requires macOS 13 or later. On macOS 12, add Moa in System Preferences → Users & Groups → Login Items."))
+                            .font(.system(size: 12)).foregroundStyle(MoaWorkspaceTheme.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                } else {
+                    HStack(alignment: .center, spacing: 12) {
+                        Toggle(MoaL10n.text("Launch Moa at Login"), isOn: Binding(
+                            get: { !MoaRuntimeMode.isWorkspacePreview && launchAtLogin.status.isEnabled },
+                            set: { enabled in _ = launchAtLogin.setEnabled(enabled) }
+                        ))
+                        .toggleStyle(.switch)
+                        .font(.system(size: 13))
+                        Spacer()
+                        if launchAtLogin.status == .requiresApproval {
+                            Button(MoaL10n.text("Open Login Items Settings")) {
+                                launchAtLogin.openSystemSettings()
+                            }
+                            .buttonStyle(MoaWorkspaceButtonStyle())
+                        }
+                    }
+                    if launchAtLogin.status == .requiresApproval {
+                        Text(MoaL10n.text("Approval required in System Settings → General → Login Items."))
+                            .font(.system(size: 12)).foregroundStyle(MoaTheme.amber)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    if let error = launchAtLogin.lastError {
+                        Text(error).font(.system(size: 12)).foregroundStyle(MoaTheme.coral)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+
+                Divider()
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Toggle(MoaL10n.text("Show Today's Usage in Menu Bar"), isOn: Binding(
+                        get: { !MoaRuntimeMode.isWorkspacePreview && showTodayCostInMenuBar },
+                        set: { enabled in
+                            showTodayCostInMenuBar = enabled
+                            MoaMenuBarDisplayPreferences.setShowsTodayCost(enabled)
+                        }
+                    ))
+                    .toggleStyle(.switch)
+                    .font(.system(size: 13))
+                    Text(MoaL10n.text("Display today's aggregated local API estimate next to the menu bar icon."))
+                        .font(.system(size: 12)).foregroundStyle(MoaWorkspaceTheme.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Divider()
+
+                HStack(alignment: .center, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(MoaL10n.text("Language")).font(.system(size: 13, weight: .medium))
+                        Text(MoaL10n.text("Choose the display language for Moa menus and workspace."))
+                            .font(.system(size: 12)).foregroundStyle(MoaWorkspaceTheme.secondary)
+                    }
+                    Spacer()
+                    Picker(MoaL10n.text("Language"), selection: Binding(
+                        get: { selectedLanguage },
+                        set: { next in
+                            guard next != selectedLanguage else { return }
+                            selectedLanguage = next
+                            MoaAppLanguage.set(next)
+                        }
+                    )) {
+                        ForEach(MoaAppLanguage.allCases) { language in
+                            Text(language.displayTitle).tag(language)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 170)
+                }
+                if languageChanged {
+                    HStack(spacing: 12) {
+                        Text(MoaL10n.text("Reopen Moa if any system menu or dialog still uses the previous language."))
+                            .font(.system(size: 12)).foregroundStyle(MoaWorkspaceTheme.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer()
+                        Button(MoaL10n.text("Reopen Moa")) { app.relaunchMoaAction() }
+                            .buttonStyle(MoaWorkspaceButtonStyle())
+                    }
+                }
+            }
+            .padding(24)
+            .background(MoaWorkspaceTheme.subtle, in: RoundedRectangle(cornerRadius: 12))
+
+            VStack(alignment: .leading, spacing: 14) {
+                Text(MoaL10n.text("Notifications & Updates")).font(.system(size: 16, weight: .medium))
+
+                HStack(alignment: .center, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(MoaL10n.text("System Notifications")).font(.system(size: 13, weight: .medium))
+                        Text(notificationStatusText)
+                            .font(.system(size: 12)).foregroundStyle(MoaWorkspaceTheme.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer()
+                    if notifications.authorizationState == .notDetermined {
+                        Button(MoaL10n.text("Allow Notifications")) {
+                            notifications.requestAuthorizationIfNeeded()
+                        }
+                        .buttonStyle(MoaWorkspaceButtonStyle())
+                    }
+                }
+
+                Divider()
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Toggle(MoaL10n.text("Automatically Check for Updates"), isOn: Binding(
+                        get: { updates.autoCheckEnabled },
+                        set: { updates.autoCheckEnabled = $0 }
+                    ))
+                    .toggleStyle(.switch)
+                    .font(.system(size: 13))
+                    Text(MoaL10n.text("Check GitHub Releases once a day in the background and show a subtle indicator when a newer release is ready."))
+                        .font(.system(size: 12)).foregroundStyle(MoaWorkspaceTheme.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(24)
+            .background(MoaWorkspaceTheme.subtle, in: RoundedRectangle(cornerRadius: 12))
+        }
+        .disabled(MoaRuntimeMode.suppressesUserInteraction)
+    }
+
+    private var notificationStatusText: String {
+        if MoaRuntimeMode.isWorkspacePreview {
+            return MoaL10n.text("Used for daily usage alerts and update notifications.")
+        }
+        switch notifications.authorizationState {
+        case .authorized:
+            return MoaL10n.text("Enabled. Daily usage alerts appear in Notification Center without stealing focus.")
+        case .notDetermined:
+            return MoaL10n.text("Not requested yet. Moa asks when you enable a daily usage alert.")
+        case .denied:
+            return MoaL10n.text("Disabled in macOS System Settings. Moa falls back to menu bar status banners.")
+        case .unavailable:
+            return MoaL10n.text("System notifications are available when running the bundled Moa.app.")
+        }
     }
 
     private var dataSettings: some View {
@@ -121,8 +301,8 @@ struct MoaWorkspaceSettingsView: View {
         }.font(.system(size: 13))
     }
 
-    private static func updatedText(_ date: Date?) -> String {
-        guard let date else { return MoaL10n.text("Not updated yet") }
+    private static func updatedText(_ date: Date?, emptyKey: String = "Not updated yet") -> String {
+        guard let date else { return MoaL10n.text(emptyKey) }
         let formatter = DateFormatter()
         formatter.dateStyle = .medium
         formatter.timeStyle = .short
@@ -135,9 +315,48 @@ struct MoaWorkspaceSettingsView: View {
             Text(AppDelegate.versionTitle()).font(.system(size: 24, weight: .semibold))
             Text(MoaWorkspaceCopy.independenceNote)
                 .font(.system(size: 13)).foregroundStyle(MoaWorkspaceTheme.secondary)
-            Button(MoaL10n.text("Check Update")) { app.checkUpdateAction() }
-                .buttonStyle(MoaWorkspaceButtonStyle())
-                .disabled(disabled)
+
+            if let update = updates.availableUpdate {
+                let buildText = update.build.map { " (\($0))" } ?? ""
+                VStack(alignment: .leading, spacing: 12) {
+                    Text(MoaL10n.format("Update Available: Moa %@", "\(update.version)\(buildText)"))
+                        .font(.system(size: 15, weight: .semibold))
+                    Text(MoaL10n.text("Moa verifies the release checksum and signing identity before replacing the installed app."))
+                        .font(.system(size: 12)).foregroundStyle(MoaWorkspaceTheme.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    HStack(spacing: 12) {
+                        Button(MoaL10n.text("Download and Install")) {
+                            app.installUpdate(update)
+                        }
+                        .buttonStyle(MoaWorkspaceButtonStyle(prominent: true))
+                        .disabled(disabled)
+                        Button(MoaL10n.text("Open GitHub Releases")) {
+                            NSWorkspace.shared.open(update.releaseURL)
+                        }
+                        .buttonStyle(MoaWorkspaceButtonStyle())
+                    }
+                }
+                .padding(20)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(MoaWorkspaceTheme.selected, in: RoundedRectangle(cornerRadius: 12))
+            }
+
+            VStack(alignment: .leading, spacing: 12) {
+                priceFact("Last Checked", value: MoaRuntimeMode.isWorkspacePreview ? "—" : Self.updatedText(updates.lastCheckedAt, emptyKey: "Not checked yet"))
+                HStack(spacing: 12) {
+                    Button(MoaL10n.text(updates.isChecking ? "Checking for updates..." : "Check Update")) {
+                        app.checkUpdateAction()
+                    }
+                    .buttonStyle(MoaWorkspaceButtonStyle())
+                    .disabled(disabled || updates.isChecking)
+                    if updates.isChecking {
+                        ProgressView().controlSize(.small)
+                    }
+                }
+            }
+            .padding(20)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(MoaWorkspaceTheme.subtle, in: RoundedRectangle(cornerRadius: 12))
         }
     }
 

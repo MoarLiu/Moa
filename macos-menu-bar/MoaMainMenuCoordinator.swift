@@ -8,6 +8,8 @@ final class MoaMainMenuCoordinator {
     private var clientItems: [(client: MoaWorkspaceClient, item: NSMenuItem)] = []
     private let otherClientsItem = NSMenuItem(title: MoaL10n.text("Other Clients"), action: nil, keyEquivalent: "")
     private let otherClientsMenu = NSMenu(title: MoaL10n.text("Other Clients"))
+    private let utilitiesItem = NSMenuItem(title: "Moa", action: nil, keyEquivalent: "")
+    private let updateAvailableItem = NSMenuItem(title: "", action: #selector(AppDelegate.openSettingsAboutAction), keyEquivalent: "")
 
     init(app: AppDelegate) {
         self.app = app
@@ -17,6 +19,9 @@ final class MoaMainMenuCoordinator {
         app.menu.delegate = app
         app.menu.autoenablesItems = false
         app.menu.removeAllItems()
+        // Reusable items can still belong to the detached utilities submenu
+        // after a language change or another full menu rebuild.
+        utilitiesItem.submenu?.removeAllItems()
         otherClientsMenu.removeAllItems()
         clientItems.removeAll()
         app.versionItem.title = AppDelegate.versionTitle()
@@ -76,10 +81,14 @@ final class MoaMainMenuCoordinator {
         utilities.addItem(app.moaDataItem)
         app.updatePricesItem.target = app
         utilities.addItem(app.updatePricesItem)
+        updateAvailableItem.target = app
+        updateAvailableItem.isHidden = true
+        utilities.addItem(updateAvailableItem)
         utilities.addItem(actionItem("Check Update", #selector(AppDelegate.checkUpdateAction)))
-        let utilitiesItem = NSMenuItem(title: "Moa", action: nil, keyEquivalent: "")
+        utilitiesItem.title = "Moa"
         utilitiesItem.submenu = utilities
         app.menu.addItem(utilitiesItem)
+        refreshUpdateIndicator()
         app.menu.addItem(actionItem("Quit Moa", #selector(AppDelegate.quitAction), key: "q"))
 
         MoaFeedbackCenter.shared.anchorRect = { [weak app] in
@@ -124,6 +133,17 @@ final class MoaMainMenuCoordinator {
             otherClientsMenu.addItem(entry.item)
         }
         app.menu.insertItem(otherClientsItem, at: index)
+    }
+
+    func refreshUpdateIndicator() {
+        if let update = app.updateCoordinator.availableUpdate {
+            updateAvailableItem.title = MoaL10n.format("Update Available: Moa %@…", update.version)
+            updateAvailableItem.isHidden = false
+            utilitiesItem.title = "Moa · \(MoaL10n.text("Update Available"))"
+        } else {
+            updateAvailableItem.isHidden = true
+            utilitiesItem.title = "Moa"
+        }
     }
 
     func updateVisibleStatus() {
@@ -340,6 +360,7 @@ final class MoaMainMenuCoordinator {
             noneItem.isEnabled = false
             app.codexOfficialMenu.addItem(noneItem)
         }
+        app.codexOfficialMenu.addItem(actionItem("Add Another Account", #selector(AppDelegate.addAnotherCodexOfficialAccountAction)))
         app.codexOfficialMenu.addItem(manageAccountsItem(.codexOfficial))
         app.codexProfilesMenu.addItem(app.codexOfficialItem)
 
@@ -418,6 +439,10 @@ final class MoaMainMenuCoordinator {
         }
 
         app.claudeDesktopProfilesMenu.addItem(NSMenuItem.separator())
+        let copyEnvItem = actionItem("Copy Claude Code Env", #selector(AppDelegate.copyClaudeCodeConfigAction))
+        copyEnvItem.isEnabled = selectedID != nil
+        copyEnvItem.toolTip = selectedID == nil ? MoaL10n.text("Select a Claude Desktop provider before copying.") : nil
+        app.claudeDesktopProfilesMenu.addItem(copyEnvItem)
         app.claudeDesktopProfilesMenu.addItem(manageAccountsItem(.claude))
         app.claudeDesktopProfilesMenu.addItem(NSMenuItem.separator())
         app.claudeDesktopProfilesMenu.addItem(NSMenuItem(title: MoaL10n.text("Open Claude Desktop"), action: #selector(AppDelegate.openClaudeDesktopAction), keyEquivalent: ""))

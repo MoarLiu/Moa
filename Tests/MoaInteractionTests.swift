@@ -98,7 +98,7 @@ final class MoaInteractionTests: XCTestCase {
         _ = NSApplication.shared
         let height = MoaGlassModalHost.fittingHeight(width: 500) {
             DailyUsageAlertFormView(title: "Daily Usage Alert", initialEnabled: true, initialThresholdText: "10",
-                                    onSave: { _ in }, onCancel: {})
+                                    onSave: { _, _ in }, onCancel: {})
         }
         XCTAssertGreaterThan(height, 240)
         XCTAssertLessThan(height, 520, "A short form must not expand to the display's full height")

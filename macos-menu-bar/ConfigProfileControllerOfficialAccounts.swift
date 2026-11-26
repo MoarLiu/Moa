@@ -87,6 +87,42 @@ extension ConfigProfileController {
         }
     }
 
+    /// Saves the current official login (if present), clears live auth, and restores
+    /// Codex Official Mode so reopening ChatGPT presents a clean sign-in flow for
+    /// enrolling an additional official account without overwriting saved logins.
+    func prepareNewOfficialAccountLogin() throws {
+        try stateLock.withLock {
+            try ensureStore()
+
+            try withCodexStateTransaction(
+                files: [moaConfigURL, codexConfigURL, moaAuthURL, codexAuthURL, databaseURL, officialAccountsDatabaseURL],
+                includeOfficialAuthDirectory: true
+            ) {
+                let codexAuth = readAuthJSON(from: codexAuthURL)
+                if hasOfficialAuthSession(codexAuth) {
+                    _ = try saveCurrentOfficialLogin(activate: false)
+                }
+
+                try backupCodexFiles()
+                try writeAuthJSON(Self.noAccountAuthJSON(), to: moaAuthURL)
+                try writeAuthJSON(Self.noAccountAuthJSON(), to: codexAuthURL)
+
+                var officialDatabase = try loadOfficialAccountDatabaseHydratingEmails()
+                officialDatabase.selectedAccountID = nil
+                try saveOfficialAccountDatabase(officialDatabase)
+
+                let currentConfig = try syncedMoaConfig()
+                let officialConfig = MoaCodexConfigEditor.restoringOfficialMode(from: currentConfig)
+                try writeText(officialConfig, to: moaConfigURL)
+                try writeText(officialConfig, to: codexConfigURL)
+
+                var profileDatabase = try loadDatabase()
+                profileDatabase.selectedProfileID = nil
+                try saveDatabase(profileDatabase)
+            }
+        }
+    }
+
     @discardableResult
     func saveCurrentOfficialLoginAsSelectedAccount() throws -> CodexOfficialAccount {
         try saveCurrentOfficialLogin(activate: true)

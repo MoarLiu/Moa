@@ -44,13 +44,17 @@ final class MoaWorkspaceRenderTests: XCTestCase {
         MoaRuntimeMode.suppressesUserInteraction = true
         let app = AppDelegate()
         let size = NSSize(width: 900, height: 560)
-        let view = MoaWorkspaceSettingsView(app: app, initialTab: 1)
-            .foregroundStyle(MoaWorkspaceTheme.text)
-            .frame(width: size.width, height: size.height)
-            .background(MoaWorkspaceTheme.canvas)
-        for appearance in ["light", "dark"] {
-            try render(AnyView(view), size: size, appearance: appearance,
-                       to: directory.appendingPathComponent("settings-prices-\(appearance).png"))
+        for (name, tab) in [("settings-general", MoaWorkspaceSettingsTab.general),
+                            ("settings-prices", .prices),
+                            ("settings-about", .about)] {
+            let view = MoaWorkspaceSettingsView(app: app, initialTab: tab)
+                .foregroundStyle(MoaWorkspaceTheme.text)
+                .frame(width: size.width, height: size.height)
+                .background(MoaWorkspaceTheme.canvas)
+            for appearance in ["light", "dark"] {
+                try render(AnyView(view), size: size, appearance: appearance,
+                           to: directory.appendingPathComponent("\(name)-\(appearance).png"))
+            }
         }
     }
 

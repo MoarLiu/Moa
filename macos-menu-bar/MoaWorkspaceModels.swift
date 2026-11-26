@@ -80,6 +80,15 @@ enum MoaWorkspaceClient: String, CaseIterable, Identifiable {
     }
 }
 
+enum MoaWorkspaceSettingsTab: Int, CaseIterable, Hashable, Identifiable {
+    case general = 0
+    case data = 1
+    case prices = 2
+    case about = 3
+
+    var id: Int { rawValue }
+}
+
 enum MoaWorkspaceDestination: Hashable {
     case overview, usage, settings
     case client(MoaWorkspaceClient)
@@ -125,6 +134,7 @@ enum MoaClientInstallation {
 final class MoaWorkspaceNavigation: ObservableObject {
     @Published var destination: MoaWorkspaceDestination = .overview
     @Published var accountGroup: MoaAccountGroup = .codexOfficial
+    @Published var settingsTab: MoaWorkspaceSettingsTab = .general
     @Published var usageSource: MoaUsageSource?
     @Published private(set) var usageRequest = UUID()
     @Published var refreshRequest = UUID()
@@ -145,6 +155,11 @@ final class MoaWorkspaceNavigation: ObservableObject {
         usageSource = source
         usageRequest = UUID()
         destination = .usage
+    }
+
+    func showSettings(_ tab: MoaWorkspaceSettingsTab = .general) {
+        settingsTab = tab
+        destination = .settings
     }
 }
 
