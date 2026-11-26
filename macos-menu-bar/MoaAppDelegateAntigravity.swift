@@ -29,6 +29,13 @@ final class MoaAntigravityCoordinator: NSObject {
     private func renderMenu() {
         menu.removeAllItems()
         menu.autoenablesItems = false
+        menu.addItem(app.usageCoordinator.antigravitySummaryItem)
+        menu.addItem(app.usageCoordinator.antigravityRefreshItem)
+        menu.addItem(actionItem("Usage Details", #selector(showUsageDetails)))
+        let alertItem = actionItem("Daily Usage Alert", #selector(showUsageAlert))
+        alertItem.title = DailyUsageAlertController.menuTitle(for: .antigravity)
+        menu.addItem(alertItem)
+        menu.addItem(.separator())
         let current = overview.accounts.first { $0.id == overview.currentID }
         item.title = current.map { "Antigravity · \($0.name)" } ?? "Antigravity"
         if isUpdatingAccounts {
@@ -128,6 +135,11 @@ final class MoaAntigravityCoordinator: NSObject {
     }
     @objc private func openApp() { perform { try self.controller.open() } }
     @objc private func reopenApp() { perform { try self.controller.reopen() } }
+    @objc private func showUsageDetails() { app.usageInsightsWindow.show(initialSource: .antigravity) }
+    @objc private func showUsageAlert() {
+        app.showDailyUsageAlertPanel(kind: .antigravity)
+        renderMenu()
+    }
     func openFromWorkspace(reopen: Bool) {
         if reopen { reopenApp() } else { openApp() }
     }

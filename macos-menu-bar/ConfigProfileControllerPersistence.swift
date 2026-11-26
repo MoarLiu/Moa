@@ -24,6 +24,26 @@ enum CodexStateTransactionError: LocalizedError {
 }
 
 extension ConfigProfileController {
+    /// Strictly read-only load of `profiles.json` that never creates directories or initializes store files.
+    func readOnlyProfileDatabase() -> ProfileDatabase? {
+        guard fileManager.fileExists(atPath: databaseURL.path),
+              let data = try? Data(contentsOf: databaseURL),
+              let database = try? JSONDecoder().decode(ProfileDatabase.self, from: data) else {
+            return nil
+        }
+        return database
+    }
+
+    /// Strictly read-only load of `codex_official_accounts.json` that never creates directories or initializes store files.
+    func readOnlyOfficialAccountDatabase() -> CodexOfficialAccountDatabase? {
+        guard fileManager.fileExists(atPath: officialAccountsDatabaseURL.path),
+              let data = try? Data(contentsOf: officialAccountsDatabaseURL),
+              let database = try? JSONDecoder().decode(CodexOfficialAccountDatabase.self, from: data) else {
+            return nil
+        }
+        return database
+    }
+
     func loadDatabase() throws -> ProfileDatabase {
         try stateLock.withLock {
             try ensureStoreIfMissingOnly()

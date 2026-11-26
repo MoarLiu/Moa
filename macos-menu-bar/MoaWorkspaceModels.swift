@@ -3,80 +3,25 @@ import Foundation
 import SwiftUI
 
 enum MoaWorkspaceClient: String, CaseIterable, Identifiable {
-    case codex, claude, antigravity, deepseek, workbuddyCN, workbuddy, zcode
+    case codex, claude, antigravity, deepseek, workbuddyCN, workbuddy, zcode, geminiCLI
 
     var id: String { rawValue }
 
-    var title: String {
-        switch self {
-        case .codex: return "ChatGPT / Codex"
-        case .claude: return "Claude Desktop"
-        case .antigravity: return "Antigravity"
-        case .deepseek: return "DeepSeek Harness"
-        case .workbuddyCN: return MoaL10n.text("WorkBuddy Domestic")
-        case .workbuddy: return MoaL10n.text("WorkBuddy AI International")
-        case .zcode: return "ZCode"
-        }
+    var descriptor: MoaClientAdapterDescriptor {
+        MoaClientAdapterRegistry.descriptor(for: self)
     }
 
-    var logoName: String {
-        switch self {
-        case .workbuddyCN, .workbuddy: return "workbuddy"
-        default: return rawValue
-        }
-    }
-
-    var bundleID: String {
-        switch self {
-        case .codex: return "com.openai.codex"
-        case .claude: return "com.anthropic.claudefordesktop"
-        case .antigravity: return "com.google.antigravity"
-        case .deepseek: return "com.deepseek.dsh"
-        case .workbuddyCN: return WorkBuddyEdition.china.bundleID
-        case .workbuddy: return WorkBuddyEdition.international.bundleID
-        case .zcode: return "dev.zcode.app"
-        }
-    }
-
-    var groups: [MoaAccountGroup] {
-        switch self {
-        case .codex: return [.codexOfficial, .codexConfig]
-        case .claude: return [.claude]
-        case .antigravity: return [.antigravity]
-        case .deepseek: return [.deepseek]
-        case .workbuddyCN: return [.workbuddyCN]
-        case .workbuddy: return [.workbuddy]
-        case .zcode: return []
-        }
-    }
-
-    var operationClient: MoaAccountClient? {
-        groups.first?.client
-    }
-
-    var usageSource: MoaUsageSource? {
-        switch self {
-        case .codex: return .codex
-        case .claude: return .claude
-        case .workbuddyCN: return .workbuddyCN
-        case .workbuddy: return .workbuddy
-        case .zcode: return .zcode
-        case .antigravity, .deepseek: return nil
-        }
-    }
-
-    var capability: String {
-        switch self {
-        case .claude: return MoaL10n.text("Desktop providers · Code usage")
-        case .antigravity, .deepseek: return MoaL10n.text("Account switching")
-        case .zcode: return MoaL10n.text("Local usage and launch")
-        default: return MoaL10n.text("Accounts and local usage")
-        }
-    }
+    var title: String { descriptor.title }
+    var logoName: String { descriptor.logoName }
+    var bundleID: String { descriptor.bundleID }
+    var groups: [MoaAccountGroup] { descriptor.groups }
+    var operationClient: MoaAccountClient? { descriptor.operationClient }
+    var usageSource: MoaUsageSource? { descriptor.usageSource }
+    var capability: String { descriptor.capabilitySummary }
+    var capabilities: MoaClientCapabilities { descriptor.capabilities }
 
     static func client(for group: MoaAccountGroup) -> Self {
-        // Every supported account group belongs to exactly one workspace client.
-        allCases.first { $0.groups.contains(group) }!
+        MoaClientAdapterRegistry.client(for: group)
     }
 }
 
@@ -116,6 +61,22 @@ enum MoaClientInstallation {
                 return FileManager.default.fileExists(atPath: override)
             }
         }
+        if client == .geminiCLI {
+            let home = MoaDataRoot.homeDirectory()
+            let fm = FileManager.default
+            if fm.fileExists(atPath: home.appendingPathComponent(".gemini/oauth_creds.json").path)
+                || fm.fileExists(atPath: home.appendingPathComponent(".gemini/google_accounts.json").path)
+                || fm.fileExists(atPath: home.appendingPathComponent(".gemini/settings.json").path) {
+                return true
+            }
+            for binDir in ["/opt/homebrew/bin", "/usr/local/bin", home.appendingPathComponent(".local/bin").path, home.appendingPathComponent(".npm-global/bin").path] {
+                if fm.isExecutableFile(atPath: "\(binDir)/gemini") {
+                    return true
+                }
+            }
+            return false
+        }
+        guard !client.bundleID.isEmpty else { return false }
         return NSWorkspace.shared.urlForApplication(withBundleIdentifier: client.bundleID) != nil
     }
 

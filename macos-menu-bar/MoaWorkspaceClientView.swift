@@ -24,6 +24,10 @@ struct MoaWorkspaceClientView: View {
         accounts.sections.first { $0.group == .claude }?.rows.contains(where: \.active) == true
     }
 
+    private var claudeCodeProviderActive: Bool {
+        accounts.sections.first { $0.group == .claudeCode }?.rows.contains(where: \.active) == true
+    }
+
     private var busy: Bool {
         client.operationClient.map { accounts.operations.active[$0] != nil } ?? false
     }
@@ -91,11 +95,15 @@ struct MoaWorkspaceClientView: View {
                 Text(headerDetail).font(.system(size: 12)).foregroundStyle(MoaWorkspaceTheme.secondary)
             }
             Spacer(minLength: 12)
-            Button(MoaL10n.text("Open Client")) { app.workspaceWindow.open(client) }
-                .buttonStyle(MoaWorkspaceButtonStyle())
-                .disabled(busy || MoaRuntimeMode.suppressesUserInteraction)
+            Button(MoaL10n.text(client.capabilities.contains(.cliOnly) ? "Open Folder" : "Open Client")) {
+                app.workspaceWindow.open(client)
+            }
+            .buttonStyle(MoaWorkspaceButtonStyle())
+            .disabled(busy || MoaRuntimeMode.suppressesUserInteraction)
             Menu {
-                Button(MoaL10n.text("Reopen Client")) { app.workspaceWindow.open(client, reopen: true) }
+                if !client.capabilities.contains(.cliOnly) {
+                    Button(MoaL10n.text("Reopen Client")) { app.workspaceWindow.open(client, reopen: true) }
+                }
                 if client == .codex {
                     if codexAPIProviderActive {
                         Button(MoaL10n.text("Use Codex Official Mode")) { accounts.restoreOfficialMode(for: .codex) }
@@ -111,8 +119,13 @@ struct MoaWorkspaceClientView: View {
                         Button(MoaL10n.text("Copy Claude Code Env")) { app.copyClaudeCodeConfigAction() }
                         Divider()
                     }
+                    if claudeCodeProviderActive {
+                        Button(MoaL10n.text("Restore Claude Code Official Mode")) { accounts.restoreClaudeCodeOfficialMode() }
+                        Divider()
+                    }
                     Button(MoaL10n.text("Open Claude Desktop Folder")) { app.openClaudeDesktopFolderAction() }
                     Button(MoaL10n.text("Open Claude Desktop 3P Folder")) { app.openClaudeDesktop3PFolderAction() }
+                    Button(MoaL10n.text("Open Claude Code Folder")) { app.claudeCodeSettingsController.openClaudeCodeFolder() }
                 } else if client == .antigravity {
                     Divider()
                     Button(MoaL10n.text("Repair Keychain Access…")) {
@@ -121,6 +134,8 @@ struct MoaWorkspaceClientView: View {
                 } else if client == .zcode {
                     Button(MoaL10n.text("Reapply Official Configuration…")) { app.applyZCodeOfficialModeAction() }
                     Button(MoaL10n.text("Open ZCode Folder")) { app.zcodeController.openZCodeFolder() }
+                } else if client == .geminiCLI {
+                    Button(MoaL10n.text("Open Gemini Folder")) { app.geminiCLICoordinator.controller.openGeminiFolder() }
                 }
                 if client.usageSource != nil {
                     Divider()
@@ -156,6 +171,8 @@ struct MoaWorkspaceClientView: View {
         switch section.group {
         case .claude:
             return MoaL10n.format("Currently using: %@", MoaL10n.text("Claude Desktop Official"))
+        case .claudeCode:
+            return MoaL10n.format("Currently using: %@", MoaL10n.text("Claude Code Official"))
         case .codexConfig:
             return MoaL10n.format("Currently using: %@", MoaL10n.text("Codex Official Mode"))
         default:
@@ -191,6 +208,15 @@ struct MoaWorkspaceClientView: View {
                     .buttonStyle(MoaWorkspaceButtonStyle())
                     .disabled(busy || MoaRuntimeMode.suppressesUserInteraction)
                 Button(MoaL10n.text("Use Official Mode")) { accounts.restoreOfficialMode(for: .claude) }
+                    .buttonStyle(MoaWorkspaceButtonStyle())
+                    .disabled(busy || MoaRuntimeMode.suppressesUserInteraction)
+            } else if section.group == .claudeCode && active != nil {
+                Button(MoaL10n.text("Copy Claude Code Env")) {
+                    if let active { accounts.copyClaudeCodeEnv(active) }
+                }
+                .buttonStyle(MoaWorkspaceButtonStyle())
+                .disabled(busy || MoaRuntimeMode.suppressesUserInteraction)
+                Button(MoaL10n.text("Use Official Mode")) { accounts.restoreClaudeCodeOfficialMode() }
                     .buttonStyle(MoaWorkspaceButtonStyle())
                     .disabled(busy || MoaRuntimeMode.suppressesUserInteraction)
             }
@@ -262,6 +288,16 @@ struct MoaWorkspaceClientView: View {
             Text(row.name.isEmpty ? row.detail : row.name)
                 .font(.system(size: 14, weight: .medium)).lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
+            if let health = row.health, health.needsAttention {
+                let tint: Color = health.severity == .critical ? MoaTheme.coral : MoaTheme.amber
+                Text(health.badge)
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(tint)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(tint.opacity(0.14), in: RoundedRectangle(cornerRadius: 5))
+                    .help(health.detail)
+            }
             if !row.detail.isEmpty && row.name != row.detail {
                 Text(row.detail).font(.system(size: 12)).foregroundStyle(MoaWorkspaceTheme.secondary)
                     .lineLimit(1).truncationMode(.middle).frame(maxWidth: 280, alignment: .trailing)
@@ -279,7 +315,7 @@ struct MoaWorkspaceClientView: View {
                 if row.group.supportsEditing {
                     Button(MoaL10n.text("Edit")) { accounts.edit(row) }
                 }
-                if row.group == .claude {
+                if row.group == .claude || row.group == .claudeCode {
                     Button(MoaL10n.text("Copy Claude Code Env")) { accounts.copyClaudeCodeEnv(row) }
                 }
                 Divider()
@@ -364,7 +400,8 @@ struct MoaWorkspaceClientView: View {
         switch group {
         case .codexOfficial: return "Official Accounts"
         case .codexConfig: return "API Providers"
-        case .claude: return "Provider Configurations"
+        case .claude: return "Claude Desktop"
+        case .claudeCode: return "Claude Code"
         default: return "Saved Accounts"
         }
     }
@@ -372,6 +409,18 @@ struct MoaWorkspaceClientView: View {
     private func transfer(_ group: MoaAccountGroup, exporting: Bool) {
         if group == .claude {
             if exporting { app.exportClaudeDesktopProfilesAction() } else { app.importClaudeDesktopProfilesAction() }
+        } else if group == .claudeCode {
+            if exporting {
+                app.exportProfiles(groupName: "Claude Code", suggestedFileName: "moa-claude-code-profiles.json") { includeKeys in
+                    try app.claudeCodeSettingsController.exportProfiles(includingAPIKeys: includeKeys)
+                }
+            } else {
+                app.importProfiles(groupName: "Claude Code") { data in
+                    try app.claudeCodeSettingsController.importProfiles(from: data)
+                } onImported: {
+                    accounts.reload()
+                }
+            }
         } else {
             if exporting { app.exportCodexProfilesAction() } else { app.importCodexProfilesAction() }
         }

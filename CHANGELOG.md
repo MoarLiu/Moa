@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.10.0 - 2026-11-26
+
+Consolidated release delivering the Usage Insights 2.0, Credential Security & Recoverability, and Adapter Registry / Ecosystem / CLI Companion roadmaps together (Build 138):
+
+- **Usage Insights 2.0 & Cost Governance**:
+  - Refactor Usage Analysis onto `MoaWorkspaceTheme` (light and dark) with native macOS 12+ SwiftUI `Canvas` daily trend charts (Cost / Tokens / Cache Hit % with hover inspection) and Client / Model breakdown bars.
+  - Add date range presets (`Today`, `7d`, `30d`, `This Month`, `Custom`), view modes (`Daily Details`, `By Model`, `By Client`), live search, sorting, CSV / Markdown / JSON export, and **Estimated Cache Savings USD**.
+  - Add All-Sources **Combined Daily & Monthly Budget Alerts** (with optional 80% early warnings and independent daily/monthly deduplication) alongside per-source daily alerts.
+  - Upgrade **Settings → Model Prices** into a searchable Price Catalog & Custom Overrides management center with one-click filtering for unpriced/fallback models and reset / reset-all actions.
+  - Add strictly read-only metadata usage scanners for **Antigravity** (`~/.gemini/antigravity/brain/*/.system_generated/logs/transcript.jsonl` with `step_index` deduplication) and **DeepSeek Harness** (`$DSH_HOME/storages/session_projcache/sessions/session-*.json`). Never reads or persists conversation prompts or text.
+- **Credential Security, Health Awareness & Recoverability**:
+  - Add **Schema 3** password-encrypted data packages (`PBKDF2-HMAC-SHA256` 600,000 iterations + `AES-256-GCM` with AAD and constant-time key verifier distinguishing wrong password from corrupted archives) and **Layered Export** (`Full Backup` vs `Settings & Prices Only`), maintaining backward compatibility with Schema 1/2 imports.
+  - Add strictly read-only local **Credential Health** inspection across clients (JWT/OAuth expiry, refresh token presence, WorkBuddy `keyblob` fingerprint checks, live-config drift, and unsaved active logins), surfaced on account rows and Overview without network calls or Keychain prompts.
+  - Add visual **Backups & Recovery Center** in Settings → Data and Storage to inspect, restore, reveal, or delete automatic Recovery packages, Codex config snapshots, and legacy unencrypted `~/Downloads/Moa-Data-*.zip` archives (safe Move to Trash).
+  - Add optional **Carbon Global Shortcuts** (disabled by default; requires no Accessibility permission) and a Spotlight-style **Quick Switcher** (`⌘K` / menu bar / hotkey) with fuzzy search reusing existing confirmation and activity protections.
+- **Adapter Registry, New Agent Ecosystem, Distribution Trust & CLI Companion**:
+  - Introduce declarative `MoaClientAdapterRegistry` and `MoaClientPreferences`, allowing users to reorder and show/hide clients across the sidebar and menu bar in Settings → General.
+  - Deepen **Claude Code** support with independent provider presets applied via safe field-level JSON edits to `~/.claude/settings.json` (`env.ANTHROPIC_*`), strictly isolated from Claude Desktop, with atomic writes, rollback, and Official Mode restore.
+  - Add **Gemini CLI** account management (`~/.gemini/oauth_creds.json` and `~/.gemini/google_accounts.json`), strictly isolated from Antigravity, with local usage truthfully marked unsupported.
+  - Require an **Ed25519-signed release manifest** and detached signature for automatic updates targeting 1.10.0 or later. Add `scripts/sign-release-manifest.swift`, Hardened Runtime entitlements (`scripts/Moa.entitlements`), and Homebrew Cask distribution files (`Casks/moa.rb`, `scripts/generate-homebrew-cask.sh`).
+  - Add a built-in read-only **CLI Companion** with status, usage, accounts, health, backups, version, and help. Data and version commands support `--json`.
+
 ## 1.9.0 - 2026-11-26
 
 - Complete workspace and menu-bar capability parity across Codex, Claude Desktop, Antigravity, and ZCode:

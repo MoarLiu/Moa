@@ -4,14 +4,14 @@
 
 [简体中文](README_ZH.md) · [Download](https://github.com/MoarLiu/Moa/releases/latest) · [Changelog](CHANGELOG.md)
 
-Moa is a local management app for people who use multiple AI agent clients. It brings ChatGPT / Codex, Claude Desktop, Antigravity App, DeepSeek Harness, WorkBuddy, WorkBuddy AI International, and ZCode into a shared menu bar and unified workspace for accounts, usage, and settings. Each client keeps running its own conversations and tasks; Moa manages the supported account, configuration, and maintenance actions around it.
+Moa is a local management app for people who use multiple AI agent clients. It brings ChatGPT / Codex, Claude Desktop & Claude Code, Antigravity App, DeepSeek Harness, WorkBuddy, WorkBuddy AI International, ZCode, and Gemini CLI into a shared menu bar and unified workspace for accounts, usage, and settings. Each client keeps running its own conversations and tasks; Moa manages the supported account, configuration, and maintenance actions around it.
 
 ## Get Started
 
-1. Download the latest DMG from [GitHub Releases](https://github.com/MoarLiu/Moa/releases/latest): choose `arm64` for Apple silicon or `x86_64` for an Intel Mac. macOS 12 or later is required. Matching `.sha256` files are provided.
+1. Download the latest DMG from [GitHub Releases](https://github.com/MoarLiu/Moa/releases/latest): choose `arm64` for Apple silicon or `x86_64` for an Intel Mac. macOS 12 or later is required. Each DMG has a matching `.sha256` file. Releases from 1.10.0 onward also include an Ed25519-signed manifest and its detached signature. The repository provides a Homebrew Cask definition in `Casks/moa.rb`.
 2. Drag **Moa.app** into **Applications**, then open it. Starting with 1.6.6, releases use the same local code signing certificate, without Developer ID signing or notarization; macOS may require approval in **System Settings → Privacy & Security** on first launch. Install 1.6.6 manually from the DMG when upgrading from an older ad-hoc-signed version; the old updater cannot perform this signing transition.
-3. Install and sign in to the clients you use. Open Moa's menu and choose **Overview**, then select a client in the sidebar to save supported logins or configure providers. **Accounts…** opens the Codex account page directly. Finish active client tasks before switching accounts.
-4. Open **Usage Analysis** in the sidebar or **Usage Overview…** in the menu for supported local usage sources. **Settings and Data** contains data maintenance, price updates, and application update checks. Each client's menu retains switching, launch helpers, and client-specific options.
+3. Install and sign in to the clients you use. Open Moa's menu and choose **Overview**, then select a client in the sidebar to save supported logins or configure providers. **Accounts…** opens the Codex account page directly, and **Quick Switcher…** (`⌘K`) searches across clients, saved accounts/providers, and workspace pages. Finish active client tasks before switching accounts.
+4. Open **Usage Analysis** in the sidebar or **Usage Overview…** in the menu for supported local usage sources. **Settings and Data** contains general preferences, global shortcuts, client ordering, backups & recovery, model price catalog overrides, and application update checks. Each client's menu retains switching, launch helpers, and client-specific options.
 
 ## Supported Clients
 
@@ -20,20 +20,21 @@ Capabilities differ by client. Account switching preserves supported local login
 | Client | Accounts and providers | Local usage | Additional controls |
 | --- | --- | --- | --- |
 | ChatGPT / Codex | Official logins; direct Responses-compatible provider profiles; profile import/export | Tokens, cache, models, estimated API costs | Open/reopen; optional generation-rate status line |
-| Claude Desktop / Claude Code | Desktop 3P gateway profiles; copy Claude Code environment snippets | Claude Code log usage and estimated API costs | Open/reopen Desktop; profile import/export |
-| Antigravity App 2.x | Google login saving, enrollment, switching, rename/forget | Not available | Open/reopen; local Keychain snapshots |
-| DeepSeek Harness | Login saving, enrollment, switching, rename/forget | Not available | Open/reopen; local account snapshots |
+| Claude Desktop & Code | Desktop 3P gateway profiles; independent Claude Code (`~/.claude/settings.json`) provider presets & Official Mode restore; copy env snippets | Claude Code log usage and estimated API costs | Open/reopen Desktop; open Claude Code folder; profile import/export |
+| Antigravity App 2.x | Google login saving, enrollment, switching, rename/forget | Transcript log token/cache metadata and estimated API costs (read-only) | Open/reopen; local Keychain snapshots; Keychain access repair |
+| DeepSeek Harness | Login saving, enrollment, switching, rename/forget | Session token totals, cache, models, and estimated API costs (read-only) | Open/reopen; local account snapshots |
 | WorkBuddy (China) | Login saving, enrollment, switching, rename/forget | Separate token, model, and estimated-cost reports | Open/reopen; independent account store |
 | WorkBuddy AI International | Login saving, enrollment, switching, rename/forget | Separate token, model, and estimated-cost reports | Open/reopen; independent account store |
-| ZCode | Account/provider management not available | Local database usage and estimated API costs | Open/reopen and folder helpers |
+| ZCode | Account/provider management not available | Local database usage and estimated API costs | Open/reopen, official reset, and folder helpers |
+| Gemini CLI | Google OAuth login saving, enrollment, switching, rename/forget | Not available | Open Gemini folder; strictly isolated from Antigravity |
 
 ## Core Features
 
-- **Workspace:** an overview of saved-account state and today's local usage, official client logos, light/dark appearance, and a layout that adapts to narrow windows. Unknown usage values appear as a dash.
-- **Accounts and providers:** client pages in the shared workspace, one-click menu switching, provider editing and import/export where supported, progress feedback, and recovery guidance.
-- **Usage and costs:** aggregate supported local sources, inspect model and cache details, export CSV / Markdown, set custom prices and daily usage alerts. These are estimates from local records and API reference prices, not subscription bills, credits, or account balances.
-- **Model prices:** **Moa → Update Prices** fetches the public catalog used as Sub2API's reference. Supported USD token rates update immediately and persist. Custom prices take precedence; failed downloads preserve the previous table. Daily automatic checks are enabled.
-- **Data and maintenance:** import/export Moa data packages, export redacted diagnostics, optionally use iCloud for the shared data root, and check GitHub Releases for application updates. Storage and synchronization differ by credential type; see [Security and Credential Storage](#security-and-credential-storage).
+- **Workspace & Quick Switcher:** an overview of saved-account state, local credential health attention, and today's local usage, with official client logos, light/dark appearance, customizable client order & visibility, optional Carbon global shortcuts (no Accessibility permission needed), and a Spotlight-style Quick Switcher (`⌘K`).
+- **Accounts and providers:** client pages in the shared workspace, one-click menu switching, independent Claude Code `~/.claude/settings.json` field-level provider presets, Gemini CLI multi-account snapshots, local read-only credential health badges, provider editing and import/export where supported, progress feedback, and recovery guidance.
+- **Usage Insights 2.0 and cost governance:** aggregate all supported local sources (Codex, Claude Code, Antigravity, DeepSeek, WorkBuddy Domestic & International, ZCode), inspect native daily trend charts and client/model breakdowns, filter by `Today` / `7d` / `30d` / `This Month` / `Custom`, view estimated prompt-cache savings, export CSV / Markdown / JSON, and configure per-source daily alerts plus combined all-sources daily & monthly budgets (with optional 80% early warnings). Estimates use local metadata and API reference prices, not subscription bills, credits, or account balances.
+- **Model prices:** **Settings → Model Prices** provides a searchable reference catalog & custom override manager (filter all / custom / unpriced & fallback, reset single or all overrides) backed by daily updates from the public Sub2API reference catalog. Custom prices always take precedence; failed downloads preserve the previous table.
+- **Encrypted data packages, backups & CLI Companion:** export full or config-only data packages with optional **Schema 3** password encryption (`PBKDF2-HMAC-SHA256` + `AES-256-GCM`), manage automatic Recovery packages / Codex snapshots / legacy unencrypted Downloads archives from **Settings → Data and Storage**, optionally use iCloud for the shared data root, verify updates with SHA-256, signing identity, and mandatory Ed25519 manifests for target versions 1.10.0 and later, and inspect status/usage/accounts/health/backups from Terminal via the built-in read-only **CLI Companion** (`moa status`, `moa usage --today --json`, `moa accounts --json`, `moa health --json`, `moa backups --json`). See [Security and Credential Storage](#security-and-credential-storage).
 
 Moa's current scope is client management and local usage insight. Agent execution, conversations, and service authentication remain with the respective clients. The optional Codex status line is one client-specific feature within this broader tool.
 
@@ -44,10 +45,10 @@ Client names and logos identify their respective products and belong to their re
 - The version/build row is first in the main menu. **Overview**, **Accounts…**, and **Usage Overview…** open their destination in the same workspace. Client menus retain usage summaries, refresh, and one-click switching; launch and folder helpers appear directly at the bottom of each client submenu.
 - Account windows and menus share per-client progress. Switch remains the primary row action; rename, edit, and delete are available in the actions menu.
 - Success and informational feedback do not steal focus. Long forms scroll while Save and Cancel remain visible, and usage insights adapt to narrower windows.
-- Shortcuts: **Command-0** opens the overview, **Command-U** opens usage analysis, **Command-Shift-A** opens accounts, and **Command-R** refreshes the workspace or all menu usage sources.
+- Shortcuts: **Command-K** opens Quick Switcher, **Command-0** opens the overview, **Command-U** opens usage analysis, **Command-Shift-A** opens accounts, and **Command-R** refreshes the workspace or all menu usage sources. Optional system-wide Carbon global shortcuts can be enabled in **Settings → General**.
 - Maintenance actions, including price updates, update checks, and data management, are grouped under **Moa** in the main menu.
 
-Version 1.9.0 completes workspace parity for Codex, Claude Desktop, Antigravity, and ZCode, adds native Notification Center alerts (with optional 80% early warnings), Launch at Login on macOS 13+, an optional menu-bar today's usage display, in-app language selection, and daily background update checks.
+Version 1.10.0 consolidates Usage Insights 2.0 (native charts, date ranges, cache savings, combined daily/monthly budgets, searchable price center, and read-only Antigravity/DeepSeek usage scanners), Schema 3 AES-256-GCM encrypted & config-only data packages, local read-only credential health, Backups & Recovery Center, global shortcuts & Quick Switcher, declarative Client Adapter Registry with client ordering/hiding, independent Claude Code `~/.claude/settings.json` provider presets, Gemini CLI account switching, Ed25519 signed release manifest verification, Homebrew Cask support, and a built-in read-only CLI Companion.
 
 ## ChatGPT Client Compatibility
 
@@ -79,7 +80,7 @@ The **Antigravity** menu targets Antigravity App 2.x (`com.google.antigravity`),
 
 Snapshots preserve the complete credential envelope and unknown fields under Moa's own Keychain service, `com.moa.antigravity.accounts`, without requesting iCloud Keychain synchronization. Local metadata (names, email labels when available, hashed identities, timestamps) lives in `~/Library/Application Support/Moa/antigravity-accounts/accounts.json` with directory/file modes `700`/`600`. This directory is outside data packages, diagnostics, and Moa's iCloud data-root moves. Opening menus refreshes in the background without requesting Keychain authorization. Switching or saving can request authorization; signing changes between Moa builds can require granting access again.
 
-Google ID-token subjects identify accounts when available; otherwise a refresh-grant fingerprint identifies the saved login. If that grant changes without an ID token, Moa saves a separate entry rather than guessing which account to overwrite. Only supported OAuth envelopes are accepted, and the exact original bytes are restored. Settings and conversations remain shared and untouched; this feature does not isolate history or add usage reporting.
+Google ID-token subjects identify accounts when available; otherwise a refresh-grant fingerprint identifies the saved login. If that grant changes without an ID token, Moa saves a separate entry rather than guessing which account to overwrite. Only supported OAuth envelopes are accepted, and the exact original bytes are restored. Settings and conversations remain shared and untouched; this feature does not isolate history. Local Antigravity usage scans `~/.gemini/antigravity/brain/*/.system_generated/logs/transcript.jsonl` read-only for `step_index`, model, timestamp, and token counts only (never storing conversation prompts or text).
 
 The standalone fallback `~/.gemini/jetski-standalone-oauth-token` is also a login source. Moa saves a distinct fallback account only if it has not already been saved; a stale fallback never overwrites an existing snapshot. Switching writes a matching complete JSON envelope, and enrollment removes both sources. If updating Keychain fails, the fallback file is restored before reopening. A failed switch to another account restores the previous pair; a failed restart of the same account retains its refreshed login in both sources so a retry cannot restore an older token. Existing `.gemini` directory permissions are retained; token files are written privately. Gemini CLI `oauth_creds.json` and CLI-specific token files are not edited. Environment-injected credentials and custom credential roots are outside the supported configuration.
 
@@ -95,7 +96,25 @@ The **DeepSeek** menu controls DeepSeek Harness (`com.deepseek.dsh`). Its accoun
 
 Switching edits only `records.deepseek-account-platform/default`. Provider API keys, device identity, the browser-connection secret, settings, and local sessions are retained. Close other DSH instances before switching: the desktop and CLI can share a credential store. Moa uses Harness's credential writer lock and a separate account-operation lock. Refused quits prevent writes; launch failures restore the original account record while retaining unrelated changes made during startup. Unsupported or ambiguous credential formats are rejected before editing.
 
-Account snapshots stay in `~/Library/Application Support/Moa/deepseek-accounts/accounts.json` with directory/file modes `700`/`600`. They do not enter data packages, diagnostics, or iCloud data-root moves. Forgetting a saved entry leaves Harness signed in. Do not use Harness **Log Out** to enroll another account, because it revokes the server session. Expired or revoked sessions require signing in and saving again. Local fixture tests cover switching and rollback; real A → B → A login and inference remain a manual acceptance check, including whether the server retains both sessions on one device. This module does not add DeepSeek usage reporting.
+Account snapshots stay in `~/Library/Application Support/Moa/deepseek-accounts/accounts.json` with directory/file modes `700`/`600`. They do not enter data packages, diagnostics, or iCloud data-root moves. Forgetting a saved entry leaves Harness signed in. Do not use Harness **Log Out** to enroll another account, because it revokes the server session. Expired or revoked sessions require signing in and saving again. Local fixture tests cover switching and rollback; real A → B → A login and inference remain a manual acceptance check, including whether the server retains both sessions on one device. Local DeepSeek usage scans `$DSH_HOME/storages/session_projcache/sessions/session-*.json` read-only for session token totals, model selection, and timestamps only (never reading conversation content).
+
+## Gemini CLI
+
+The **Gemini CLI** menu and workspace page manage `~/.gemini/oauth_creds.json` and `~/.gemini/google_accounts.json` independently of Antigravity App. Sign in with `gemini` in Terminal, then click **Save Current Login** in Moa. Use **Add Another Account** to save the current login and clear `oauth_creds.json` for a new `gemini` login. Switching preserves any refreshed outgoing tokens before replacing live files, rejects symlinks, and never touches `~/.gemini/antigravity` or Antigravity Keychain items. Snapshots stay in `~/Library/Application Support/Moa/gemini-cli-accounts/accounts.json` (`700`/`600`) and are excluded from data packages, diagnostics, and iCloud moves. Local usage reporting is truthfully marked unavailable because Gemini CLI does not persist a guaranteed local per-request token ledger.
+
+## Read-Only CLI Companion
+
+The Moa binary includes a strictly read-only CLI for Terminal inspection (never prints raw API keys or tokens, never mutates accounts, and never launches the UI):
+
+```bash
+mkdir -p ~/.local/bin && ln -sf "/Applications/Moa.app/Contents/MacOS/Moa" ~/.local/bin/moa
+moa status [--json]
+moa usage [--today|--7d|--30d|--month] [--source <id>] [--by-model|--by-client] [--json]
+moa accounts [--client <id>] [--json]
+moa health [--json]
+moa backups [--json]
+moa version [--json]
+```
 
 ## WorkBuddy
 
@@ -218,14 +237,14 @@ Credential storage is client-specific; not every credential is stored in Keychai
 
 | Data | Storage | iCloud / data packages |
 | --- | --- | --- |
-| Provider API keys and saved Codex logins | Files in Moa's active data root | Synced when iCloud storage is enabled; included unencrypted in full exports and recovery packages |
+| Provider API keys (Codex, Claude Desktop, Claude Code) and saved Codex logins | Files in Moa's active data root | Synced when iCloud storage is enabled; included in Full Backups (optionally AES-256-GCM encrypted in Schema 3) and stripped from Config-Only exports |
 | Antigravity saved logins | Local login Keychain; labels and identity metadata in Application Support | Moa does not request Keychain synchronization; excluded from Moa data exports and data-root moves |
-| WorkBuddy, WorkBuddy AI International, DeepSeek snapshots | Separate local Application Support stores | Excluded from Moa data exports and data-root moves |
-| Automatic recovery packages | Local Application Support/Moa/Recovery, target retention of 12 | Excluded from Moa iCloud storage and full exports; may contain unencrypted credentials |
+| WorkBuddy, WorkBuddy AI International, DeepSeek, Gemini CLI snapshots | Separate local Application Support stores | Excluded from Moa data exports and data-root moves |
+| Automatic recovery packages | Local Application Support/Moa/Recovery, target retention of 12 | Excluded from Moa iCloud storage and full exports; manageable from Settings → Data and Storage |
 
-- Moa does not upload credentials to its own server. Keep full exports and recovery packages private; only import packages from a trusted source. Schema 2 SHA-256 checks detect content mismatches, but do not authenticate the package's author or encrypt its contents.
+- Moa does not upload credentials to its own server. Prefer **Schema 3** password encryption (`PBKDF2-HMAC-SHA256` 600,000 iterations + `AES-256-GCM`) or **Config-Only** scope when exporting data packages. Keep full exports and recovery packages private; only import packages from a trusted source. Schema 1/2 plaintext packages remain supported for backward compatibility.
 - Sensitive configuration saves and provider profile JSON exports use atomic replacement with temporary files created as `600`; permission-setting failures stop the save. Existing client and export directory permissions are preserved; Moa-owned private directories use `700`.
-- Automatic updates download from GitHub Releases and check the matching SHA-256 file for integrity. From 1.6.6, certificate-signed installations also verify that the new app satisfies the installed app's designated signing requirement, rejecting a different certificate or an ad-hoc downgrade. Older ad-hoc installations have no stable signing identity; install the first certificate-signed version manually from a trusted source. Local signing does not provide Developer ID trust or notarization, and a separate update-signature system has not been deployed.
+- Automatic updates download from GitHub Releases and check the matching SHA-256 file and signing identity requirement. The Moa 1.10.0 updater also requires an Ed25519-signed release manifest and detached signature for every target version from 1.10.0 onward (`MoaReleaseManifestPublicKey` embedded into `Info.plist` from `scripts/release-manifest.env`; the matching private key stays in the maintainer's macOS Login Keychain via `./scripts/setup-release-manifest-key.sh` and is never committed to git). Local signing does not provide Developer ID trust or notarization; use `Developer ID Application` + `NOTARIZE=1` for public notarized distribution.
 - Diagnostic packages redact auth, key, and token fields.
 - Packaging scripts refuse to include `.moa`, `.codex`, `.dsh`, client login/account stores, auth/config/profile files, environment files, and signing keys.
 - Moa does not bundle `MoaMCP` and does not expose local workflow tools.

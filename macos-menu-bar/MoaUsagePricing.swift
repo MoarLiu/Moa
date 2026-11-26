@@ -618,4 +618,206 @@ enum MoaUsagePricing {
             + Double(max(0, cacheCreationInputTokens)) * (above ? pricing.cacheCreationInputCostPerTokenAboveThreshold ?? pricing.cacheCreationInputCostPerToken : pricing.cacheCreationInputCostPerToken)
             + Double(max(0, outputTokens)) * (above ? pricing.outputCostPerTokenAboveThreshold ?? pricing.outputCostPerToken : pricing.outputCostPerToken)
     }
+
+    struct ReferenceRates: Equatable {
+        let inputUSDPerMillion: Double
+        let outputUSDPerMillion: Double
+        let cacheReadUSDPerMillion: Double
+        let cacheCreationUSDPerMillion: Double
+    }
+
+    /// Resolves effective per-million USD rates for cache savings and catalog inspection.
+    static func referenceRates(
+        source: MoaUsageSource,
+        model: String,
+        overrides: MoaUsagePricingOverrideController? = nil
+    ) -> ReferenceRates? {
+        if let custom = overrides?.override(source: source, model: model) {
+            let fallbackRead = custom.cacheReadUSDPerMillion ?? custom.inputUSDPerMillion
+            let fallbackWrite = custom.cacheCreationUSDPerMillion ?? custom.inputUSDPerMillion
+            return ReferenceRates(
+                inputUSDPerMillion: custom.inputUSDPerMillion,
+                outputUSDPerMillion: custom.outputUSDPerMillion,
+                cacheReadUSDPerMillion: fallbackRead,
+                cacheCreationUSDPerMillion: fallbackWrite
+            )
+        }
+        switch source {
+        case .codex:
+            let normalized = normalizeCodexModel(model)
+            let p = codexPricing(model: normalized) ?? codexPricing(model: fallbackCodexPricingModel)
+            guard let p else { return nil }
+            let input = p.inputCostPerToken * 1_000_000
+            return ReferenceRates(
+                inputUSDPerMillion: input,
+                outputUSDPerMillion: p.outputCostPerToken * 1_000_000,
+                cacheReadUSDPerMillion: (p.cacheReadInputCostPerToken ?? p.inputCostPerToken) * 1_000_000,
+                cacheCreationUSDPerMillion: (p.cacheWriteInputCostPerToken ?? p.inputCostPerToken) * 1_000_000
+            )
+        case .claude:
+            let normalized = normalizeClaudeModel(model)
+            let p = claudePricing(model: normalized) ?? claudePricing(model: fallbackClaudePricingModel)
+            guard let p else { return nil }
+            return ReferenceRates(
+                inputUSDPerMillion: p.inputCostPerToken * 1_000_000,
+                outputUSDPerMillion: p.outputCostPerToken * 1_000_000,
+                cacheReadUSDPerMillion: p.cacheReadInputCostPerToken * 1_000_000,
+                cacheCreationUSDPerMillion: p.cacheCreationInputCostPerToken * 1_000_000
+            )
+        case .zcode:
+            let normalized = normalizeZCodeModel(model)
+            let p = zcodePricing(model: normalized) ?? zcodePricing(model: fallbackZCodePricingModel)
+            guard let p else { return nil }
+            return ReferenceRates(
+                inputUSDPerMillion: p.inputCostPerToken * 1_000_000,
+                outputUSDPerMillion: p.outputCostPerToken * 1_000_000,
+                cacheReadUSDPerMillion: p.cacheReadInputCostPerToken * 1_000_000,
+                cacheCreationUSDPerMillion: p.cacheCreationInputCostPerToken * 1_000_000
+            )
+        case .workbuddy, .workbuddyCN, .antigravity, .deepseek:
+            let candidate = source == .antigravity ? AntigravityUsageScanner.normalizedPricingCandidate(model) : model
+            guard let remote = catalogPricing(source: source, model: candidate)
+                ?? catalogPricing(source: .workbuddy, model: candidate) else {
+                return nil
+            }
+            return ReferenceRates(
+                inputUSDPerMillion: remote.inputUSDPerMillion,
+                outputUSDPerMillion: remote.outputUSDPerMillion,
+                cacheReadUSDPerMillion: remote.cacheReadUSDPerMillion ?? remote.inputUSDPerMillion,
+                cacheCreationUSDPerMillion: remote.cacheCreationUSDPerMillion ?? remote.inputUSDPerMillion
+            )
+        }
+    }
+
+    struct CatalogPriceItem: Identifiable, Equatable {
+        let id: String
+        let source: MoaUsageSource
+        let model: String
+        let inputUSDPerMillion: Double
+        let outputUSDPerMillion: Double
+        let cacheReadUSDPerMillion: Double?
+        let cacheCreationUSDPerMillion: Double?
+        let isCustomOverride: Bool
+        let isFromRemoteCatalog: Bool
+    }
+
+    /// Returns a merged, searchable list of reference prices (seed + remote catalog + custom overrides).
+    static func catalogEntries(
+        overrides: MoaUsagePricingOverrideController = MoaUsagePricingOverrideController()
+    ) -> [CatalogPriceItem] {
+        catalogStoreLock.lock()
+        let store = catalogStore
+        catalogStoreLock.unlock()
+
+        let remoteSnapshot = store.snapshot()
+        let customOverrides = overrides.overrides()
+        var customMap: [String: MoaUsagePricingOverride] = [:]
+        for item in customOverrides {
+            customMap["\(item.source.rawValue)|\(item.model.lowercased())"] = item
+        }
+
+        var merged: [String: CatalogPriceItem] = [:]
+
+        // 1. Seed tables
+        for (sourceKey, models) in MoaUsagePricingSeed.allSeedTables {
+            guard let source = MoaUsageSource(rawValue: sourceKey) else { continue }
+            for (model, price) in models {
+                let id = "\(source.rawValue)|\(model.lowercased())"
+                merged[id] = CatalogPriceItem(
+                    id: id,
+                    source: source,
+                    model: model,
+                    inputUSDPerMillion: price.inputUSDPerMillion,
+                    outputUSDPerMillion: price.outputUSDPerMillion,
+                    cacheReadUSDPerMillion: price.cacheReadUSDPerMillion,
+                    cacheCreationUSDPerMillion: price.cacheCreationUSDPerMillion,
+                    isCustomOverride: false,
+                    isFromRemoteCatalog: false
+                )
+            }
+        }
+
+        // 2. Built-in Codex/Claude/ZCode defaults not already in seed
+        for (model, p) in codex {
+            let id = "\(MoaUsageSource.codex.rawValue)|\(model.lowercased())"
+            if merged[id] == nil {
+                merged[id] = CatalogPriceItem(
+                    id: id, source: .codex, model: model,
+                    inputUSDPerMillion: p.inputCostPerToken * 1_000_000,
+                    outputUSDPerMillion: p.outputCostPerToken * 1_000_000,
+                    cacheReadUSDPerMillion: p.cacheReadInputCostPerToken.map { $0 * 1_000_000 },
+                    cacheCreationUSDPerMillion: p.cacheWriteInputCostPerToken.map { $0 * 1_000_000 },
+                    isCustomOverride: false, isFromRemoteCatalog: false
+                )
+            }
+        }
+        for (model, p) in claude {
+            let id = "\(MoaUsageSource.claude.rawValue)|\(model.lowercased())"
+            if merged[id] == nil {
+                merged[id] = CatalogPriceItem(
+                    id: id, source: .claude, model: model,
+                    inputUSDPerMillion: p.inputCostPerToken * 1_000_000,
+                    outputUSDPerMillion: p.outputCostPerToken * 1_000_000,
+                    cacheReadUSDPerMillion: p.cacheReadInputCostPerToken * 1_000_000,
+                    cacheCreationUSDPerMillion: p.cacheCreationInputCostPerToken * 1_000_000,
+                    isCustomOverride: false, isFromRemoteCatalog: false
+                )
+            }
+        }
+        for (model, p) in zcode {
+            let id = "\(MoaUsageSource.zcode.rawValue)|\(model.lowercased())"
+            if merged[id] == nil {
+                merged[id] = CatalogPriceItem(
+                    id: id, source: .zcode, model: model,
+                    inputUSDPerMillion: p.inputCostPerToken * 1_000_000,
+                    outputUSDPerMillion: p.outputCostPerToken * 1_000_000,
+                    cacheReadUSDPerMillion: p.cacheReadInputCostPerToken * 1_000_000,
+                    cacheCreationUSDPerMillion: p.cacheCreationInputCostPerToken * 1_000_000,
+                    isCustomOverride: false, isFromRemoteCatalog: false
+                )
+            }
+        }
+
+        // 3. Remote snapshot entries
+        if let remoteSnapshot {
+            for (sourceKey, models) in remoteSnapshot.models {
+                guard let source = MoaUsageSource(rawValue: sourceKey) else { continue }
+                for (model, price) in models {
+                    let id = "\(source.rawValue)|\(model.lowercased())"
+                    merged[id] = CatalogPriceItem(
+                        id: id,
+                        source: source,
+                        model: model,
+                        inputUSDPerMillion: price.inputUSDPerMillion,
+                        outputUSDPerMillion: price.outputUSDPerMillion,
+                        cacheReadUSDPerMillion: price.cacheReadUSDPerMillion,
+                        cacheCreationUSDPerMillion: price.cacheCreationUSDPerMillion,
+                        isCustomOverride: false,
+                        isFromRemoteCatalog: true
+                    )
+                }
+            }
+        }
+
+        // 4. Overlay custom overrides (highest priority)
+        for (id, custom) in customMap {
+            merged[id] = CatalogPriceItem(
+                id: id,
+                source: custom.source,
+                model: custom.model,
+                inputUSDPerMillion: custom.inputUSDPerMillion,
+                outputUSDPerMillion: custom.outputUSDPerMillion,
+                cacheReadUSDPerMillion: custom.cacheReadUSDPerMillion,
+                cacheCreationUSDPerMillion: custom.cacheCreationUSDPerMillion,
+                isCustomOverride: true,
+                isFromRemoteCatalog: false
+            )
+        }
+
+        return merged.values.sorted { lhs, rhs in
+            if lhs.isCustomOverride != rhs.isCustomOverride { return lhs.isCustomOverride }
+            if lhs.source.rawValue != rhs.source.rawValue { return lhs.source.rawValue < rhs.source.rawValue }
+            return lhs.model < rhs.model
+        }
+    }
 }

@@ -4,14 +4,14 @@
 
 [English](README.md) · [下载最新版](https://github.com/MoarLiu/Moa/releases/latest) · [更新日志](CHANGELOG.md)
 
-Moa 是面向多 AI Agent 用户的本地管理工具，将 ChatGPT / Codex、Claude Desktop、Antigravity App、DeepSeek Harness、WorkBuddy 国内版、WorkBuddy AI 国际版及 ZCode 汇集到统一的菜单栏和工作台中，在同一窗口管理账号、用量与设置。各客户端继续独立运行会话和任务，Moa 负责它们已适配的账号、配置及维护操作。
+Moa 是面向多 AI Agent 用户的本地管理工具，将 ChatGPT / Codex、Claude Desktop 与 Claude Code、Antigravity App、DeepSeek Harness、WorkBuddy 国内版、WorkBuddy AI 国际版、ZCode 及 Gemini CLI 汇集到统一的菜单栏和工作台中，在同一窗口管理账号、用量与设置。各客户端继续独立运行会话和任务，Moa 负责它们已适配的账号、配置及维护操作。
 
 ## 快速开始
 
-1. 从 [GitHub Releases](https://github.com/MoarLiu/Moa/releases/latest) 下载 DMG：Apple 芯片选择 `arm64`，Intel Mac 选择 `x86_64`。需要 macOS 12 或更新版本，同时提供 `.sha256` 校验文件。
+1. 从 [GitHub Releases](https://github.com/MoarLiu/Moa/releases/latest) 下载 DMG：Apple 芯片选择 `arm64`，Intel Mac 选择 `x86_64`。需要 macOS 12 或更新版本。每个 DMG 都附有对应的 `.sha256` 校验文件。1.10.0 起同时提供 Ed25519 签名发布清单和独立签名文件。仓库内提供 Homebrew Cask 配方 `Casks/moa.rb`。
 2. 将 **Moa.app** 拖入「应用程序」后打开。从 1.6.6 起，发行包持续使用同一张本地代码签名证书，但不具备 Developer ID 分发签名或公证；首次运行可能需要在「系统设置 → 隐私与安全性」中允许打开。从旧版 ad-hoc 签名升级到 1.6.6 时，请从 DMG 手动安装，旧版自动更新器无法完成这次签名迁移。
-3. 安装并登录需要使用的客户端。在 Moa 菜单选择「总览」，通过侧栏选择客户端，保存已支持的登录或配置服务商。「账号…」会直接打开 Codex 账号页。切换账号前请先结束客户端中的活动任务。
-4. 在侧栏打开「用量分析」，或从菜单打开「用量总览…」，查看支持的本地用量来源。「设置与数据」集中提供数据维护、价格更新与应用更新检查；各客户端子菜单保留切换、启动及专属选项。
+3. 安装并登录需要使用的客户端。在 Moa 菜单选择「总览」，通过侧栏选择客户端，保存已支持的登录或配置服务商。「账号…」会直接打开 Codex 账号页，按 `⌘K` 打开「快速切换器」可模糊检索全部客户端、账号/提供商与工作台页面。切换账号前请先结束客户端中的活动任务。
+4. 在侧栏打开「用量分析」，或从菜单打开「用量总览…」，查看支持的本地用量来源。「设置与数据」集中提供常规偏好、全局快捷键、客户端排序、备份与恢复中心、模型价格目录与自定义覆盖及应用更新检查；各客户端子菜单保留切换、启动及专属选项。
 
 ## 客户端支持范围
 
@@ -20,20 +20,21 @@ Moa 是面向多 AI Agent 用户的本地管理工具，将 ChatGPT / Codex、Cl
 | 客户端 | 账号与服务商 | 本地用量 | 其他功能 |
 | --- | --- | --- | --- |
 | ChatGPT / Codex | 官方登录；直连 Responses 服务商配置；配置导入导出 | Token、缓存、模型及 API 费用估算 | 打开／重开；可选生成速率状态栏 |
-| Claude Desktop / Claude Code | Desktop 3P 网关配置；复制 Claude Code 环境变量片段 | Claude Code 日志用量及 API 费用估算 | 打开／重开 Desktop；配置导入导出 |
-| Antigravity App 2.x | Google 登录保存、添加、切换、重命名／忘记 | 暂不支持 | 打开／重开；本地钥匙串快照 |
-| DeepSeek Harness | 登录保存、添加、切换、重命名／忘记 | 暂不支持 | 打开／重开；本地账号快照 |
+| Claude Desktop & Code | Desktop 3P 网关配置；独立 Claude Code（`~/.claude/settings.json`）提供商预设与官方模式恢复；复制环境变量片段 | Claude Code 日志用量及 API 费用估算 | 打开／重开 Desktop；打开 Claude Code 目录；配置导入导出 |
+| Antigravity App 2.x | Google 登录保存、添加、切换、重命名／忘记 | Transcript 日志 Token／缓存元数据及 API 费用估算（只读） | 打开／重开；本地钥匙串快照；钥匙串权限修复 |
+| DeepSeek Harness | 登录保存、添加、切换、重命名／忘记 | 会话 Token 汇总、缓存、模型及 API 费用估算（只读） | 打开／重开；本地账号快照 |
 | WorkBuddy 国内版 | 登录保存、添加、切换、重命名／忘记 | 独立的 Token、模型及费用估算 | 打开／重开；独立账号库 |
 | WorkBuddy AI 国际版 | 登录保存、添加、切换、重命名／忘记 | 独立的 Token、模型及费用估算 | 打开／重开；独立账号库 |
-| ZCode | 暂不支持账号／服务商管理 | 本地数据库用量及 API 费用估算 | 打开／重开及文件夹入口 |
+| ZCode | 暂不支持账号／服务商管理 | 本地数据库用量及 API 费用估算 | 打开／重开、恢复官方配置及文件夹入口 |
+| Gemini CLI | Google OAuth 登录保存、添加、切换、重命名／忘记 | 暂不支持 | 打开 Gemini 目录；与 Antigravity 严格隔离 |
 
 ## 核心功能
 
-- **统一工作台**：总览显示已保存账号状态与今天的本地用量，使用官方客户端 Logo，支持深浅色和窄窗口布局。未知用量显示为破折号。
-- **账号与服务商管理**：统一窗口内按客户端导航，菜单一键切换，提供已支持服务商的编辑及导入导出、进行中状态和失败恢复提示。
-- **用量与费用分析**：汇总已支持的本地来源，查看模型和缓存明细，导出 CSV / Markdown，设置自定义价格及每日用量提醒。费用来自本地记录与 API 参考价格，不等同于订阅账单、积分或账号余额。
-- **模型价格更新**：「Moa → 更新价格」下载 Sub2API 参考使用的公开价格目录，支持的美元 Token 单价立即生效并持久保存。自定义价格优先；下载失败保留原表；支持每日自动检查。
-- **数据与维护**：Moa 数据包导入导出、脱敏诊断、共享数据根的可选 iCloud 存储，以及 GitHub Release 应用更新。不同凭据的存储和同步范围见[安全与凭据存储](#安全与凭据存储)。
+- **统一工作台与快速切换器**：总览显示已保存账号状态、本地凭证健康提醒与今天的本地用量，使用官方客户端 Logo，支持深浅色与窄窗口布局、自定义客户端排序与显隐、可选系统级 Carbon 全局快捷键（无需辅助功能权限），以及 Spotlight 风格的快速切换器（`⌘K`）。
+- **账号与服务商管理**：统一窗口内按客户端导航，菜单一键切换，支持 Claude Code 独立的 `~/.claude/settings.json` 字段级提供商预设、Gemini CLI 多账号快照、本地只读凭证健康状态徽标、服务商编辑及导入导出、进行中状态与失败恢复提示。
+- **用量分析 2.0 与费用治理**：汇总所有已支持的本地来源（Codex、Claude Code、Antigravity、DeepSeek、WorkBuddy 国内/国际版、ZCode），提供 macOS 12+ 原生每日趋势图与按客户端/按模型占比图，支持今日/7d/30d/本月/自定义日期筛选、估算缓存节省金额、CSV/Markdown/JSON 导出，以及分源每日提醒 + 全客户端汇总日/月预算提醒（可选 80% 提前预警）。费用来自本地元数据与 API 参考价格，不等同于订阅账单、积分或账号余额。
+- **模型价格管理中心**：「设置 → 模型价格」提供可搜索的内置/远端参考价格目录与自定义覆盖管理（支持筛选全部 / 自定义 / 未定价或回退模型，支持单项或全部重置），并每日检查 Sub2API 参考使用的公开价格目录。自定义价格始终优先；下载失败保留原表。
+- **加密数据包、备份恢复与只读 CLI**：支持完整备份与仅配置分层导出及可选 **Schema 3** 密码加密（`PBKDF2-HMAC-SHA256` + `AES-256-GCM`），在「设置 → 数据与存储」中可视化管理自动恢复包、Codex 配置快照与下载目录中的旧版明文备份，支持可选 iCloud 存储。自动更新校验 SHA-256 和签名身份，目标版本从 1.10.0 起还必须通过 Ed25519 发布清单验签。内置严格只读的 **CLI 伴侣**（`moa status`、`moa usage --today --json`、`moa accounts --json`、`moa health --json`、`moa backups --json`）。详见[安全与凭据存储](#安全与凭据存储)。
 
 Moa 的当前定位是客户端管理和本地用量分析。Agent 执行、会话和服务认证由对应客户端负责；Codex 的可选生成速率状态栏是其中一项客户端专属功能。
 
@@ -44,10 +45,10 @@ Moa 的当前定位是客户端管理和本地用量分析。Agent 执行、会�
 - 主菜单顶部显示版本和构建号，“总览”“账号…”和“用量总览…”在同一工作台打开对应页面。各客户端仍保留用量摘要、刷新和一键切换；启动与文件夹入口位于各客户端子菜单底部。
 - 账号操作在菜单与窗口共享进行中状态；账号行保留“切换”，重命名、编辑、删除归入操作菜单。
 - 成功与普通信息使用不抢焦点的提示，长表单正文可滚动且保存、取消始终可见；用量窗口支持较窄窗口。
-- 快捷键：`⌘0` 总览、`⌘U` 用量分析、`⌘⇧A` 账号管理、`⌘R` 刷新工作台（其他场景刷新各来源用量）。
+- 快捷键：`⌘K` 快速切换器、`⌘0` 总览、`⌘U` 用量分析、`⌘⇧A` 账号管理、`⌘R` 刷新工作台（其他场景刷新各来源用量）。可在「设置 → 常规」中按需开启系统级 Carbon 全局快捷键。
 - 维护入口位于主菜单的“Moa”子菜单，包括价格更新、更新检查与数据管理。
 
-1.9.0 补齐工作台与菜单栏的客户端操作对齐（Codex 状态栏与多账号引导、Claude Code 环境变量复制、Antigravity 钥匙串权限修复、ZCode 官方配置重置），新增系统通知中心每日用量提醒（支持可选 80% 预警）、macOS 13+ 登录自启、可选菜单栏今日费用展示、应用内语言切换及每日后台静默更新检查。
+1.10.0 合并交付用量分析 2.0（原生趋势图与占比图、日期范围、缓存节省估算、全客户端汇总日/月预算、可搜索价格管理中心、Antigravity 与 DeepSeek 本地只读用量扫描）、Schema 3 AES-256-GCM 加密与仅配置分层数据包、本地只读凭证健康评估、备份与恢复中心、全局快捷键与快速切换器、声明式客户端适配器注册表及排序显隐定制、Claude Code 独立 `~/.claude/settings.json` 提供商预设、Gemini CLI 账号切换、Ed25519 签名发布清单校验、Homebrew Cask 支持以及内置只读 CLI 伴侣。
 
 ## ChatGPT 客户端兼容
 
@@ -81,7 +82,7 @@ Moa 1.5.0 移除了快速模式和远程连接设置入口、对应实现及旧�
 
 完整凭据及未知字段保存在 Moa 专用钥匙串服务 `com.moa.antigravity.accounts`，不请求 iCloud 钥匙串同步。名称、可用的邮箱标签、身份哈希和时间等信息保存在 `~/Library/Application Support/Moa/antigravity-accounts/accounts.json`，目录／文件权限为 `700`／`600`。这个目录不进入数据导出包、诊断包和 Moa 的 iCloud 数据根目录迁移。打开菜单时只在后台进行不弹授权框的刷新；保存和切换可能请求钥匙串授权，Moa 构建签名变化后也可能需要重新授权。
 
-存在 Google ID Token 时按其用户标识识别账号，否则按刷新授权的指纹识别登录。如果没有 ID Token 且授权发生变化，Moa 会另存一份，避免猜测并覆盖其他账号。适配器只接受已支持的 OAuth 格式，保存和恢复原始完整字节。设置和会话保持共享且不会被修改；此功能不隔离历史，也不增加用量统计。
+存在 Google ID Token 时按其用户标识识别账号，否则按刷新授权的指纹识别登录。如果没有 ID Token 且授权发生变化，Moa 会另存一份，避免猜测并覆盖其他账号。适配器只接受已支持的 OAuth 格式，保存和恢复原始完整字节。设置和会话保持共享且不会被修改；此功能不隔离历史。Antigravity 本地用量只读扫描 `~/.gemini/antigravity/brain/*/.system_generated/logs/transcript.jsonl`，仅提取 `step_index`、模型、时间戳与 Token 计数（绝不读取或存储对话提示词与内容）。
 
 独立备用文件 `~/.gemini/jetski-standalone-oauth-token` 也是登录来源。Moa 会将与当前钥匙串不同、且尚未保存过的备用账号另存到钥匙串；旧备用文件不会覆盖已有账号快照。切换时写入匹配账号的完整 JSON，添加账号时移除两个登录来源。钥匙串更新失败时，先恢复备用文件再重开；跨账号切换启动失败时恢复之前两份凭据，同账号重启失败时保留当前已刷新的登录，并同步两个登录来源，避免重试时退回旧令牌。已有 `.gemini` 目录权限保持不变，令牌文件使用私有权限写入。Gemini CLI 的 `oauth_creds.json` 和 CLI 专用令牌文件不会被修改。通过环境变量注入凭据或自定义凭据根目录的配置不在支持范围内。
 
@@ -97,7 +98,25 @@ App、CLI 或扩展实例可能共享当前登录。Moa 会在修改前检查运
 
 切换仅修改 `records.deepseek-account-platform/default`，保留 API Key、设备标识、浏览器连接凭据、设置和本地会话。切换前请关闭其他 DSH 实例，桌面端和 CLI 可能共享凭据文件。Moa 使用 Harness 的凭据写入锁及独立账号操作锁；客户端拒绝退出时停止写入，启动失败时只恢复原账号记录，并保留启动期间其他字段的更新。无法确认的凭据格式会在编辑前被拒绝。
 
-账号副本保存在 `~/Library/Application Support/Moa/deepseek-accounts/accounts.json`，目录/文件权限为 `700` / `600`，不进入数据包、诊断包或 iCloud 数据根迁移。忘记副本不会退出 Harness 当前登录。添加账号时不要使用 Harness 的「退出登录」，它会向服务器注销会话；过期或已注销的登录态需要重新登录并保存。隔离测试覆盖本地切换和回滚；真实 A → B → A 登录、模型请求及服务器是否保留同设备的两个会话，仍需人工验收。本模块暂不提供 DeepSeek 用量统计。
+账号副本保存在 `~/Library/Application Support/Moa/deepseek-accounts/accounts.json`，目录/文件权限为 `700` / `600`，不进入数据包、诊断包或 iCloud 数据根迁移。忘记副本不会退出 Harness 当前登录。添加账号时不要使用 Harness 的「退出登录」，它会向服务器注销会话；过期或已注销的登录态需要重新登录并保存。隔离测试覆盖本地切换和回滚；真实 A → B → A 登录、模型请求及服务器是否保留同设备的两个会话，仍需人工验收。DeepSeek 本地用量只读扫描 `$DSH_HOME/storages/session_projcache/sessions/session-*.json`，仅读取会话 Token 汇总、模型选择与时间戳（不读取对话内容）。
+
+## Gemini CLI
+
+「Gemini CLI」菜单与工作台页面独立管理 `~/.gemini/oauth_creds.json` 与 `~/.gemini/google_accounts.json`，与 Antigravity App 严格隔离。在终端运行 `gemini` 登录后，在 Moa 中点击「保存当前登录」即可；点击「再添加一个账号」会先保存当前登录并清理 `oauth_creds.json` 以便登录新账号。切换前会自动保留切出账号可能已刷新的令牌、拒绝符号链接，且绝不触碰 `~/.gemini/antigravity` 或 Antigravity 钥匙串条目。账号快照保存在 `~/Library/Application Support/Moa/gemini-cli-accounts/accounts.json`（`700`/`600`），不进入数据包、诊断包或 iCloud 迁移。由于 Gemini CLI 未持久化稳定的本地逐请求 Token 账本，其本地用量如实标记为暂不支持。
+
+## 只读命令行伴侣（CLI）
+
+Moa 主二进制内置严格只读的 CLI 伴侣（不输出原始 API Key 或令牌、不修改账号状态、不拉起界面）：
+
+```bash
+mkdir -p ~/.local/bin && ln -sf "/Applications/Moa.app/Contents/MacOS/Moa" ~/.local/bin/moa
+moa status [--json]
+moa usage [--today|--7d|--30d|--month] [--source <id>] [--by-model|--by-client] [--json]
+moa accounts [--client <id>] [--json]
+moa health [--json]
+moa backups [--json]
+moa version [--json]
+```
 
 ## WorkBuddy
 
@@ -220,14 +239,14 @@ Codex app 的 Run 按钮通过以下文件接入：
 
 | 数据 | 保存位置 | iCloud／数据包范围 |
 | --- | --- | --- |
-| 服务商 API Key、已保存的 Codex 登录 | Moa 当前数据根中的文件 | 启用 iCloud 后同步；完整导出及回滚包包含未加密凭据 |
+| 服务商 API Key（Codex、Claude Desktop、Claude Code）与已保存的 Codex 登录 | Moa 当前数据根中的文件 | 启用 iCloud 后同步；完整备份包含（Schema 3 支持 AES-256-GCM 密码加密），仅配置导出会剥离全部凭据 |
 | Antigravity 已保存登录 | 本地登录钥匙串；名称和身份元数据在 Application Support | Moa 不请求钥匙串同步；排除在 Moa 数据导出及数据根迁移之外 |
-| WorkBuddy 两个版本、DeepSeek 账号快照 | Application Support 下各自独立的本地账号库 | 排除在 Moa 数据导出及数据根迁移之外 |
-| 自动回滚包 | 本地 Application Support/Moa/Recovery，目标保留 12 份 | 排除在 Moa 的 iCloud 存储及完整导出之外；可能包含未加密凭据 |
+| WorkBuddy 两个版本、DeepSeek、Gemini CLI 账号快照 | Application Support 下各自独立的本地账号库 | 排除在 Moa 数据导出及数据根迁移之外 |
+| 自动回滚包 | 本地 Application Support/Moa/Recovery，目标保留 12 份 | 排除在 Moa 的 iCloud 存储及完整导出之外；可在「设置 → 数据与存储」中查看与恢复 |
 
-- Moa 不会把凭据上传到自有服务器。请妥善保管完整导出及回滚包，只导入可信来源的数据包。Schema 2 的 SHA-256 用于检测内容不一致，不验证作者身份，也不提供加密。
+- Moa 不会把凭据上传到自有服务器。导出数据包时建议开启 **Schema 3** 密码加密（`PBKDF2-HMAC-SHA256` 600,000 次迭代 + `AES-256-GCM`）或选择「仅设置与价格」范围；请妥善保管完整导出及回滚包，只导入可信来源的数据包。向后兼容旧版 Schema 1/2 明文包导入。
 - 敏感配置和供应商 profile JSON 导出通过创建时即为 `600` 的临时文件原子替换，权限设置失败会中止保存。客户端和导出目录保留既有权限，Moa 自有私有目录使用 `700`。
-- 自动更新从 GitHub Release 下载，并使用配套 SHA-256 检查完整性。从 1.6.6 起，证书签名的安装还会验证新应用是否满足当前应用的签名身份要求，拒绝不同证书或降级为 ad-hoc 签名。旧版 ad-hoc 安装没有稳定签名身份，首次证书签名版本需从可信来源手动安装。本地签名不具备 Developer ID 分发信任或公证，独立的更新文件签名系统尚未部署。
+- 自动更新从 GitHub Release 下载，并校验配套 SHA-256 与签名身份。Moa 1.10.0 的更新器要求目标版本从 1.10.0 起提供发布清单和独立签名文件，并使用构建时由 `scripts/release-manifest.env` 嵌入 `Info.plist` 的 `MoaReleaseManifestPublicKey` 执行 Ed25519 验签（对应私钥通过 `./scripts/setup-release-manifest-key.sh` 仅保存在维护者本机登录钥匙串中，绝不进入仓库）。本地签名不具备 Developer ID 分发信任或公证，公开公证分发请使用 `Developer ID Application` + `NOTARIZE=1`。
 - 诊断包会脱敏 auth、key、token 字段。
 - 打包脚本会拒绝把 `.moa`、`.codex`、`.dsh`、客户端登录/账号库、auth/config/profile 文件、环境变量文件和签名密钥打进发布包。
 - Moa 不打包 `MoaMCP`，也不暴露本地 workflow tools。

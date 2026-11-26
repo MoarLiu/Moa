@@ -140,14 +140,19 @@ extension AppDelegate {
         }
     }
 
+    @objc func showQuickSwitcherAction() {
+        quickSwitcher.toggle()
+    }
+
     @objc func exportDataPackageAction() {
-        guard confirmSensitiveDataPackageExport() else {
+        guard let options = MoaRelease1100Panels.showExportDataPackageOptions() else {
             return
         }
 
         let panel = NSSavePanel()
         panel.title = MoaL10n.text("Export Moa Data Package")
-        panel.nameFieldStringValue = dataPackageController.defaultDataPackageURL().lastPathComponent
+        let prefix = options.scope == .configOnly ? "Moa-Config-Backup" : "Moa-Data-Backup"
+        panel.nameFieldStringValue = dataPackageController.defaultDataPackageURL(prefix: prefix).lastPathComponent
         panel.allowedContentTypes = [.zip]
         guard panel.runModal() == .OK, let destination = panel.url else {
             return
@@ -156,7 +161,11 @@ extension AppDelegate {
         statusItemText.title = Self.statusTitle("Exporting Moa data...")
         DispatchQueue.global(qos: .userInitiated).async {
             let result = Result {
-                try self.dataPackageController.exportDataPackage(to: destination)
+                try self.dataPackageController.exportDataPackage(
+                    to: destination,
+                    scope: options.scope,
+                    password: options.password
+                )
             }
             DispatchQueue.main.async {
                 switch result {
@@ -164,7 +173,9 @@ extension AppDelegate {
                     self.statusItemText.title = Self.statusTitle("Exported Moa data package")
                     MoaNonBlockingAlert.present(
                         messageText: MoaL10n.text("Moa Data Exported"),
-                        informativeText: url.path,
+                        informativeText: options.password != nil
+                            ? MoaL10n.format("Encrypted Schema 3 package saved to:\n%@", url.path)
+                            : url.path,
                         tone: .success
                     )
                 case .failure(let error):
@@ -184,6 +195,16 @@ extension AppDelegate {
         guard panel.runModal() == .OK, let packageURL = panel.url else {
             return
         }
+
+        var password: String?
+        if let inspection = try? dataPackageController.inspectDataPackage(at: packageURL),
+           inspection.isEncrypted {
+            guard let entered = MoaRelease1100Panels.showImportPasswordPrompt(inspection: inspection) else {
+                return
+            }
+            password = entered
+        }
+
         guard confirmDataPackageImport() else {
             return
         }
@@ -192,7 +213,7 @@ extension AppDelegate {
         NotificationCenter.default.post(name: MoaDataRoot.willChangeNotification, object: nil)
         DispatchQueue.global(qos: .userInitiated).async {
             let result = Result {
-                try self.dataPackageController.importDataPackage(from: packageURL)
+                try self.dataPackageController.importDataPackage(from: packageURL, password: password)
             }
             DispatchQueue.main.async {
                 switch result {
@@ -211,6 +232,62 @@ extension AppDelegate {
                     self.showError(error.localizedDescription)
                 }
             }
+        }
+    }
+
+    func restoreRecoveryBackup(_ entry: MoaBackupEntry, onComplete: @escaping () -> Void) {
+        guard MoaNonBlockingAlert.confirm(
+            messageText: MoaL10n.format("Restore \"%@\"?", entry.name),
+            informativeText: MoaL10n.text("Moa will save a fresh rollback snapshot of your current data first, then restore this recovery package."),
+            primaryButtonTitle: MoaL10n.text("Restore"),
+            tone: .warning
+        ) else { return }
+
+        statusItemText.title = Self.statusTitle("Importing Moa data...")
+        NotificationCenter.default.post(name: MoaDataRoot.willChangeNotification, object: nil)
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result = Result {
+                try self.backupManager.restoreRecoveryPackage(entry)
+            }
+            DispatchQueue.main.async {
+                onComplete()
+                switch result {
+                case .success(let rollbackURL):
+                    self.refreshStatus()
+                    NotificationCenter.default.post(name: MoaDataRoot.didChangeNotification, object: nil)
+                    self.statusItemText.title = Self.statusTitle("Restored recovery backup")
+                    MoaNonBlockingAlert.present(
+                        messageText: MoaL10n.text("Recovery Package Restored"),
+                        informativeText: MoaL10n.format("A backup of your previous data was saved to:\n%@", rollbackURL.path),
+                        tone: .success
+                    )
+                case .failure(let error):
+                    NSSound.beep()
+                    self.statusItemText.title = Self.statusTitle("Restore failed")
+                    self.showError(error.localizedDescription)
+                }
+            }
+        }
+    }
+
+    func deleteBackupEntry(_ entry: MoaBackupEntry, onComplete: @escaping () -> Void) {
+        let isDownloads = entry.kind == .legacyDownloadsBackup
+        guard MoaNonBlockingAlert.confirm(
+            messageText: isDownloads
+                ? MoaL10n.format("Move \"%@\" to Trash?", entry.name)
+                : MoaL10n.format("Delete backup \"%@\"?", entry.name),
+            informativeText: isDownloads
+                ? MoaL10n.text("Moves this unencrypted backup archive from Downloads to the Trash.")
+                : MoaL10n.text("Permanently removes this backup snapshot from disk."),
+            primaryButtonTitle: MoaL10n.text(isDownloads ? "Move to Trash" : "Delete"),
+            tone: .danger
+        ) else { return }
+        do {
+            try backupManager.deleteBackup(entry)
+            onComplete()
+        } catch {
+            NSSound.beep()
+            showError(error.localizedDescription)
         }
     }
 

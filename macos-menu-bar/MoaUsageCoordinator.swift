@@ -14,12 +14,17 @@ final class MoaUsageCoordinator: ObservableObject {
     let zcodeScanner: ZCodeUsageScanner
     let workbuddyScanner: WorkBuddyUsageScanner
     let workbuddyCNScanner: WorkBuddyUsageScanner
+    let antigravityScanner: AntigravityUsageScanner
+    let deepseekScanner: DeepSeekUsageScanner
 
     var onCodexSummaryLoaded: ((CodexUsageSummary) -> Void)?
     var onClaudeSummaryLoaded: ((CodexUsageSummary) -> Void)?
     var onZCodeSummaryLoaded: ((CodexUsageSummary) -> Void)?
     var onWorkBuddySummaryLoaded: ((CodexUsageSummary) -> Void)?
     var onWorkBuddyCNSummaryLoaded: ((CodexUsageSummary) -> Void)?
+    var onAntigravitySummaryLoaded: ((CodexUsageSummary) -> Void)?
+    var onDeepSeekSummaryLoaded: ((CodexUsageSummary) -> Void)?
+    var onCombinedUsageUpdated: (([MoaUsageSource: CodexUsageSummary]) -> Void)?
     var needsFrequentRefresh: (MoaUsageSource) -> Bool = { _ in true }
 
     var codexSummaryItem: NSMenuItem { pipelines[.codex]!.summaryItem }
@@ -32,6 +37,10 @@ final class MoaUsageCoordinator: ObservableObject {
     var workbuddyRefreshItem: NSMenuItem { pipelines[.workbuddy]!.refreshItem }
     var workbuddyCNSummaryItem: NSMenuItem { pipelines[.workbuddyCN]!.summaryItem }
     var workbuddyCNRefreshItem: NSMenuItem { pipelines[.workbuddyCN]!.refreshItem }
+    var antigravitySummaryItem: NSMenuItem { pipelines[.antigravity]!.summaryItem }
+    var antigravityRefreshItem: NSMenuItem { pipelines[.antigravity]!.refreshItem }
+    var deepseekSummaryItem: NSMenuItem { pipelines[.deepseek]!.summaryItem }
+    var deepseekRefreshItem: NSMenuItem { pipelines[.deepseek]!.refreshItem }
 
     private final class Pipeline {
         let summaryItem = NSMenuItem()
@@ -75,6 +84,8 @@ final class MoaUsageCoordinator: ObservableObject {
         zcodeScanner: ZCodeUsageScanner = ZCodeUsageScanner(),
         workbuddyScanner: WorkBuddyUsageScanner = WorkBuddyUsageScanner(),
         workbuddyCNScanner: WorkBuddyUsageScanner = WorkBuddyUsageScanner(edition: .china),
+        antigravityScanner: AntigravityUsageScanner = AntigravityUsageScanner(),
+        deepseekScanner: DeepSeekUsageScanner = DeepSeekUsageScanner(),
         pricingUpdateCoordinator: MoaUsagePricingUpdateCoordinator? = nil
     ) {
         self.codexScanner = codexScanner
@@ -82,13 +93,17 @@ final class MoaUsageCoordinator: ObservableObject {
         self.zcodeScanner = zcodeScanner
         self.workbuddyScanner = workbuddyScanner
         self.workbuddyCNScanner = workbuddyCNScanner
+        self.antigravityScanner = antigravityScanner
+        self.deepseekScanner = deepseekScanner
         self.pricingUpdateCoordinator = pricingUpdateCoordinator ?? MoaUsagePricingUpdateCoordinator()
         pipelines = [
             .codex: Pipeline(source: .codex) { try codexScanner.loadSummary(forceRefresh: $0) },
             .claude: Pipeline(source: .claude) { try claudeScanner.loadSummary(forceRefresh: $0) },
             .zcode: Pipeline(source: .zcode) { try zcodeScanner.loadSummary(forceRefresh: $0) },
             .workbuddy: Pipeline(source: .workbuddy) { try workbuddyScanner.loadSummary(forceRefresh: $0) },
-            .workbuddyCN: Pipeline(source: .workbuddyCN) { try workbuddyCNScanner.loadSummary(forceRefresh: $0) }
+            .workbuddyCN: Pipeline(source: .workbuddyCN) { try workbuddyCNScanner.loadSummary(forceRefresh: $0) },
+            .antigravity: Pipeline(source: .antigravity) { try antigravityScanner.loadSummary(forceRefresh: $0) },
+            .deepseek: Pipeline(source: .deepseek) { try deepseekScanner.loadSummary(forceRefresh: $0) }
         ]
     }
 
@@ -153,6 +168,20 @@ final class MoaUsageCoordinator: ObservableObject {
     func refreshZCode(forceRefresh: Bool) { refresh(.zcode, forceRefresh: forceRefresh) }
     func refreshWorkBuddy(forceRefresh: Bool) { refresh(.workbuddy, forceRefresh: forceRefresh) }
     func refreshWorkBuddyCN(forceRefresh: Bool) { refresh(.workbuddyCN, forceRefresh: forceRefresh) }
+    func refreshAntigravity(forceRefresh: Bool) { refresh(.antigravity, forceRefresh: forceRefresh) }
+    func refreshDeepSeek(forceRefresh: Bool) { refresh(.deepseek, forceRefresh: forceRefresh) }
+
+    func loadCombinedReport(forceRefresh: Bool = false, now: Date = Date()) -> MoaUsageReportBatch {
+        MoaUsageReportBatch.load(now: now, sources: [
+            (.codex, { try self.codexScanner.loadReport(forceRefresh: forceRefresh, now: now) }),
+            (.claude, { try self.claudeScanner.loadReport(forceRefresh: forceRefresh, now: now) }),
+            (.zcode, { try self.zcodeScanner.loadReport(forceRefresh: forceRefresh, now: now) }),
+            (.workbuddy, { try self.workbuddyScanner.loadReport(forceRefresh: forceRefresh, now: now) }),
+            (.workbuddyCN, { try self.workbuddyCNScanner.loadReport(forceRefresh: forceRefresh, now: now) }),
+            (.antigravity, { try self.antigravityScanner.loadReport(forceRefresh: forceRefresh, now: now) }),
+            (.deepseek, { try self.deepseekScanner.loadReport(forceRefresh: forceRefresh, now: now) })
+        ])
+    }
 
     func refreshAllUsage() { refreshAll(forceRefresh: true) }
 
@@ -229,7 +258,10 @@ final class MoaUsageCoordinator: ObservableObject {
         case .zcode: onZCodeSummaryLoaded?(summary)
         case .workbuddy: onWorkBuddySummaryLoaded?(summary)
         case .workbuddyCN: onWorkBuddyCNSummaryLoaded?(summary)
+        case .antigravity: onAntigravitySummaryLoaded?(summary)
+        case .deepseek: onDeepSeekSummaryLoaded?(summary)
         }
+        onCombinedUsageUpdated?(workspaceSummaries)
     }
 
     #if MOA_TESTING || MOA_TEST_SUPPORT

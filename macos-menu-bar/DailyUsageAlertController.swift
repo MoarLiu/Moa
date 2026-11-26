@@ -1,12 +1,14 @@
 import Foundation
 import SwiftUI
 
-enum DailyUsageAlertKind: String {
+enum DailyUsageAlertKind: String, CaseIterable {
     case codex
     case claude
     case zcode
     case workbuddy
     case workbuddyCN = "workbuddy-cn"
+    case antigravity
+    case deepseek
 
     var displayName: String {
         switch self {
@@ -20,6 +22,10 @@ enum DailyUsageAlertKind: String {
             return "WorkBuddy AI"
         case .workbuddyCN:
             return WorkBuddyEdition.china.title
+        case .antigravity:
+            return "Antigravity"
+        case .deepseek:
+            return "DeepSeek Harness"
         }
     }
 
@@ -30,6 +36,22 @@ enum DailyUsageAlertKind: String {
         case .zcode: return .zcode
         case .workbuddy: return .workbuddy
         case .workbuddyCN: return .workbuddyCN
+        case .antigravity: return .antigravity
+        case .deepseek: return .deepseek
+        }
+    }
+}
+
+enum MoaCombinedBudgetPeriod: String, CaseIterable, Identifiable {
+    case daily
+    case monthly
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .daily: return MoaL10n.text("Combined Daily Budget")
+        case .monthly: return MoaL10n.text("Combined Monthly Budget")
         }
     }
 }
@@ -226,8 +248,186 @@ enum DailyUsageAlertController {
         String(format: "$%.2f", value)
     }
 
+    // MARK: - Combined All-Sources Daily & Monthly Budgets
+
+    private static let combinedThresholdPrefix = "Moa.combinedBudget.threshold."
+    private static let combinedWarn80Prefix = "Moa.combinedBudget.warn80Enabled."
+    private static let combinedLastAlertPrefix = "Moa.combinedBudget.lastAlert."
+    private static let combinedLastWarn80Prefix = "Moa.combinedBudget.lastWarn80."
+
+    static func combinedThreshold(for period: MoaCombinedBudgetPeriod, defaults: UserDefaults = .standard) -> Double? {
+        let value = defaults.double(forKey: combinedThresholdPrefix + period.rawValue)
+        return value > 0 ? value : nil
+    }
+
+    static func setCombinedThreshold(_ threshold: Double?, for period: MoaCombinedBudgetPeriod, defaults: UserDefaults = .standard) {
+        let key = combinedThresholdPrefix + period.rawValue
+        if let threshold, threshold > 0 {
+            defaults.set(threshold, forKey: key)
+        } else {
+            defaults.removeObject(forKey: key)
+            defaults.removeObject(forKey: combinedLastAlertPrefix + period.rawValue)
+            defaults.removeObject(forKey: combinedLastWarn80Prefix + period.rawValue)
+        }
+    }
+
+    static func combinedWarning80Enabled(for period: MoaCombinedBudgetPeriod, defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: combinedWarn80Prefix + period.rawValue)
+    }
+
+    static func setCombinedWarning80Enabled(_ enabled: Bool, for period: MoaCombinedBudgetPeriod, defaults: UserDefaults = .standard) {
+        let key = combinedWarn80Prefix + period.rawValue
+        if enabled {
+            defaults.set(true, forKey: key)
+        } else {
+            defaults.removeObject(forKey: key)
+            defaults.removeObject(forKey: combinedLastWarn80Prefix + period.rawValue)
+        }
+    }
+
+    static func hasAnyCombinedBudget(defaults: UserDefaults = .standard) -> Bool {
+        combinedThreshold(for: .daily, defaults: defaults) != nil
+            || combinedThreshold(for: .monthly, defaults: defaults) != nil
+    }
+
+    static func pendingCombinedAlertLevel(
+        period: MoaCombinedBudgetPeriod,
+        costUSD: Double,
+        date: Date = Date(),
+        defaults: UserDefaults = .standard
+    ) -> DailyUsageAlertLevel? {
+        guard let threshold = combinedThreshold(for: period, defaults: defaults) else {
+            defaults.removeObject(forKey: combinedLastAlertPrefix + period.rawValue)
+            defaults.removeObject(forKey: combinedLastWarn80Prefix + period.rawValue)
+            return nil
+        }
+
+        let bucketKey = period == .daily ? dayKey(from: date) : MoaUsageReport.monthKey(from: date)
+        let signature = "\(bucketKey)|\(String(format: "%.2f", threshold))"
+        let reachedKey = combinedLastAlertPrefix + period.rawValue
+        let warnKey = combinedLastWarn80Prefix + period.rawValue
+
+        if costUSD >= threshold {
+            defaults.set(signature, forKey: warnKey)
+            guard defaults.string(forKey: reachedKey) != signature else { return nil }
+            defaults.set(signature, forKey: reachedKey)
+            return .reached
+        }
+
+        defaults.removeObject(forKey: reachedKey)
+
+        if combinedWarning80Enabled(for: period, defaults: defaults),
+           costUSD >= threshold * 0.8 {
+            guard defaults.string(forKey: warnKey) != signature else { return nil }
+            defaults.set(signature, forKey: warnKey)
+            return .warning80
+        }
+
+        defaults.removeObject(forKey: warnKey)
+        return nil
+    }
+
     private static func dayKey(from date: Date) -> String {
         let components = Calendar.current.dateComponents([.year, .month, .day], from: date)
         return String(format: "%04d-%02d-%02d", components.year ?? 1970, components.month ?? 1, components.day ?? 1)
+    }
+}
+
+struct MoaCombinedBudgetFormView: View {
+    let onSave: (Double?, Bool, Double?, Bool) -> Void
+    let onCancel: () -> Void
+
+    @State private var dailyEnabled: Bool
+    @State private var dailyText: String
+    @State private var dailyWarn80: Bool
+    @State private var monthlyEnabled: Bool
+    @State private var monthlyText: String
+    @State private var monthlyWarn80: Bool
+    @State private var statusText: String = ""
+
+    init(
+        initialDailyThreshold: Double?,
+        initialDailyWarn80: Bool,
+        initialMonthlyThreshold: Double?,
+        initialMonthlyWarn80: Bool,
+        onSave: @escaping (Double?, Bool, Double?, Bool) -> Void,
+        onCancel: @escaping () -> Void
+    ) {
+        self.onSave = onSave
+        self.onCancel = onCancel
+        _dailyEnabled = State(initialValue: initialDailyThreshold != nil)
+        _dailyText = State(initialValue: initialDailyThreshold.map { String(format: "%.2f", $0) } ?? "")
+        _dailyWarn80 = State(initialValue: initialDailyWarn80)
+        _monthlyEnabled = State(initialValue: initialMonthlyThreshold != nil)
+        _monthlyText = State(initialValue: initialMonthlyThreshold.map { String(format: "%.2f", $0) } ?? "")
+        _monthlyWarn80 = State(initialValue: initialMonthlyWarn80)
+    }
+
+    var body: some View {
+        MoaModalForm {
+            MoaModalHeader(
+                icon: "chart.bar.doc.horizontal.fill",
+                title: MoaL10n.text("Combined Usage Budgets"),
+                message: MoaL10n.text("Set daily and monthly budgets across all local usage sources. Estimates use API reference prices, not official bills.")
+            )
+        } fields: {
+            VStack(alignment: .leading, spacing: 14) {
+                Toggle(MoaL10n.text("Enable Combined Daily Budget"), isOn: $dailyEnabled)
+                    .toggleStyle(.checkbox).font(.system(size: 13, weight: .medium))
+                TextField(MoaL10n.text("Example: 20"), text: $dailyText)
+                    .moaModalFieldChrome()
+                    .disabled(!dailyEnabled).opacity(dailyEnabled ? 1 : 0.5)
+                Toggle(MoaL10n.text("Also notify at 80% of daily budget"), isOn: $dailyWarn80)
+                    .toggleStyle(.checkbox).font(.system(size: 12))
+                    .disabled(!dailyEnabled).opacity(dailyEnabled ? 1 : 0.5)
+
+                Divider()
+
+                Toggle(MoaL10n.text("Enable Combined Monthly Budget"), isOn: $monthlyEnabled)
+                    .toggleStyle(.checkbox).font(.system(size: 13, weight: .medium))
+                TextField(MoaL10n.text("Example: 200"), text: $monthlyText)
+                    .moaModalFieldChrome()
+                    .disabled(!monthlyEnabled).opacity(monthlyEnabled ? 1 : 0.5)
+                Toggle(MoaL10n.text("Also notify at 80% of monthly budget"), isOn: $monthlyWarn80)
+                    .toggleStyle(.checkbox).font(.system(size: 12))
+                    .disabled(!monthlyEnabled).opacity(monthlyEnabled ? 1 : 0.5)
+
+                Text(statusText.isEmpty ? " " : statusText)
+                    .id("moa-form-status")
+                    .preference(key: MoaFormStatusPreferenceKey.self, value: statusText)
+                    .font(.system(size: 12))
+                    .foregroundStyle(MoaTheme.coral)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(minHeight: 16, alignment: .leading)
+            }
+        } footer: {
+            HStack(spacing: 10) {
+                Spacer()
+                MoaModalButton(title: MoaL10n.text("Cancel"), action: onCancel)
+                MoaModalButton(title: MoaL10n.text("Save"), prominence: .prominent, keyEquivalent: "\r", action: save)
+            }
+        }
+    }
+
+    private func save() {
+        var daily: Double?
+        if dailyEnabled {
+            let trimmed = dailyText.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let v = Double(trimmed), v.isFinite, v > 0 else {
+                statusText = MoaL10n.text("Enter an alert threshold greater than 0.")
+                return
+            }
+            daily = v
+        }
+        var monthly: Double?
+        if monthlyEnabled {
+            let trimmed = monthlyText.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let v = Double(trimmed), v.isFinite, v > 0 else {
+                statusText = MoaL10n.text("Enter an alert threshold greater than 0.")
+                return
+            }
+            monthly = v
+        }
+        onSave(daily, dailyEnabled && dailyWarn80, monthly, monthlyEnabled && monthlyWarn80)
     }
 }

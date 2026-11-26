@@ -28,6 +28,7 @@ final class MoaMainMenuCoordinator {
         app.versionItem.isEnabled = false
         app.menu.addItem(app.versionItem)
         app.menu.addItem(actionItem("Overview", #selector(AppDelegate.showWorkspaceAction)))
+        app.menu.addItem(actionItem("Quick Switcher…", #selector(AppDelegate.showQuickSwitcherAction), key: "k"))
         app.menu.addItem(.separator())
         app.statusItemText.isEnabled = false
         app.statusItemText.isHidden = true
@@ -40,7 +41,8 @@ final class MoaMainMenuCoordinator {
             (app.workbuddyCNItem, app.workbuddyCNMenu),
             (app.workbuddyItem, app.workbuddyMenu),
             (app.deepseekCoordinator.item, app.deepseekCoordinator.menu),
-            (app.antigravityCoordinator.item, app.antigravityCoordinator.menu)
+            (app.antigravityCoordinator.item, app.antigravityCoordinator.menu),
+            (app.geminiCLICoordinator.item, app.geminiCLICoordinator.menu)
         ] {
             submenu.autoenablesItems = false
             item.menu?.removeItem(item)
@@ -53,6 +55,7 @@ final class MoaMainMenuCoordinator {
                 case .workbuddy: return item === app.workbuddyItem
                 case .deepseek: return item === app.deepseekCoordinator.item
                 case .antigravity: return item === app.antigravityCoordinator.item
+                case .geminiCLI: return item === app.geminiCLICoordinator.item
                 }
             }
             if let client, let image = MoaUIResources.image(client.logoName) {
@@ -120,16 +123,22 @@ final class MoaMainMenuCoordinator {
             ?? app.menu.items.firstIndex(of: otherClientsItem) else { return }
         for entry in clientItems { entry.item.menu?.removeItem(entry.item) }
         otherClientsItem.menu?.removeItem(otherClientsItem)
+        otherClientsMenu.removeAllItems()
+
+        let byClient = Dictionary(uniqueKeysWithValues: clientItems.map { ($0.client, $0.item) })
+        let hidden = MoaClientPreferences.hiddenClients()
+        let orderedClients = MoaClientPreferences.orderedClients().filter { !hidden.contains($0) }
+        let orderedEntries = orderedClients.compactMap { client in byClient[client].map { (client: client, item: $0) } }
         let installed = MoaClientInstallation.installed()
-        // Detection found nothing or everything: keep the plain list.
-        let fold = !installed.isEmpty && installed.count < clientItems.count
+        let hasCustomOrder = MoaClientPreferences.hasCustomOrder()
+        let fold = !hasCustomOrder && !installed.isEmpty && installed.count < orderedEntries.count
         var index = anchor
-        for entry in clientItems where !fold || installed.contains(entry.client) {
+        for entry in orderedEntries where !fold || installed.contains(entry.client) {
             app.menu.insertItem(entry.item, at: index)
             index += 1
         }
         guard fold else { return }
-        for entry in clientItems where !installed.contains(entry.client) {
+        for entry in orderedEntries where !installed.contains(entry.client) {
             otherClientsMenu.addItem(entry.item)
         }
         app.menu.insertItem(otherClientsItem, at: index)
@@ -181,6 +190,7 @@ final class MoaMainMenuCoordinator {
         app.rebuildWorkBuddyMenus()
         app.deepseekCoordinator.rebuildMenu()
         app.antigravityCoordinator.rebuildMenu()
+        app.geminiCLICoordinator.rebuildMenu()
         configureMoaDataMenu()
         refreshStatus()
     }

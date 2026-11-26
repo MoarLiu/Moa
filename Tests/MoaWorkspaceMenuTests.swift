@@ -4,6 +4,16 @@ import XCTest
 @testable import Moa
 
 final class MoaWorkspaceMenuTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        MoaClientPreferences.resetDefaults()
+    }
+
+    override func tearDown() {
+        MoaClientPreferences.resetDefaults()
+        super.tearDown()
+    }
+
     func testInstalledClientsComeFirstAndUnknownDetectionKeepsTheOriginalOrder() {
         let all = MoaWorkspaceClient.allCases
         // Nothing detected, or everything: no client is singled out as missing.
@@ -13,8 +23,8 @@ final class MoaWorkspaceMenuTests: XCTestCase {
             XCTAssertTrue(ordered.allSatisfy(\.present))
         }
         let ordered = MoaClientInstallation.orderedClients([.zcode, .claude])
-        XCTAssertEqual(ordered.map(\.client), [.claude, .zcode, .codex, .antigravity, .deepseek, .workbuddyCN, .workbuddy])
-        XCTAssertEqual(ordered.map(\.present), [true, true, false, false, false, false, false])
+        XCTAssertEqual(ordered.map(\.client), [.claude, .zcode, .codex, .antigravity, .deepseek, .workbuddyCN, .workbuddy, .geminiCLI])
+        XCTAssertEqual(ordered.map(\.present), [true, true, false, false, false, false, false, false])
     }
 
     @MainActor func testMenuKeepsEveryClientReachableWhenFoldingMissingOnes() {
@@ -23,7 +33,8 @@ final class MoaWorkspaceMenuTests: XCTestCase {
         let app = AppDelegate()
         app.mainMenuCoordinator.configureMenu()
         let clientItems = [app.codexProfilesItem, app.claudeDesktopProfilesItem, app.zcodeItem, app.workbuddyCNItem,
-                           app.workbuddyItem, app.deepseekCoordinator.item, app.antigravityCoordinator.item]
+                           app.workbuddyItem, app.deepseekCoordinator.item, app.antigravityCoordinator.item,
+                           app.geminiCLICoordinator.item]
         let installed = MoaClientInstallation.installed()
         let folds = !installed.isEmpty && installed.count < clientItems.count
 

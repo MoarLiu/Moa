@@ -117,6 +117,7 @@ MACOSX_DEPLOYMENT_TARGET="$MACOS_DEPLOYMENT_TARGET" "$SWIFTC_BIN" \
   -framework ApplicationServices \
   -framework AppKit \
   -framework AVFoundation \
+  -framework Carbon \
   -framework Combine \
   -framework CryptoKit \
   -framework Foundation \
@@ -152,6 +153,20 @@ fi
 
 find "$RESOURCES" -name ".DS_Store" -delete
 
+if [[ -f "$ROOT/scripts/release-manifest.env" ]]; then
+  # shellcheck source=release-manifest.env
+  source "$ROOT/scripts/release-manifest.env"
+fi
+
+if [[ -z "${MOA_MANIFEST_PUBLIC_KEY:-}" ]]; then
+  echo "Missing MOA_MANIFEST_PUBLIC_KEY. Run ./scripts/setup-release-manifest-key.sh or configure scripts/release-manifest.env." >&2
+  exit 1
+fi
+if ! python3 -c 'import base64, sys; raw = base64.b64decode(sys.argv[1], validate=True); assert len(raw) == 32' "$MOA_MANIFEST_PUBLIC_KEY" 2>/dev/null; then
+  echo "Invalid MOA_MANIFEST_PUBLIC_KEY: expected 32-byte raw Ed25519 public key encoded as base64." >&2
+  exit 1
+fi
+
 cat >"$CONTENTS/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -173,6 +188,8 @@ cat >"$CONTENTS/Info.plist" <<PLIST
   <string>$APP_VERSION</string>
   <key>MoaReleaseVersion</key>
   <string>$APP_RELEASE_VERSION</string>
+  <key>MoaReleaseManifestPublicKey</key>
+  <string>$MOA_MANIFEST_PUBLIC_KEY</string>
   <key>CFBundleVersion</key>
   <string>$APP_BUILD</string>
   <key>LSMinimumSystemVersion</key>
@@ -194,7 +211,11 @@ if command -v codesign >/dev/null 2>&1; then
   if [[ "$CODE_SIGN_IDENTITY" == "-" ]]; then
     moa_codesign "$STAGING" --deep >/dev/null
   else
-    moa_codesign "$STAGING" --deep --options runtime >/dev/null
+    ENTITLEMENTS_ARGS=()
+    if [[ -f "$ROOT/scripts/Moa.entitlements" ]]; then
+      ENTITLEMENTS_ARGS=(--entitlements "$ROOT/scripts/Moa.entitlements")
+    fi
+    moa_codesign "$STAGING" --deep --options runtime "${ENTITLEMENTS_ARGS[@]}" >/dev/null
   fi
   /usr/bin/codesign --verify --deep --strict "$STAGING"
 fi

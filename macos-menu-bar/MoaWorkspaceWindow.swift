@@ -24,7 +24,7 @@ final class MoaWorkspaceWindowController: NSObject, NSWindowDelegate {
                 styleMask: [.titled, .closable, .miniaturizable, .resizable],
                 backing: .buffered, defer: false
             )
-            window.title = MoaRuntimeMode.isWorkspacePreview ? "Moa — 1.9.0 Preview" : "Moa"
+            window.title = MoaRuntimeMode.isWorkspacePreview ? "Moa — 1.10.0 Preview" : "Moa"
             window.minSize = NSSize(width: 720, height: 560)
             window.isReleasedWhenClosed = false
             window.delegate = self
@@ -81,6 +81,8 @@ final class MoaWorkspaceWindowController: NSObject, NSWindowDelegate {
             else { app.workbuddyCoordinator.openWorkBuddyAction() }
         case .zcode:
             if reopen { app.zcodeController.reopenZCode() } else { app.zcodeController.openZCode() }
+        case .geminiCLI:
+            app.geminiCLICoordinator.controller.openGeminiFolder()
         }
     }
 }
@@ -93,6 +95,7 @@ struct MoaWorkspaceView: View {
     @ObservedObject var updates: MoaUpdateCoordinator
     @State private var languageRevision = UUID()
     @State private var languageChanged = false
+    @State private var clientPrefsRevision = UUID()
 
     init(
         app: AppDelegate,
@@ -109,7 +112,8 @@ struct MoaWorkspaceView: View {
     }
 
     private var clients: [(client: MoaWorkspaceClient, present: Bool)] {
-        MoaClientInstallation.orderedClients(navigation.installedClients)
+        _ = clientPrefsRevision
+        return MoaClientPreferences.resolvedVisibleClients(installed: navigation.installedClients)
     }
 
     var body: some View {
@@ -143,6 +147,9 @@ struct MoaWorkspaceView: View {
         .onReceive(NotificationCenter.default.publisher(for: MoaAppLanguage.didChangeNotification).receive(on: RunLoop.main)) { _ in
             languageChanged = true
             languageRevision = UUID()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: MoaClientPreferences.didChangeNotification).receive(on: RunLoop.main)) { _ in
+            clientPrefsRevision = UUID()
         }
     }
 
@@ -275,11 +282,17 @@ struct MoaWorkspaceView: View {
                 HStack(alignment: .top) {
                     workspaceHeading("Overview", subtitle: "Accounts, configurations, and usage together.")
                     Spacer()
+                    Button(MoaL10n.text("Quick Switcher")) { app.showQuickSwitcherAction() }
+                        .buttonStyle(MoaWorkspaceButtonStyle())
+                        .disabled(MoaRuntimeMode.suppressesUserInteraction)
                     Button(MoaL10n.text("Refresh")) { app.workspaceWindow.refresh() }
                         .buttonStyle(MoaWorkspaceButtonStyle())
                 }
                 if !accounts.failures.isEmpty {
                     workspaceNotice(accounts.failures.joined(separator: "\n"), tone: MoaTheme.coral)
+                }
+                if !accounts.healthAttentionSummaries.isEmpty {
+                    healthAttentionCard(accounts.healthAttentionSummaries)
                 }
                 // Until something is saved there is nothing to resume; say how to begin.
                 if !hasSavedAccounts && accounts.failures.isEmpty { gettingStarted }
@@ -294,6 +307,49 @@ struct MoaWorkspaceView: View {
                 }
             }.padding(compact ? 24 : 32).frame(maxWidth: .infinity, alignment: .leading)
         }.accessibilityIdentifier("workspace.overview.content")
+    }
+
+    private func healthAttentionCard(_ items: [MoaClientHealthSummary]) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: "exclamationmark.shield.fill")
+                    .foregroundStyle(MoaTheme.amber)
+                Text(MoaL10n.format("Credential Health Attention (%lld)", items.count))
+                    .font(.system(size: 14, weight: .semibold))
+                Spacer()
+                Text(MoaL10n.text("Local read-only check"))
+                    .font(.system(size: 11))
+                    .foregroundStyle(MoaWorkspaceTheme.secondary)
+            }
+            ForEach(items.prefix(4)) { item in
+                Button {
+                    navigation.showAccount(item.group)
+                } label: {
+                    HStack(spacing: 10) {
+                        MoaClientLogo(client: item.client, size: 18)
+                        Text(item.accountName).font(.system(size: 12, weight: .medium)).lineLimit(1)
+                        Text(item.report.badge)
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(item.report.severity == .critical ? MoaTheme.coral : MoaTheme.amber)
+                            .padding(.horizontal, 6).padding(.vertical, 2)
+                            .background(MoaWorkspaceTheme.canvas, in: RoundedRectangle(cornerRadius: 4))
+                        Text(item.report.detail)
+                            .font(.system(size: 11))
+                            .foregroundStyle(MoaWorkspaceTheme.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                        Spacer()
+                        Image(systemName: "chevron.right").font(.system(size: 10)).foregroundStyle(MoaWorkspaceTheme.secondary)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(MoaWorkspaceTheme.subtle, in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(MoaTheme.amber.opacity(0.4), lineWidth: 1))
     }
 
     private var gettingStarted: some View {

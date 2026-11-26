@@ -24,10 +24,16 @@ final class MoaWorkspaceRenderTests: XCTestCase {
         let accounts = MoaAccountManagerModel(app: app)
 
         for (name, destination) in [("overview", MoaWorkspaceDestination.overview),
+                                     ("usage", .usage),
                                      ("settings", .settings),
-                                     ("clients", .client(.codex))] {
+                                     ("clients", .client(.codex)),
+                                     ("claude", .client(.claude)),
+                                     ("gemini", .client(.geminiCLI))] {
             navigation.destination = destination
-            for (suffix, size) in [("wide", NSSize(width: 1280, height: 820)), ("compact", NSSize(width: 760, height: 820))] {
+            let sizes: [(String, NSSize)] = (name == "claude" || name == "gemini")
+                ? [("wide", NSSize(width: 1280, height: 820))]
+                : [("wide", NSSize(width: 1280, height: 820)), ("compact", NSSize(width: 760, height: 820))]
+            for (suffix, size) in sizes {
                 let view = MoaWorkspaceView(app: app, navigation: navigation, accounts: accounts, usage: app.usageCoordinator)
                     .frame(width: size.width, height: size.height)
                 for appearance in ["light", "dark"] {
@@ -43,8 +49,9 @@ final class MoaWorkspaceRenderTests: XCTestCase {
         _ = NSApplication.shared
         MoaRuntimeMode.suppressesUserInteraction = true
         let app = AppDelegate()
-        let size = NSSize(width: 900, height: 560)
+        let size = NSSize(width: 900, height: 680)
         for (name, tab) in [("settings-general", MoaWorkspaceSettingsTab.general),
+                            ("settings-data", .data),
                             ("settings-prices", .prices),
                             ("settings-about", .about)] {
             let view = MoaWorkspaceSettingsView(app: app, initialTab: tab)

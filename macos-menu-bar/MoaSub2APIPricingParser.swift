@@ -16,10 +16,12 @@ enum MoaSub2APIPricingParser {
             if ["bedrock", "azure", "azure_ai", "vertex_ai-language-models", "vertex_ai-embedding-models"].contains(provider) { continue }
             let sources: [MoaUsageSource]
             switch provider {
-            case "openai": sources = [.codex, .workbuddy]
-            case "anthropic": sources = [.claude, .workbuddy]
+            case "openai": sources = [.codex, .workbuddy, .antigravity]
+            case "anthropic": sources = [.claude, .workbuddy, .antigravity]
             case "zhipu", "zai": sources = [.zcode, .workbuddy]
-            case "deepseek", "gemini", "xai", "moonshot", "minimax", "stepfun", "hunyuan", "tencent": sources = [.workbuddy]
+            case "deepseek": sources = [.deepseek, .workbuddy]
+            case "gemini": sources = [.antigravity, .workbuddy]
+            case "xai", "moonshot", "minimax", "stepfun", "hunyuan", "tencent": sources = [.workbuddy]
             default: sources = [] // New vendors remain usable via the shared catalog.
             }
             let key = id.lowercased()

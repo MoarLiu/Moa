@@ -18,6 +18,8 @@ enum MoaUsageSource: String, Codable, CaseIterable, Hashable {
     case zcode
     case workbuddy
     case workbuddyCN = "workbuddy-cn"
+    case antigravity
+    case deepseek
 
     var title: String {
         switch self {
@@ -31,6 +33,10 @@ enum MoaUsageSource: String, Codable, CaseIterable, Hashable {
             return "WorkBuddy AI"
         case .workbuddyCN:
             return WorkBuddyEdition.china.title
+        case .antigravity:
+            return "Antigravity"
+        case .deepseek:
+            return "DeepSeek Harness"
         }
     }
 
@@ -129,17 +135,35 @@ struct MoaUsageReport {
         let todayKey = Self.dayKey(from: now)
         let since = Calendar.current.date(byAdding: .day, value: -(max(1, recentDays) - 1), to: now) ?? now
         let sinceKey = Self.dayKey(from: since)
+        return filtered(source: source, startDayKey: sinceKey, endDayKey: todayKey)
+    }
+
+    func filtered(source: MoaUsageSource?, startDayKey: String, endDayKey: String, searchQuery: String = "") -> MoaUsageReport {
+        let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return MoaUsageReport(
             rows: rows.filter { row in
                 let sourceMatches = source.map { row.source == $0 } ?? true
-                return sourceMatches && row.dayKey >= sinceKey && row.dayKey <= todayKey
+                guard sourceMatches && row.dayKey >= startDayKey && row.dayKey <= endDayKey else {
+                    return false
+                }
+                guard !query.isEmpty else { return true }
+                return row.model.lowercased().contains(query)
+                    || row.source.title.lowercased().contains(query)
+                    || row.source.rawValue.lowercased().contains(query)
+                    || row.pricingModel.lowercased().contains(query)
+                    || row.dayKey.contains(query)
             },
             generatedAt: generatedAt
         )
     }
 
-    static func dayKey(from date: Date) -> String {
-        let components = Calendar.current.dateComponents([.year, .month, .day], from: date)
+    static func dayKey(from date: Date, calendar: Calendar = .current) -> String {
+        let components = calendar.dateComponents([.year, .month, .day], from: date)
         return String(format: "%04d-%02d-%02d", components.year ?? 1970, components.month ?? 1, components.day ?? 1)
+    }
+
+    static func monthKey(from date: Date, calendar: Calendar = .current) -> String {
+        let components = calendar.dateComponents([.year, .month], from: date)
+        return String(format: "%04d-%02d", components.year ?? 1970, components.month ?? 1)
     }
 }

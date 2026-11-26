@@ -30,6 +30,7 @@ enum MoaUsageReportExporter {
             "- Generated: \(ISO8601DateFormatter().string(from: report.generatedAt))",
             "- Total cost: \(currency(report.totalCostUSD))",
             "- Total tokens: \(report.totalTokens)",
+            "- Cache hit: \(String(format: "%.2f%%", report.cacheHitPercent))",
             "",
             "| Date | Source | Model | Input | Cache | Output | Total | Cost | Pricing | Fallback |",
             "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- |"
@@ -44,6 +45,32 @@ enum MoaUsageReportExporter {
             lines.append("| \(md(row.dayKey)) | \(md(row.source.title)) | \(md(row.model)) | \(row.input) | \(row.cacheTokens) | \(row.output) | \(row.totalTokens) | \(currency(row.costUSD)) | \(md(row.pricingModel)) | \(row.usesFallbackPricing ? "Yes" : "No") |")
         }
         return lines.joined(separator: "\n") + "\n"
+    }
+
+    static func json(report: MoaUsageReport, cacheSavingsUSD: Double = 0) -> String {
+        struct ExportPayload: Encodable {
+            let generatedAt: String
+            let totalCostUSD: Double
+            let totalTokens: Int
+            let cacheHitPercent: Double
+            let estimatedCacheSavingsUSD: Double
+            let rows: [MoaUsageDetailRow]
+        }
+        let payload = ExportPayload(
+            generatedAt: ISO8601DateFormatter().string(from: report.generatedAt),
+            totalCostUSD: report.totalCostUSD,
+            totalTokens: report.totalTokens,
+            cacheHitPercent: report.cacheHitPercent,
+            estimatedCacheSavingsUSD: cacheSavingsUSD,
+            rows: report.rows.sorted(by: rowSort)
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        guard let data = try? encoder.encode(payload),
+              let text = String(data: data, encoding: .utf8) else {
+            return "{}\n"
+        }
+        return text + "\n"
     }
 
     static func currency(_ value: Double) -> String {

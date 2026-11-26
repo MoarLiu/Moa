@@ -17,6 +17,13 @@ final class MoaDeepSeekCoordinator: NSObject {
     func rebuildMenu() {
         menu.removeAllItems()
         menu.autoenablesItems = false
+        menu.addItem(app.usageCoordinator.deepseekSummaryItem)
+        menu.addItem(app.usageCoordinator.deepseekRefreshItem)
+        menu.addItem(actionItem("Usage Details", #selector(showUsageDetails)))
+        let alertItem = actionItem("Daily Usage Alert", #selector(showUsageAlert))
+        alertItem.title = DailyUsageAlertController.menuTitle(for: .deepseek)
+        menu.addItem(alertItem)
+        menu.addItem(.separator())
         if isUpdatingAccounts {
             let busy = NSMenuItem(title: MoaL10n.text("Updating DeepSeek…"), action: nil, keyEquivalent: "")
             busy.isEnabled = false
@@ -98,6 +105,11 @@ final class MoaDeepSeekCoordinator: NSObject {
     }
     @objc private func openApp() { perform { try self.controller.open() } }
     @objc private func reopenApp() { perform { try self.controller.reopen() } }
+    @objc private func showUsageDetails() { app.usageInsightsWindow.show(initialSource: .deepseek) }
+    @objc private func showUsageAlert() {
+        app.showDailyUsageAlertPanel(kind: .deepseek)
+        rebuildMenu()
+    }
     func openFromWorkspace(reopen: Bool) {
         if reopen { reopenApp() } else { openApp() }
     }

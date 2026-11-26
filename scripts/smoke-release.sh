@@ -55,7 +55,7 @@ require_file "$RESOURCES/MoaMenuBarIcon.png"
 require_file "$RESOURCES/en.lproj/Localizable.strings"
 require_file "$RESOURCES/zh-Hans.lproj/Localizable.strings"
 require_file "$RESOURCES/CodexStatusLine.js"
-for asset in Brands/{codex,claude,antigravity,deepseek,workbuddy,zcode}.png Navigation/{overview,usage,settings,account}.svg; do
+for asset in Brands/{codex,claude,antigravity,deepseek,workbuddy,zcode,gemini}.png Navigation/{overview,usage,settings,account}.svg; do
   require_file "$RESOURCES/UI/$asset"
   cmp -s "$ROOT/macos-menu-bar/Resources/UI/$asset" "$RESOURCES/UI/$asset" ||
     fail "bundled workspace asset differs from the source: $asset"
@@ -74,6 +74,9 @@ plist_value() {
 [[ "$(plist_value CFBundleIdentifier)" == "com.moarliu.moa" ]] || fail "bundle identifier is not com.moarliu.moa"
 [[ "$(plist_value LSMinimumSystemVersion)" == "$MACOS_DEPLOYMENT_TARGET" ]] ||
   fail "LSMinimumSystemVersion is not $MACOS_DEPLOYMENT_TARGET"
+MANIFEST_PUBKEY="$(plist_value MoaReleaseManifestPublicKey)" || fail "missing MoaReleaseManifestPublicKey in Info.plist"
+python3 -c 'import base64, sys; raw = base64.b64decode(sys.argv[1], validate=True); assert len(raw) == 32' "$MANIFEST_PUBKEY" ||
+  fail "MoaReleaseManifestPublicKey in Info.plist is not a valid 32-byte Ed25519 public key"
 
 /usr/bin/codesign --verify --deep --strict "$APP"
 check_mach_o_deployment_target "$EXECUTABLE"
@@ -95,6 +98,8 @@ if find "$APP" \( \
   -name "accounts.json" -o \
   -name "codex_official_accounts.json" -o \
   -name "claude_desktop_profiles.json" -o \
+  -name "claude_code_profiles.json" -o \
+  -name "gemini-cli-accounts" -o \
   -name "workbuddy-accounts" -o \
   -name "workbuddy-cn-accounts" -o \
   -name "workbuddy-desktop*.info" -o \

@@ -7,6 +7,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let controller = CodexAppController()
     let profileController = ConfigProfileController()
     let claudeDesktopProfileController = ClaudeDesktopProfileController()
+    let claudeCodeSettingsController = ClaudeCodeSettingsController()
     let zcodeController = ZCodeController()
     lazy var usageCoordinator = MoaUsageCoordinator()
     @MainActor lazy var codexEnhancements = CodexEnhancementCoordinator(controller: controller, operations: accountOperations)
@@ -14,11 +15,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     lazy var workbuddyCNCoordinator = MoaWorkBuddyCoordinator(app: self, edition: .china)
     lazy var deepseekCoordinator = MoaDeepSeekCoordinator(app: self)
     lazy var antigravityCoordinator = MoaAntigravityCoordinator(app: self)
+    lazy var geminiCLICoordinator = MoaGeminiCLICoordinator(app: self)
     let dataPackageController = MoaDataPackageController()
+    lazy var backupManager = MoaBackupManager(dataPackages: dataPackageController)
     let updateController = MoaUpdateController()
     lazy var updateCoordinator = MoaUpdateCoordinator(controller: updateController)
     lazy var notificationManager = MoaNotificationManager()
     lazy var launchAtLoginController = MoaLaunchAtLoginController()
+    lazy var hotkeyManager = MoaGlobalHotkeyManager()
+    lazy var quickSwitcher = MoaQuickSwitcherPanelController(app: self)
     lazy var mainMenuCoordinator = MoaMainMenuCoordinator(app: self)
     lazy var providerActionCoordinator = MoaProviderActionCoordinator(app: self)
     lazy var profileActionCoordinator = MoaProfileActionCoordinator(app: self)
@@ -31,11 +36,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         zcodeScanner: usageCoordinator.zcodeScanner,
         workbuddyScanner: usageCoordinator.workbuddyScanner,
         workbuddyCNScanner: usageCoordinator.workbuddyCNScanner,
+        antigravityScanner: usageCoordinator.antigravityScanner,
+        deepseekScanner: usageCoordinator.deepseekScanner,
         usageAlertThresholdProvider: { kind in
             DailyUsageAlertController.threshold(for: kind)
         },
         usageAlertSettingsAction: { [weak self] kind in
             self?.showWorkspaceUsageAlertSettings(kind: kind)
+        },
+        combinedBudgetSettingsAction: { [weak self] in
+            self?.showCombinedUsageBudgetPanel()
         }
     )
 
@@ -45,6 +55,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         rebuildClaudeDesktopProfilesMenu()
         rebuildZCodeMenu()
         rebuildWorkBuddyMenus()
+        antigravityCoordinator.rebuildMenu()
+        deepseekCoordinator.rebuildMenu()
     }
 
     let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
@@ -118,9 +130,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         configureUsageAlertCallbacks()
         configureNotificationCallbacks()
         configureStatusBarObservers()
+        configureHotkeys()
         usageCoordinator.start()
         codexEnhancements.start()
         updateCoordinator.start()
+        hotkeyManager.start()
+    }
+
+    private func configureHotkeys() {
+        hotkeyManager.onTrigger = { [weak self] action in
+            guard let self else { return }
+            switch action {
+            case .quickSwitcher:
+                self.quickSwitcher.toggle()
+            case .openWorkspace:
+                self.workspaceWindow.show(.overview)
+            case .openUsage:
+                self.workspaceWindow.navigation.showUsage()
+                self.workspaceWindow.show()
+            }
+        }
     }
 
     private func configureNotificationCallbacks() {
@@ -165,6 +194,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NotificationCenter.default.publisher(for: MoaMenuBarDisplayPreferences.didChangeNotification)
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.updateStatusItemDisplay() }
+            .store(in: &appObservers)
+        NotificationCenter.default.publisher(for: MoaClientPreferences.didChangeNotification)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.mainMenuCoordinator.arrangeClientItems()
+            }
             .store(in: &appObservers)
         NotificationCenter.default.publisher(for: MoaAppLanguage.didChangeNotification)
             .receive(on: RunLoop.main)
@@ -213,7 +248,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         usageCoordinator.needsFrequentRefresh = { [weak self] source in
             let alertEnabled = DailyUsageAlertKind(rawValue: source.rawValue).flatMap { DailyUsageAlertController.threshold(for: $0) } != nil
-            return alertEnabled || self?.usageInsightsWindow.isVisible == true
+            return alertEnabled
+                || DailyUsageAlertController.hasAnyCombinedBudget()
+                || self?.usageInsightsWindow.isVisible == true
         }
         usageCoordinator.onCodexSummaryLoaded = { [weak self] summary in
             self?.maybeShowDailyUsageAlert(kind: .codex, summary: summary)
@@ -230,6 +267,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         usageCoordinator.onWorkBuddyCNSummaryLoaded = { [weak self] summary in
             self?.maybeShowDailyUsageAlert(kind: .workbuddyCN, summary: summary)
         }
+        usageCoordinator.onAntigravitySummaryLoaded = { [weak self] summary in
+            self?.maybeShowDailyUsageAlert(kind: .antigravity, summary: summary)
+        }
+        usageCoordinator.onDeepSeekSummaryLoaded = { [weak self] summary in
+            self?.maybeShowDailyUsageAlert(kind: .deepseek, summary: summary)
+        }
+        usageCoordinator.onCombinedUsageUpdated = { [weak self] summaries in
+            self?.maybeShowCombinedUsageBudgetAlerts(summaries: summaries)
+        }
     }
 
     private func repairLegacyICloudDataSplitIfNeeded() {
@@ -244,6 +290,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         guard !MoaRuntimeMode.isWorkspacePreview else { return }
+        hotkeyManager.stop()
         updateCoordinator.stop()
         codexEnhancements.stop()
         usageCoordinator.stop()
@@ -255,6 +302,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let appMenuItem = NSMenuItem()
         let appMenu = NSMenu()
         appMenu.addItem(NSMenuItem(title: MoaL10n.text("Close Window"), action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w"))
+        let quick = NSMenuItem(title: MoaL10n.text("Quick Switcher…"), action: #selector(showQuickSwitcherAction), keyEquivalent: "k")
+        quick.target = self
+        appMenu.addItem(quick)
         let overview = NSMenuItem(title: MoaL10n.text("Overview"), action: #selector(showWorkspaceAction), keyEquivalent: "0")
         overview.target = self
         appMenu.addItem(overview)

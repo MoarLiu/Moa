@@ -5,12 +5,14 @@ import XCTest
 
 final class MoaWorkspaceTests: XCTestCase {
     func testCapabilityRoutingKeepsUnsupportedFeaturesAndEditionsSeparate() {
-        XCTAssertNil(MoaWorkspaceClient.antigravity.usageSource)
-        XCTAssertNil(MoaWorkspaceClient.deepseek.usageSource)
+        XCTAssertEqual(MoaWorkspaceClient.antigravity.usageSource, .antigravity)
+        XCTAssertEqual(MoaWorkspaceClient.deepseek.usageSource, .deepseek)
+        XCTAssertNil(MoaWorkspaceClient.geminiCLI.usageSource)
         XCTAssertTrue(MoaWorkspaceClient.zcode.groups.isEmpty)
         XCTAssertEqual(MoaWorkspaceClient.zcode.usageSource, .zcode)
-        XCTAssertEqual(MoaWorkspaceClient.claude.groups, [.claude])
+        XCTAssertEqual(MoaWorkspaceClient.claude.groups, [.claude, .claudeCode])
         XCTAssertEqual(MoaWorkspaceClient.codex.groups, [.codexOfficial, .codexConfig])
+        XCTAssertEqual(MoaWorkspaceClient.geminiCLI.groups, [.geminiCLI])
         XCTAssertNotEqual(MoaWorkspaceClient.workbuddy.bundleID, MoaWorkspaceClient.workbuddyCN.bundleID)
         XCTAssertNotEqual(MoaWorkspaceClient.workbuddy.usageSource, MoaWorkspaceClient.workbuddyCN.usageSource)
         XCTAssertNotEqual(MoaWorkspaceClient.workbuddy.operationClient, MoaWorkspaceClient.workbuddyCN.operationClient)
@@ -73,6 +75,8 @@ final class MoaWorkspaceTests: XCTestCase {
             zcodeScanner: ZCodeUsageScanner(environment: environment),
             workbuddyScanner: WorkBuddyUsageScanner(environment: environment),
             workbuddyCNScanner: WorkBuddyUsageScanner(environment: environment, edition: .china),
+            antigravityScanner: AntigravityUsageScanner(environment: environment),
+            deepseekScanner: DeepSeekUsageScanner(environment: environment),
             pricingUpdateCoordinator: updater
         )
         defer { coordinator.stop() }

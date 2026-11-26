@@ -152,6 +152,105 @@ extension AppDelegate {
         )
     }
 
+    func showCombinedUsageBudgetPanel() {
+        let initialDaily = DailyUsageAlertController.combinedThreshold(for: .daily)
+        let initialDailyWarn80 = DailyUsageAlertController.combinedWarning80Enabled(for: .daily)
+        let initialMonthly = DailyUsageAlertController.combinedThreshold(for: .monthly)
+        let initialMonthlyWarn80 = DailyUsageAlertController.combinedWarning80Enabled(for: .monthly)
+
+        var didSave = false
+        var savedDaily: Double?
+        var savedDailyWarn80 = false
+        var savedMonthly: Double?
+        var savedMonthlyWarn80 = false
+
+        MoaGlassModalHost.runModal(width: 500, fallbackHeight: 460, title: MoaL10n.text("Combined Usage Budgets")) {
+            MoaCombinedBudgetFormView(
+                initialDailyThreshold: initialDaily,
+                initialDailyWarn80: initialDailyWarn80,
+                initialMonthlyThreshold: initialMonthly,
+                initialMonthlyWarn80: initialMonthlyWarn80,
+                onSave: { daily, dailyW80, monthly, monthlyW80 in
+                    didSave = true
+                    savedDaily = daily
+                    savedDailyWarn80 = dailyW80
+                    savedMonthly = monthly
+                    savedMonthlyWarn80 = monthlyW80
+                    MoaGlassModalHost.finish(.OK)
+                },
+                onCancel: {
+                    MoaGlassModalHost.finish(.cancel)
+                }
+            )
+        }
+
+        guard didSave else { return }
+        DailyUsageAlertController.setCombinedThreshold(savedDaily, for: .daily)
+        DailyUsageAlertController.setCombinedWarning80Enabled(savedDailyWarn80, for: .daily)
+        DailyUsageAlertController.setCombinedThreshold(savedMonthly, for: .monthly)
+        DailyUsageAlertController.setCombinedWarning80Enabled(savedMonthlyWarn80, for: .monthly)
+        if savedDaily != nil || savedMonthly != nil {
+            notificationManager.requestAuthorizationIfNeeded()
+        }
+        statusItemText.title = Self.statusTitle("Updated combined usage budgets")
+    }
+
+    func maybeShowCombinedUsageBudgetAlerts(summaries: [MoaUsageSource: CodexUsageSummary]) {
+        guard DailyUsageAlertController.hasAnyCombinedBudget() else { return }
+        let now = Date()
+        let todayTotal = summaries.values.reduce(0) { $0 + $1.todayCostUSD }
+        if let level = DailyUsageAlertController.pendingCombinedAlertLevel(period: .daily, costUSD: todayTotal, date: now),
+           let threshold = DailyUsageAlertController.combinedThreshold(for: .daily) {
+            postCombinedBudgetNotification(period: .daily, level: level, costUSD: todayTotal, threshold: threshold, date: now)
+        }
+        if DailyUsageAlertController.combinedThreshold(for: .monthly) != nil {
+            DispatchQueue.global(qos: .utility).async { [weak self] in
+                guard let self else { return }
+                let batch = self.usageCoordinator.loadCombinedReport(forceRefresh: false, now: now)
+                guard let report = batch.report else { return }
+                let monthCost = MoaUsageAnalytics.currentMonthCostUSD(in: report, now: now)
+                DispatchQueue.main.async {
+                    if let level = DailyUsageAlertController.pendingCombinedAlertLevel(period: .monthly, costUSD: monthCost, date: now),
+                       let threshold = DailyUsageAlertController.combinedThreshold(for: .monthly) {
+                        self.postCombinedBudgetNotification(period: .monthly, level: level, costUSD: monthCost, threshold: threshold, date: now)
+                    }
+                }
+            }
+        }
+    }
+
+    private func postCombinedBudgetNotification(
+        period: MoaCombinedBudgetPeriod,
+        level: DailyUsageAlertLevel,
+        costUSD: Double,
+        threshold: Double,
+        date: Date
+    ) {
+        let spentText = DailyUsageAlertController.currency(costUSD)
+        let thresholdText = DailyUsageAlertController.currency(threshold)
+        let periodName = period.displayName
+        let title: String
+        let body: String
+        let suffix: String
+        switch level {
+        case .warning80:
+            title = MoaL10n.format("%@ reached 80%%", periodName)
+            body = MoaL10n.format("Local combined estimate is %@, approaching your %@ budget.", spentText, thresholdText)
+            suffix = "warn80"
+        case .reached:
+            title = MoaL10n.format("%@ reached", periodName)
+            body = MoaL10n.format("Local combined estimate is %@, reaching your %@ budget.", spentText, thresholdText)
+            suffix = "reached"
+        }
+        let bucket = period == .daily ? MoaUsageReport.dayKey(from: date) : MoaUsageReport.monthKey(from: date)
+        notificationManager.post(
+            identifier: "moa.combined-budget.\(period.rawValue).\(suffix).\(bucket)",
+            title: title,
+            body: body,
+            action: .openUsage(nil)
+        )
+    }
+
     func showAddProfilePanel() -> (name: String, baseURL: String, apiKey: String)? {
         MoaProviderProfilePanels.showAddCodexProfile()
     }

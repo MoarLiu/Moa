@@ -76,6 +76,8 @@ SENSITIVE_MATCH="$(find "$DMG_ROOT" \( \
   -name "accounts.json" -o \
   -name "codex_official_accounts.json" -o \
   -name "claude_desktop_profiles.json" -o \
+  -name "claude_code_profiles.json" -o \
+  -name "gemini-cli-accounts" -o \
   -name "workbuddy-accounts" -o \
   -name "workbuddy-cn-accounts" -o \
   -name "workbuddy-desktop*.info" -o \
@@ -108,6 +110,8 @@ if [[ -n "$SENSITIVE_MATCH" ]]; then
     -name "accounts.json" -o \
     -name "codex_official_accounts.json" -o \
     -name "claude_desktop_profiles.json" -o \
+    -name "claude_code_profiles.json" -o \
+    -name "gemini-cli-accounts" -o \
     -name "workbuddy-accounts" -o \
     -name "workbuddy-cn-accounts" -o \
     -name "workbuddy-desktop*.info" -o \

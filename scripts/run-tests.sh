@@ -99,6 +99,7 @@ MACOSX_DEPLOYMENT_TARGET="$MACOS_DEPLOYMENT_TARGET" "$SWIFTC_BIN" \
   -parse-as-library \
   -framework AppKit \
   -framework AVFoundation \
+  -framework Carbon \
   -framework Combine \
   -framework CryptoKit \
   -framework Foundation \

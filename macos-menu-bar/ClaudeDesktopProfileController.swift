@@ -410,6 +410,16 @@ final class ClaudeDesktopProfileController {
     private var cachedDatabaseURLPath: String?
     private var cachedDatabaseRevision: UInt64?
 
+    /// Strictly read-only snapshot of `claude_desktop_profiles.json` that never creates directories or initializes files.
+    func readOnlyProfilesAndSelection() -> (profiles: [ClaudeDesktopProviderProfile], selectedID: String?) {
+        guard fileManager.fileExists(atPath: databaseURL.path),
+              let data = try? Data(contentsOf: databaseURL),
+              let database = try? JSONDecoder().decode(ClaudeDesktopProviderDatabase.self, from: data) else {
+            return ([], nil)
+        }
+        return (database.profiles, database.selectedProfileID)
+    }
+
     private func loadDatabase() throws -> ClaudeDesktopProviderDatabase {
         try stateLock.withLock {
             try ensureStoreIfMissingOnly()

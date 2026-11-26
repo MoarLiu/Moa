@@ -345,11 +345,17 @@ struct MoaDataPackageManifest: Codable {
     var appBuild: String
     var dataRootName: String
     var files: [FileEntry]
+    var exportScope: MoaDataPackageScope? = nil
+    var encryption: MoaDataPackageEncryptionMetadata? = nil
 }
 
 enum MoaDataPackageError: LocalizedError {
     case moaHomeMissing(URL)
     case invalidPackage
+    case passwordRequired
+    case emptyPassword
+    case wrongPassword
+    case corruptedPackage
     case iCloudDriveUnavailable(URL)
     case iCloudDataRootConflict(URL)
     case iCloudAlreadyDisabled
@@ -361,6 +367,14 @@ enum MoaDataPackageError: LocalizedError {
             return MoaL10n.format("Moa data folder does not exist: %@", url.path)
         case .invalidPackage:
             return MoaL10n.text("The selected zip is not a valid Moa data package.")
+        case .passwordRequired:
+            return MoaL10n.text("This Moa data package is encrypted. Enter the password to import it.")
+        case .emptyPassword:
+            return MoaL10n.text("Enter a non-empty password.")
+        case .wrongPassword:
+            return MoaL10n.text("Incorrect password for this encrypted Moa data package.")
+        case .corruptedPackage:
+            return MoaL10n.text("The encrypted Moa data package is corrupted or has been modified.")
         case .iCloudDriveUnavailable(let url):
             return MoaL10n.format("iCloud Drive is not available at %@. Make sure iCloud Drive is enabled for this Mac.", url.path)
         case .iCloudDataRootConflict(let url):
@@ -470,7 +484,12 @@ final class MoaDataPackageController {
     }
 
     @discardableResult
-    func exportDataPackage(to destination: URL) throws -> URL {
+    func exportDataPackage(
+        to destination: URL,
+        scope: MoaDataPackageScope = .fullBackup,
+        password: String? = nil,
+        kdfIterations: Int = MoaDataPackageCrypto.defaultIterations
+    ) throws -> URL {
         return try dataAccess.withExclusiveOperation {
             operationLock.lock()
             defer { operationLock.unlock() }
@@ -478,42 +497,105 @@ final class MoaDataPackageController {
             let source = try resolvedMoaHome()
             let stagingRoot = try temporaryDirectory(prefix: "MoaDataPackage")
             defer { cleanupTemporaryDirectory(stagingRoot) }
-            let packageRoot = stagingRoot
-                .appendingPathComponent("MoaDataPackage", isDirectory: true)
-            try fileManager.createDirectory(at: packageRoot, withIntermediateDirectories: true)
 
-            let copiedMoaHome = packageRoot.appendingPathComponent(".moa", isDirectory: true)
+            let innerRoot = stagingRoot.appendingPathComponent("MoaDataPackage", isDirectory: true)
+            try fileManager.createDirectory(at: innerRoot, withIntermediateDirectories: true)
+
+            let copiedMoaHome = innerRoot.appendingPathComponent(".moa", isDirectory: true)
             try runDitto(["--noextattr", "--noacl", source.path, copiedMoaHome.path])
             try removeRuntimeOnlyData(from: copiedMoaHome)
+            if scope == .configOnly {
+                try MoaDataPackageCrypto.stripCredentialsForConfigOnlyExport(in: copiedMoaHome, fileManager: fileManager)
+            }
 
-            let manifest = MoaDataPackageManifest(
+            let exportedAt = ISO8601DateFormatter().string(from: Date())
+            let innerManifest = MoaDataPackageManifest(
                 schemaVersion: 2,
-                exportedAt: ISO8601DateFormatter().string(from: Date()),
+                exportedAt: exportedAt,
                 appVersion: appVersion,
                 appBuild: appBuild,
                 dataRootName: ".moa",
-                files: try fileEntries(under: copiedMoaHome)
+                files: try fileEntries(under: copiedMoaHome),
+                exportScope: scope
             )
-            try validatePackageLinks(manifest.files, root: copiedMoaHome)
+            try validatePackageLinks(innerManifest.files, root: copiedMoaHome)
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            let manifestData = try encoder.encode(manifest)
-            try manifestData.write(to: packageRoot.appendingPathComponent("MoaDataPackageManifest.json"), options: .atomic)
+            let innerManifestData = try encoder.encode(innerManifest)
+            try innerManifestData.write(to: innerRoot.appendingPathComponent("MoaDataPackageManifest.json"), options: .atomic)
 
-            try archiveDirectory(packageRoot, to: destination)
+            if let password {
+                // Schema 3: wrap the validated Schema 2 archive in an AES-256-GCM envelope.
+                let innerArchive = stagingRoot.appendingPathComponent("inner-payload.zip")
+                try archiveDirectory(innerRoot, to: innerArchive)
+                let plaintext = try Data(contentsOf: innerArchive)
+                try? fileManager.removeItem(at: innerArchive)
+
+                let encrypted = try MoaDataPackageCrypto.encrypt(
+                    plaintext: plaintext,
+                    password: password,
+                    scope: scope,
+                    iterations: kdfIterations
+                )
+
+                let outerRoot = stagingRoot.appendingPathComponent("MoaEncryptedPackage", isDirectory: true)
+                try fileManager.createDirectory(at: outerRoot, withIntermediateDirectories: true)
+                try encrypted.ciphertext.write(
+                    to: outerRoot.appendingPathComponent(MoaDataPackageCrypto.payloadFileName),
+                    options: .atomic
+                )
+                let outerManifest = MoaDataPackageManifest(
+                    schemaVersion: 3,
+                    exportedAt: exportedAt,
+                    appVersion: appVersion,
+                    appBuild: appBuild,
+                    dataRootName: ".moa",
+                    files: [],
+                    exportScope: scope,
+                    encryption: encrypted.metadata
+                )
+                let outerManifestData = try encoder.encode(outerManifest)
+                try outerManifestData.write(to: outerRoot.appendingPathComponent("MoaDataPackageManifest.json"), options: .atomic)
+                try archiveDirectory(outerRoot, to: destination)
+                return destination
+            }
+
+            try archiveDirectory(innerRoot, to: destination)
             return destination
         }
     }
 
+    func inspectDataPackage(at packageURL: URL) throws -> MoaDataPackageInspection {
+        let extractRoot = try temporaryDirectory(prefix: "MoaDataInspect")
+        defer { cleanupTemporaryDirectory(extractRoot) }
+        try runDitto(["-x", "-k", packageURL.path, extractRoot.path])
+        guard let manifestURL = try findManifestURL(in: extractRoot),
+              (try manifestURL.resourceValues(forKeys: [.isSymbolicLinkKey])).isSymbolicLink != true else {
+            throw MoaDataPackageError.invalidPackage
+        }
+        let manifest = try JSONDecoder().decode(MoaDataPackageManifest.self, from: Data(contentsOf: manifestURL))
+        guard (1...3).contains(manifest.schemaVersion), manifest.dataRootName == ".moa" else {
+            throw MoaDataPackageError.invalidPackage
+        }
+        return MoaDataPackageInspection(
+            schemaVersion: manifest.schemaVersion,
+            isEncrypted: manifest.schemaVersion == 3 && manifest.encryption != nil,
+            scope: manifest.exportScope ?? .fullBackup,
+            exportedAt: manifest.exportedAt,
+            appVersion: manifest.appVersion,
+            appBuild: manifest.appBuild
+        )
+    }
+
     @discardableResult
-    func importDataPackage(from packageURL: URL) throws -> URL {
+    func importDataPackage(from packageURL: URL, password: String? = nil) throws -> URL {
         return try dataAccess.withExclusiveOperation {
             operationLock.lock()
             defer { operationLock.unlock() }
             let extractRoot = try temporaryDirectory(prefix: "MoaDataImport")
             defer { cleanupTemporaryDirectory(extractRoot) }
             try runDitto(["-x", "-k", packageURL.path, extractRoot.path])
-            let importedMoaHome = try validatedImportedMoaHome(in: extractRoot)
+            let importedMoaHome = try validatedImportedMoaHome(in: extractRoot, password: password)
 
             let destination = currentMoaHome
             if !fileManager.fileExists(atPath: destination.path) {
@@ -814,7 +896,46 @@ final class MoaDataPackageController {
         return true
     }
 
-    private func validatedImportedMoaHome(in extractRoot: URL) throws -> URL {
+    private func validatedImportedMoaHome(in extractRoot: URL, password: String? = nil) throws -> URL {
+        if let manifestURL = try findManifestURL(in: extractRoot),
+           (try manifestURL.resourceValues(forKeys: [.isSymbolicLinkKey])).isSymbolicLink != true,
+           let manifest = try? JSONDecoder().decode(MoaDataPackageManifest.self, from: Data(contentsOf: manifestURL)),
+           manifest.schemaVersion == 3 {
+            guard let encryption = manifest.encryption, manifest.dataRootName == ".moa" else {
+                throw MoaDataPackageError.corruptedPackage
+            }
+            guard let password else {
+                throw MoaDataPackageError.passwordRequired
+            }
+            let packageRoot = manifestURL.deletingLastPathComponent()
+            let payloadURL = packageRoot.appendingPathComponent(encryption.payloadFileName)
+            guard !encryption.payloadFileName.contains("/"),
+                  !encryption.payloadFileName.contains(".."),
+                  fileManager.fileExists(atPath: payloadURL.path),
+                  (try payloadURL.resourceValues(forKeys: [.isSymbolicLinkKey])).isSymbolicLink != true else {
+                throw MoaDataPackageError.corruptedPackage
+            }
+            let ciphertext = try Data(contentsOf: payloadURL)
+            let plaintextZip = try MoaDataPackageCrypto.decrypt(
+                ciphertextAndTag: ciphertext,
+                metadata: encryption,
+                scope: manifest.exportScope ?? .fullBackup,
+                password: password
+            )
+            let innerRoot = extractRoot.appendingPathComponent(".decrypted-inner", isDirectory: true)
+            try MoaSecureFile.ensurePrivateDirectory(innerRoot)
+            let innerZipURL = innerRoot.appendingPathComponent("inner.zip")
+            try MoaSecureFile.write(plaintextZip, to: innerZipURL)
+            let innerExtract = innerRoot.appendingPathComponent("extracted", isDirectory: true)
+            try MoaSecureFile.ensurePrivateDirectory(innerExtract)
+            try runDitto(["-x", "-k", innerZipURL.path, innerExtract.path])
+            try? fileManager.removeItem(at: innerZipURL)
+            return try validatedPlaintextMoaHome(in: innerExtract)
+        }
+        return try validatedPlaintextMoaHome(in: extractRoot)
+    }
+
+    private func validatedPlaintextMoaHome(in extractRoot: URL) throws -> URL {
         guard let packageRoot = try findDataPackageRoot(in: extractRoot) else {
             throw MoaDataPackageError.invalidPackage
         }
@@ -840,6 +961,25 @@ final class MoaDataPackageController {
         try validateManifest(manifest, against: importedMoaHome)
         try removeRuntimeOnlyData(from: importedMoaHome)
         return importedMoaHome
+    }
+
+    private func findManifestURL(in extractRoot: URL) throws -> URL? {
+        for candidate in [
+            extractRoot.appendingPathComponent("MoaEncryptedPackage/MoaDataPackageManifest.json"),
+            extractRoot.appendingPathComponent("MoaDataPackage/MoaDataPackageManifest.json"),
+            extractRoot.appendingPathComponent("MoaDataPackageManifest.json")
+        ] {
+            if fileManager.fileExists(atPath: candidate.path) {
+                return candidate
+            }
+        }
+        guard let enumerator = fileManager.enumerator(at: extractRoot, includingPropertiesForKeys: [.isRegularFileKey]) else {
+            return nil
+        }
+        for case let url as URL in enumerator where url.lastPathComponent == "MoaDataPackageManifest.json" {
+            return url
+        }
+        return nil
     }
 
     private func findDataPackageRoot(in extractRoot: URL) throws -> URL? {

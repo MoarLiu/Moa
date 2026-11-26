@@ -8,6 +8,26 @@ struct MoaUpdateInfo {
     let releaseURL: URL
     let dmgURL: URL
     let checksumURL: URL
+    let manifestURL: URL?
+    let manifestSignatureURL: URL?
+
+    init(
+        version: String,
+        build: Int?,
+        releaseURL: URL,
+        dmgURL: URL,
+        checksumURL: URL,
+        manifestURL: URL? = nil,
+        manifestSignatureURL: URL? = nil
+    ) {
+        self.version = version
+        self.build = build
+        self.releaseURL = releaseURL
+        self.dmgURL = dmgURL
+        self.checksumURL = checksumURL
+        self.manifestURL = manifestURL
+        self.manifestSignatureURL = manifestSignatureURL
+    }
 }
 
 enum MoaUpdateCheckResult {
@@ -20,6 +40,8 @@ enum MoaUpdateError: LocalizedError {
     case missingReleaseAsset
     case invalidChecksum
     case checksumMismatch
+    case invalidManifestSignature
+    case manifestDigestMismatch
     case installLocationNotWritable(URL)
     case installerLaunchFailed
     case networkFailure(details: String, isTLSFailure: Bool)
@@ -34,6 +56,10 @@ enum MoaUpdateError: LocalizedError {
             return MoaL10n.text("The release checksum file is invalid.")
         case .checksumMismatch:
             return MoaL10n.text("The downloaded update failed sha256 verification.")
+        case .invalidManifestSignature:
+            return MoaL10n.text("The release manifest signature is invalid. Refusing to install this update.")
+        case .manifestDigestMismatch:
+            return MoaL10n.text("The downloaded update does not match the signed release manifest.")
         case .installLocationNotWritable(let url):
             return MoaL10n.format("Moa cannot update itself in %@ because that folder is not writable. Download the DMG from GitHub Releases or move Moa to a writable Applications folder.", url.path)
         case .installerLaunchFailed:
@@ -154,13 +180,17 @@ final class MoaUpdateController {
         guard let checksumAsset = release.assets.first(where: { $0.name == "\(dmgAsset.name).sha256" }) else {
             throw MoaUpdateError.missingReleaseAsset
         }
+        let manifestAsset = release.assets.first(where: { $0.name == "Moa-\(remoteVersion)-release-manifest.json" })
+        let manifestSigAsset = release.assets.first(where: { $0.name == "Moa-\(remoteVersion)-release-manifest.json.sig" })
 
         return .updateAvailable(MoaUpdateInfo(
             version: remoteVersion,
             build: remoteBuild,
             releaseURL: release.htmlURL,
             dmgURL: dmgAsset.browserDownloadURL,
-            checksumURL: checksumAsset.browserDownloadURL
+            checksumURL: checksumAsset.browserDownloadURL,
+            manifestURL: manifestAsset?.browserDownloadURL,
+            manifestSignatureURL: manifestSigAsset?.browserDownloadURL
         ))
     }
 
@@ -195,6 +225,7 @@ final class MoaUpdateController {
     }
 
     func downloadAndInstall(_ update: MoaUpdateInfo) async throws {
+        _ = try Self.requiredSignedManifestURLs(for: update)
         let workDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("MoaUpdate-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: workDirectory, withIntermediateDirectories: true)
@@ -212,12 +243,73 @@ final class MoaUpdateController {
 
         try await download(from: update.dmgURL, to: dmgURL)
         try await download(from: update.checksumURL, to: checksumURL)
-        try verifyChecksum(dmgURL: dmgURL, checksumURL: checksumURL)
+        let verifiedDigest = try verifyChecksum(dmgURL: dmgURL, checksumURL: checksumURL)
+        try await verifySignedManifestIfPresent(
+            update: update,
+            dmgFilename: dmgURL.lastPathComponent,
+            verifiedDigest: verifiedDigest,
+            workDirectory: workDirectory
+        )
         try launchInstallerScript(dmgURL: dmgURL, update: update, workDirectory: workDirectory)
         handedOffToInstaller = true
         await MainActor.run {
             NSApp.terminate(nil)
         }
+    }
+
+    static func requiresSignedManifest(forVersion version: String) -> Bool {
+        guard Self.version(fromCandidates: [version]) != nil else {
+            return true
+        }
+        let parts = versionParts(version)
+        let major = parts.core.count > 0 ? parts.core[0] : 0
+        let minor = parts.core.count > 1 ? parts.core[1] : 0
+        if major != 1 { return major > 1 }
+        return minor >= 10
+    }
+
+    private static func requiredSignedManifestURLs(for update: MoaUpdateInfo) throws -> (manifestURL: URL, signatureURL: URL)? {
+        let hasManifest = update.manifestURL != nil
+        let hasSignature = update.manifestSignatureURL != nil
+        if !requiresSignedManifest(forVersion: update.version) && !hasManifest && !hasSignature {
+            return nil
+        }
+        guard let manifestURL = update.manifestURL,
+              let signatureURL = update.manifestSignatureURL else {
+            // Missing manifest/signature when required (>= 1.10.0) or half-present pair fails closed.
+            throw MoaUpdateError.invalidManifestSignature
+        }
+        return (manifestURL, signatureURL)
+    }
+
+    @discardableResult
+    func verifySignedManifestIfPresent(
+        update: MoaUpdateInfo,
+        dmgFilename: String,
+        verifiedDigest: String,
+        workDirectory: URL,
+        publicKeyOverride: Data? = nil,
+        bundle: Bundle = .main
+    ) async throws -> MoaSignedReleaseManifest? {
+        guard let (manifestURL, signatureURL) = try Self.requiredSignedManifestURLs(for: update) else {
+            return nil
+        }
+        guard let publicKey = publicKeyOverride ?? MoaReleaseManifestVerifier.bundledPublicKeyData(bundle: bundle) else {
+            throw MoaUpdateError.invalidManifestSignature
+        }
+        let localManifest = workDirectory.appendingPathComponent("release-manifest.json")
+        let localSignature = workDirectory.appendingPathComponent("release-manifest.json.sig")
+        try await download(from: manifestURL, to: localManifest)
+        try await download(from: signatureURL, to: localSignature)
+        return try MoaReleaseManifestVerifier.verify(
+            manifestData: try Data(contentsOf: localManifest),
+            signatureBase64OrRaw: try Data(contentsOf: localSignature),
+            publicKeyRaw: publicKey,
+            expectedVersion: update.version,
+            expectedArchitecture: Self.releaseAssetArchitecture,
+            expectedDMGFilename: dmgFilename,
+            actualDMGSHA256: verifiedDigest
+        )
     }
 
     private func download(from remoteURL: URL, to destination: URL) async throws {
@@ -231,7 +323,8 @@ final class MoaUpdateController {
         try FileManager.default.moveItem(at: temporaryURL, to: destination)
     }
 
-    private func verifyChecksum(dmgURL: URL, checksumURL: URL) throws {
+    @discardableResult
+    private func verifyChecksum(dmgURL: URL, checksumURL: URL) throws -> String {
         let checksumText = try String(contentsOf: checksumURL, encoding: .utf8)
         guard let expected = checksumText
             .components(separatedBy: CharacterSet.whitespacesAndNewlines)
@@ -244,6 +337,7 @@ final class MoaUpdateController {
         guard actual == expected else {
             throw MoaUpdateError.checksumMismatch
         }
+        return actual
     }
 
     private func launchInstallerScript(dmgURL: URL, update: MoaUpdateInfo, workDirectory: URL) throws {
@@ -457,13 +551,40 @@ final class MoaUpdateController {
             throw MoaUpdateError.invalidReleaseResponse
         }
 
+        let manifestName = "Moa-\(version)-release-manifest.json"
+        let manifestSigName = "\(manifestName).sig"
+        let mentionsManifest = atomEntryContainsAssetName(entry, assetName: manifestName)
+        let mentionsSignature = atomEntryContainsAssetName(entry, assetName: manifestSigName)
+        let manifestURL: URL?
+        let manifestSignatureURL: URL?
+        if mentionsManifest || mentionsSignature {
+            manifestURL = mentionsManifest ? releaseAssetURL(tag: tag, name: manifestName) : nil
+            manifestSignatureURL = mentionsSignature ? releaseAssetURL(tag: tag, name: manifestSigName) : nil
+        } else if requiresSignedManifest(forVersion: version) {
+            // Releases >= 1.10.0 publish Ed25519 signed manifests even when GitHub's Atom feed
+            // body omits asset filenames; resolve both deterministically so fallback enforces verification.
+            manifestURL = releaseAssetURL(tag: tag, name: manifestName)
+            manifestSignatureURL = releaseAssetURL(tag: tag, name: manifestSigName)
+        } else {
+            manifestURL = nil
+            manifestSignatureURL = nil
+        }
+
         return MoaUpdateInfo(
             version: version,
             build: build(fromText: plainText),
             releaseURL: releaseURL,
             dmgURL: dmgURL,
-            checksumURL: checksumURL
+            checksumURL: checksumURL,
+            manifestURL: manifestURL,
+            manifestSignatureURL: manifestSignatureURL
         )
+    }
+
+    private static func atomEntryContainsAssetName(_ entry: String, assetName: String) -> Bool {
+        let escaped = NSRegularExpression.escapedPattern(for: assetName)
+        let pattern = "(?<![A-Za-z0-9._-])\(escaped)(?![A-Za-z0-9._-])"
+        return entry.range(of: pattern, options: .regularExpression) != nil
     }
 
     private static func version(fromCandidates candidates: [String]) -> String? {

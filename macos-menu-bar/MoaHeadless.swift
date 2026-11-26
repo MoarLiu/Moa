@@ -1,7 +1,23 @@
 import AppKit
 import Foundation
 
+func runReadOnlyCLIIfMatching() -> Int32? {
+    guard let cliResult = MoaCLICompanion.runIfMatching() else {
+        return nil
+    }
+    if !cliResult.stdout.isEmpty {
+        fputs(cliResult.stdout, stdout)
+    }
+    if !cliResult.stderr.isEmpty {
+        fputs(cliResult.stderr, stderr)
+    }
+    return cliResult.exitCode
+}
+
 func runHeadlessCommandIfNeeded() -> Int32? {
+    if let exitCode = runReadOnlyCLIIfMatching() {
+        return exitCode
+    }
     if CommandLine.arguments.contains("--repair-antigravity-keychain-access") {
         do {
             let count = try AntigravityKeychain.repairMoaAccess()
@@ -32,6 +48,10 @@ func runHeadlessCommandIfNeeded() -> Int32? {
 @main
 private enum MoaApplication {
     static func main() {
+        // Strictly read-only CLI commands exit BEFORE any legacy migration or store initialization.
+        if !MoaRuntimeMode.isWorkspacePreview, let exitCode = runReadOnlyCLIIfMatching() {
+            exit(exitCode)
+        }
         if MoaRuntimeMode.isWorkspacePreview {
             MoaRuntimeMode.suppressesUserInteraction = true
         }

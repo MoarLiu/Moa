@@ -407,7 +407,7 @@ enum MoaTomlEditor {
         }
     }
 
-    private static func decodedString(_ raw: String) -> String? {
+    static func decodedString(_ raw: String) -> String? {
         guard let quote = raw.first, quote == "\"" || quote == "'" else { return nil }
         let delimiter = String(repeating: String(quote), count: 3)
         let multiline = raw.hasPrefix(delimiter)

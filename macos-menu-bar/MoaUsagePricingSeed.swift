@@ -27,6 +27,7 @@ enum MoaUsagePricingSeed {
         }
         return nil
     }
+    static var allSeedTables: [String: [String: MoaUsageRemotePricing]] { tables }
     private static let tables: [String: [String: MoaUsageRemotePricing]] = {
         // Generated from public pricing facts; not a copy of Sub2API service code.
         let data = Data(payload.utf8)

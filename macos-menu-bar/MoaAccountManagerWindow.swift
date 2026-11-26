@@ -8,10 +8,12 @@ enum MoaAccountGroup: String, CaseIterable, Identifiable {
     case codexOfficial
     case codexConfig
     case claude
+    case claudeCode
     case workbuddy
     case workbuddyCN
     case deepseek
     case antigravity
+    case geminiCLI
 
     var id: String { rawValue }
 
@@ -20,10 +22,12 @@ enum MoaAccountGroup: String, CaseIterable, Identifiable {
         case .codexOfficial: return MoaL10n.text("Codex Official")
         case .codexConfig: return MoaL10n.text("Codex Configs")
         case .claude: return "Claude Desktop"
+        case .claudeCode: return "Claude Code"
         case .workbuddy: return "WorkBuddy AI"
         case .workbuddyCN: return MoaL10n.text("WorkBuddy")
         case .deepseek: return "DeepSeek"
         case .antigravity: return "Antigravity"
+        case .geminiCLI: return "Gemini CLI"
         }
     }
 
@@ -32,28 +36,31 @@ enum MoaAccountGroup: String, CaseIterable, Identifiable {
         case .codexOfficial: return "person.crop.circle"
         case .codexConfig: return "gearshape"
         case .claude: return "sparkles"
+        case .claudeCode: return "terminal"
         case .workbuddy, .workbuddyCN: return "briefcase"
         case .deepseek: return "bolt"
         case .antigravity: return "arrow.up.circle"
+        case .geminiCLI: return "terminal.fill"
         }
     }
 
     var client: MoaAccountClient {
         switch self {
         case .codexOfficial, .codexConfig: return .codex
-        case .claude: return .claude
+        case .claude, .claudeCode: return .claude
         case .workbuddy: return .workbuddy
         case .workbuddyCN: return .workbuddyCN
         case .deepseek: return .deepseek
         case .antigravity: return .antigravity
+        case .geminiCLI: return .geminiCLI
         }
     }
 
     /// Login snapshots can only be renamed; API configs also have credentials to edit.
     var supportsEditing: Bool {
         switch self {
-        case .codexConfig, .claude: return true
-        case .codexOfficial, .workbuddy, .workbuddyCN, .deepseek, .antigravity: return false
+        case .codexConfig, .claude, .claudeCode: return true
+        case .codexOfficial, .workbuddy, .workbuddyCN, .deepseek, .antigravity, .geminiCLI: return false
         }
     }
 }
@@ -64,6 +71,7 @@ struct MoaAccountRow: Identifiable, Equatable {
     var name: String
     var detail: String
     var active: Bool
+    var health: MoaCredentialHealthReport? = nil
 }
 
 struct MoaAccountSection: Identifiable, Equatable {
@@ -71,6 +79,7 @@ struct MoaAccountSection: Identifiable, Equatable {
     var rows: [MoaAccountRow]
     var canAddCurrentLogin: Bool
     var currentLoginMessage: String? = nil
+    var hasUnsavedLiveLogin: Bool = false
 
     var id: String { group.id }
 }
@@ -96,12 +105,23 @@ enum MoaAccountCatalog {
             let status = try app.profileController.currentOfficialLoginSaveStatus()
             return MoaAccountSection(
                 group: .codexOfficial,
-                rows: accounts.map {
-                    MoaAccountRow(group: .codexOfficial, id: $0.id, name: $0.name, detail: $0.email ?? "", active: $0.id == selected)
+                rows: accounts.map { account in
+                    let auth = (try? app.profileController.officialAuthURL(for: account))
+                        .map { app.profileController.readAuthJSON(from: $0) } ?? [:]
+                    let health = MoaCredentialHealthInspector.inspectCodexOfficial(auth: auth)
+                    return MoaAccountRow(
+                        group: .codexOfficial,
+                        id: account.id,
+                        name: account.name,
+                        detail: account.email ?? "",
+                        active: account.id == selected,
+                        health: health
+                    )
                 },
                 canAddCurrentLogin: status.hasLogin && status.savedAccountName == nil,
                 currentLoginMessage: status.savedAccountName.map { MoaL10n.format("Current Login Saved as %@", $0) }
-                    ?? (status.hasLogin ? nil : MoaL10n.text("Sign in to Codex, then save the current login here."))
+                    ?? (status.hasLogin ? MoaL10n.text("Unsaved live login detected. Click Save Current Login to preserve it.") : MoaL10n.text("Sign in to Codex, then save the current login here.")),
+                hasUnsavedLiveLogin: status.hasLogin && status.savedAccountName == nil
             )
         }
 
@@ -111,7 +131,10 @@ enum MoaAccountCatalog {
             return MoaAccountSection(
                 group: .codexConfig,
                 rows: profiles.map {
-                    MoaAccountRow(group: .codexConfig, id: $0.id, name: $0.name, detail: $0.baseURL, active: $0.id == selected)
+                    let health = MoaCredentialHealthInspector.inspectProvider(
+                        apiKey: $0.apiKey, baseURL: $0.baseURL, isActive: $0.id == selected
+                    )
+                    return MoaAccountRow(group: .codexConfig, id: $0.id, name: $0.name, detail: $0.baseURL, active: $0.id == selected, health: health)
                 },
                 canAddCurrentLogin: false
             )
@@ -123,21 +146,56 @@ enum MoaAccountCatalog {
             return MoaAccountSection(
                 group: .claude,
                 rows: profiles.map {
-                    MoaAccountRow(group: .claude, id: $0.id, name: $0.name, detail: $0.baseURL, active: $0.id == selected)
+                    let health = MoaCredentialHealthInspector.inspectProvider(
+                        apiKey: $0.apiKey, baseURL: $0.baseURL, isActive: $0.id == selected
+                    )
+                    return MoaAccountRow(group: .claude, id: $0.id, name: $0.name, detail: $0.baseURL, active: $0.id == selected, health: health)
                 },
                 canAddCurrentLogin: false
+            )
+        }
+
+        take(.claudeCode) {
+            let profiles = try app.claudeCodeSettingsController.profiles()
+            let selected = try app.claudeCodeSettingsController.selectedProfileID()
+            let liveEnv = app.claudeCodeSettingsController.liveManagedEnv()
+            let liveBaseURL = liveEnv?["ANTHROPIC_BASE_URL"]
+            return MoaAccountSection(
+                group: .claudeCode,
+                rows: profiles.map {
+                    let health = MoaCredentialHealthInspector.inspectProvider(
+                        apiKey: $0.apiKey, baseURL: $0.baseURL, isActive: $0.id == selected, liveBaseURL: liveBaseURL
+                    )
+                    return MoaAccountRow(
+                        group: .claudeCode,
+                        id: $0.id,
+                        name: $0.name,
+                        detail: "\($0.baseURL) · \($0.model)",
+                        active: $0.id == selected,
+                        health: health
+                    )
+                },
+                canAddCurrentLogin: false,
+                currentLoginMessage: selected == nil && liveBaseURL != nil
+                    ? MoaL10n.format("Custom ANTHROPIC_BASE_URL detected in ~/.claude/settings.json (%@).", MoaDataPackageCrypto.sanitizedURLString(liveBaseURL!))
+                    : nil
             )
         }
 
         func workbuddy(_ edition: WorkBuddyEdition, _ group: MoaAccountGroup, _ coordinator: MoaWorkBuddyCoordinator) throws -> MoaAccountSection {
             let accounts = try coordinator.controller.accounts()
             let current = try coordinator.controller.currentUID()
+            let keyFP = MoaCredentialHealthInspector.keyblobFingerprint(at: coordinator.controller.keyURL)
+            let unsaved = current != nil && !accounts.contains(where: { $0.uid == current })
             return MoaAccountSection(
                 group: group,
                 rows: accounts.map {
-                    MoaAccountRow(group: group, id: $0.id.uuidString, name: $0.name, detail: $0.uid, active: $0.uid == current)
+                    let health = MoaCredentialHealthInspector.inspectWorkBuddy(account: $0, currentKeyFingerprint: keyFP)
+                    return MoaAccountRow(group: group, id: $0.id.uuidString, name: $0.name, detail: $0.uid, active: $0.uid == current, health: health)
                 },
-                canAddCurrentLogin: false
+                canAddCurrentLogin: unsaved,
+                currentLoginMessage: unsaved ? MoaL10n.text("Unsaved live login detected. Click Save Current Login to preserve it.") : nil,
+                hasUnsavedLiveLogin: unsaved
             )
         }
         take(.workbuddy) { try workbuddy(.international, .workbuddy, app.workbuddyCoordinator) }
@@ -146,24 +204,58 @@ enum MoaAccountCatalog {
         take(.deepseek) {
             let accounts = try app.deepseekCoordinator.controller.accounts()
             let current = try app.deepseekCoordinator.controller.currentFingerprint()
+            let unsaved = current != nil && !accounts.contains(where: { $0.fingerprint == current })
             return MoaAccountSection(
                 group: .deepseek,
                 rows: accounts.map {
-                    MoaAccountRow(group: .deepseek, id: $0.id.uuidString, name: $0.name, detail: "", active: $0.fingerprint == current)
+                    let health = MoaCredentialHealthInspector.inspectDeepSeek(account: $0)
+                    return MoaAccountRow(group: .deepseek, id: $0.id.uuidString, name: $0.name, detail: "", active: $0.fingerprint == current, health: health)
                 },
-                canAddCurrentLogin: false
+                canAddCurrentLogin: unsaved,
+                currentLoginMessage: unsaved ? MoaL10n.text("Unsaved live login detected. Click Save Current Login to preserve it.") : nil,
+                hasUnsavedLiveLogin: unsaved
             )
         }
 
         let antigravity = app.antigravityCoordinator.overview
+        let agFallbackHealth = MoaCredentialHealthInspector.inspectAntigravityFallback(
+            fallbackURL: app.antigravityCoordinator.controller.fallbackURL
+        )
         sections.append(MoaAccountSection(
             group: .antigravity,
             rows: antigravity.accounts.map {
-                MoaAccountRow(group: .antigravity, id: $0.id.uuidString, name: $0.name, detail: $0.email, active: $0.id == antigravity.currentID)
+                let isActive = $0.id == antigravity.currentID
+                return MoaAccountRow(
+                    group: .antigravity,
+                    id: $0.id.uuidString,
+                    name: $0.name,
+                    detail: $0.email,
+                    active: isActive,
+                    health: isActive ? agFallbackHealth : nil
+                )
             },
             canAddCurrentLogin: false,
             currentLoginMessage: app.antigravityCoordinator.failure ?? antigravity.message
         ))
+
+        take(.geminiCLI) {
+            let accounts = try app.geminiCLICoordinator.controller.accounts()
+            let live = try app.geminiCLICoordinator.controller.currentLogin()
+            let current = live?.identity
+            let unsaved = current != nil && !accounts.contains(where: { $0.identity == current })
+            return MoaAccountSection(
+                group: .geminiCLI,
+                rows: accounts.map {
+                    let health = MoaCredentialHealthInspector.inspectGeminiCLI(account: $0)
+                    return MoaAccountRow(group: .geminiCLI, id: $0.id.uuidString, name: $0.name, detail: $0.email, active: $0.identity == current, health: health)
+                },
+                canAddCurrentLogin: unsaved,
+                currentLoginMessage: unsaved
+                    ? MoaL10n.text("Unsaved live login detected. Click Save Current Login to preserve it.")
+                    : (live == nil ? MoaL10n.text("Run `gemini` in Terminal to sign in, then save the login here.") : nil),
+                hasUnsavedLiveLogin: unsaved
+            )
+        }
         return (sections, failures)
     }
 }
@@ -211,7 +303,8 @@ final class MoaAccountManagerModel: ObservableObject {
         guard !busy, !app.workbuddyCoordinator.isUpdatingAccounts,
               !app.workbuddyCNCoordinator.isUpdatingAccounts,
               !app.deepseekCoordinator.isUpdatingAccounts,
-              !app.antigravityCoordinator.isUpdatingAccounts else { return }
+              !app.antigravityCoordinator.isUpdatingAccounts,
+              !app.geminiCLICoordinator.isUpdatingAccounts else { return }
         let loaded = MoaAccountCatalog.load(app: app)
         sections = loaded.sections
         failures = loaded.failures
@@ -220,14 +313,43 @@ final class MoaAccountManagerModel: ObservableObject {
         app.rebuildWorkBuddyMenus()
         app.deepseekCoordinator.rebuildMenu()
         app.antigravityCoordinator.rebuildMenu()
+        app.geminiCLICoordinator.rebuildMenu()
+    }
+
+    var healthAttentionSummaries: [MoaClientHealthSummary] {
+        var summaries: [MoaClientHealthSummary] = []
+        for section in sections {
+            let client = MoaWorkspaceClient.client(for: section.group)
+            for row in section.rows {
+                if let health = row.health, health.needsAttention {
+                    summaries.append(MoaClientHealthSummary(
+                        client: client,
+                        group: section.group,
+                        accountName: row.name.isEmpty ? row.detail : row.name,
+                        report: health
+                    ))
+                }
+            }
+            if section.hasUnsavedLiveLogin {
+                summaries.append(MoaClientHealthSummary(
+                    client: client,
+                    group: section.group,
+                    accountName: section.group.title,
+                    report: MoaCredentialHealthReport(
+                        severity: .warning,
+                        badge: MoaL10n.text("Unsaved Login"),
+                        detail: MoaL10n.text("Current live login has not been saved in Moa yet."),
+                        expiresAt: nil
+                    )
+                ))
+            }
+        }
+        return summaries
     }
 
     func add(_ group: MoaAccountGroup) {
         guard !isBusy(group) else { return }
         let refresh: () -> Void = { [weak self] in self?.reload() }
-        // API configs save synchronously inside their own panel. Login
-        // snapshots quit and relaunch an app in the background, so the list
-        // waits for that to finish instead of refreshing early.
         switch group {
         case .codexOfficial:
             app.profileActionCoordinator.addCodexOfficialAccountAction()
@@ -238,6 +360,14 @@ final class MoaAccountManagerModel: ObservableObject {
         case .claude:
             app.profileActionCoordinator.addClaudeDesktopProviderAction()
             refresh()
+        case .claudeCode:
+            guard let input = MoaRelease1100Panels.showClaudeCodeProvider() else { return }
+            run(.claudeCode, MoaL10n.text("Saving…")) {
+                _ = try self.app.claudeCodeSettingsController.addProfile(
+                    name: input.name, baseURL: input.baseURL, apiKey: input.apiKey,
+                    model: input.model, smallFastModel: input.smallFastModel
+                )
+            }
         case .workbuddy:
             app.workbuddyCoordinator.saveCurrentAccount(onComplete: refresh)
         case .workbuddyCN:
@@ -246,6 +376,8 @@ final class MoaAccountManagerModel: ObservableObject {
             app.deepseekCoordinator.saveCurrentAccount(onComplete: refresh)
         case .antigravity:
             app.antigravityCoordinator.saveCurrentAccount(onComplete: refresh)
+        case .geminiCLI:
+            app.geminiCLICoordinator.saveCurrentAccount(onComplete: refresh)
         }
     }
 
@@ -263,17 +395,39 @@ final class MoaAccountManagerModel: ObservableObject {
             app.deepseekCoordinator.addAnotherAccount(onComplete: refresh)
         case .antigravity:
             app.antigravityCoordinator.addAnotherAccount(onComplete: refresh)
-        case .codexConfig, .claude:
+        case .geminiCLI:
+            app.geminiCLICoordinator.addAnotherAccount(onComplete: refresh)
+        case .codexConfig, .claude, .claudeCode:
             break
         }
     }
 
     func copyClaudeCodeEnv(_ row: MoaAccountRow) {
-        guard row.group == .claude,
-              let profile = try? app.claudeDesktopProfileController.profiles().first(where: { $0.id == row.id }) else {
-            return
+        if row.group == .claude,
+           let profile = try? app.claudeDesktopProfileController.profiles().first(where: { $0.id == row.id }) {
+            app.profileActionCoordinator.copyClaudeCodeConfig(for: profile)
+        } else if row.group == .claudeCode,
+                  let profile = try? app.claudeCodeSettingsController.profiles().first(where: { $0.id == row.id }) {
+            app.copyToPasteboard(ClaudeCodeSettingsController.environmentSnippet(for: profile))
+            MoaNonBlockingAlert.present(
+                messageText: MoaL10n.text("Claude Code config copied"),
+                informativeText: MoaL10n.format("Copied Claude Code environment variables for \"%@\".", profile.name),
+                tone: .success
+            )
         }
-        app.profileActionCoordinator.copyClaudeCodeConfig(for: profile)
+    }
+
+    func restoreClaudeCodeOfficialMode() {
+        guard !isBusy(.claudeCode) else { return }
+        guard MoaNonBlockingAlert.confirm(
+            messageText: MoaL10n.text("Restore Claude Code Official Mode?"),
+            informativeText: MoaL10n.text("Removes Moa-managed ANTHROPIC_* environment keys from ~/.claude/settings.json while preserving all other settings."),
+            primaryButtonTitle: MoaL10n.text("Restore"),
+            tone: .warning
+        ) else { return }
+        run(.claudeCode, MoaL10n.text("Saving…")) {
+            try self.app.claudeCodeSettingsController.restoreOfficialMode()
+        }
     }
 
     func restoreOfficialMode(for client: MoaWorkspaceClient) {
@@ -337,6 +491,8 @@ final class MoaAccountManagerModel: ObservableObject {
                     id: row.id, name: name, baseURL: profile.baseURL, apiKey: profile.apiKey,
                     models: profile.models, oneMModels: profile.enabledOneMModels
                 )
+            case .claudeCode:
+                _ = try self.app.claudeCodeSettingsController.renameProfile(id: row.id, name: name)
             case .workbuddy:
                 guard let id = UUID(uuidString: row.id) else { return }
                 try self.app.workbuddyCoordinator.controller.rename(id: id, name: name)
@@ -349,6 +505,9 @@ final class MoaAccountManagerModel: ObservableObject {
             case .antigravity:
                 guard let id = UUID(uuidString: row.id) else { return }
                 try self.app.antigravityCoordinator.controller.rename(id: id, name: name)
+            case .geminiCLI:
+                guard let id = UUID(uuidString: row.id) else { return }
+                try self.app.geminiCLICoordinator.controller.rename(id: id, name: name)
             }
         }
     }
@@ -359,9 +518,6 @@ final class MoaAccountManagerModel: ObservableObject {
         case .codexConfig:
             guard let profile = try? app.profileController.profiles().first(where: { $0.id == row.id }),
                   let input = app.showEditProfilePanel(for: profile) else { return }
-            // The row's active flag is from the last reload, so the menu may
-            // have switched configs since. Re-read what is current at save time
-            // and only reapply a config the client is still using.
             let id = row.id
             let applyToCurrent = (try? app.profileController.selectedProfileID()) == id
             guard !applyToCurrent || confirmLiveEdit(row, MoaL10n.text("Codex quits and reopens, so finish active tasks first.")) else { return }
@@ -384,7 +540,18 @@ final class MoaAccountManagerModel: ObservableObject {
                 )
                 if applied { self.app.claudeDesktopProfileController.reopenClaudeDesktop() }
             }
-        case .codexOfficial, .workbuddy, .workbuddyCN, .deepseek, .antigravity:
+        case .claudeCode:
+            guard let profile = try? app.claudeCodeSettingsController.profiles().first(where: { $0.id == row.id }),
+                  let input = MoaRelease1100Panels.showClaudeCodeProvider(editing: profile) else { return }
+            let id = row.id
+            let applyToCurrent = (try? app.claudeCodeSettingsController.selectedProfileID()) == id
+            run(row.group, MoaL10n.text("Saving…")) {
+                _ = try self.app.claudeCodeSettingsController.updateProfile(
+                    id: id, name: input.name, baseURL: input.baseURL, apiKey: input.apiKey,
+                    model: input.model, smallFastModel: input.smallFastModel, applyToCurrent: applyToCurrent
+                )
+            }
+        case .codexOfficial, .workbuddy, .workbuddyCN, .deepseek, .antigravity, .geminiCLI:
             break
         }
     }
@@ -413,6 +580,8 @@ final class MoaAccountManagerModel: ObservableObject {
                 _ = try self.app.profileController.deleteProfile(id: row.id)
             case .claude:
                 _ = try self.app.claudeDesktopProfileController.deleteProfile(id: row.id)
+            case .claudeCode:
+                _ = try self.app.claudeCodeSettingsController.deleteProfile(id: row.id)
             case .workbuddy:
                 guard let id = UUID(uuidString: row.id) else { return }
                 try self.app.workbuddyCoordinator.controller.delete(id: id)
@@ -425,6 +594,9 @@ final class MoaAccountManagerModel: ObservableObject {
             case .antigravity:
                 guard let id = UUID(uuidString: row.id) else { return }
                 try self.app.antigravityCoordinator.controller.delete(id: id)
+            case .geminiCLI:
+                guard let id = UUID(uuidString: row.id) else { return }
+                try self.app.geminiCLICoordinator.controller.delete(id: id)
             }
         }
     }
@@ -455,7 +627,11 @@ final class MoaAccountManagerModel: ObservableObject {
             guard let id = UUID(uuidString: row.id) else { return }
             app.antigravityCoordinator.applySavedAccount(id: id, onComplete: refresh)
             return
-        case .codexOfficial, .codexConfig, .claude:
+        case .geminiCLI:
+            guard let id = UUID(uuidString: row.id) else { return }
+            app.geminiCLICoordinator.applySavedAccount(id: id, onComplete: refresh)
+            return
+        case .codexOfficial, .codexConfig, .claude, .claudeCode:
             break
         }
         run(row.group, MoaL10n.text("Switching…")) {
@@ -471,8 +647,10 @@ final class MoaAccountManagerModel: ObservableObject {
             case .claude:
                 _ = try self.app.claudeDesktopProfileController.applyProfile(id: row.id)
                 self.app.claudeDesktopProfileController.reopenClaudeDesktop()
-            case .workbuddy, .workbuddyCN, .deepseek, .antigravity:
-                break // Routed through their shared menu coordinators above.
+            case .claudeCode:
+                _ = try self.app.claudeCodeSettingsController.applyProfile(id: row.id)
+            case .workbuddy, .workbuddyCN, .deepseek, .antigravity, .geminiCLI:
+                break
             }
         }
     }
@@ -498,7 +676,11 @@ final class MoaAccountManagerModel: ObservableObject {
             return MoaL10n.text("This provider is active, so Claude Desktop returns to official mode.")
         case .claude:
             return MoaL10n.text("Removes this provider from Moa. Claude Desktop keeps using its current provider.")
-        case .workbuddy, .workbuddyCN, .deepseek, .antigravity:
+        case .claudeCode where row.active:
+            return MoaL10n.text("This preset is active, so Moa removes the managed ANTHROPIC_* env keys from ~/.claude/settings.json.")
+        case .claudeCode:
+            return MoaL10n.text("Removes this preset from Moa. ~/.claude/settings.json is not modified.")
+        case .workbuddy, .workbuddyCN, .deepseek, .antigravity, .geminiCLI:
             return MoaL10n.text("Only Moa's saved copy is deleted. The app stays signed in and its local sessions are kept.")
         }
     }
@@ -509,6 +691,8 @@ final class MoaAccountManagerModel: ObservableObject {
             return MoaL10n.text("Codex quits and reopens, so finish active tasks first.")
         case .claude:
             return MoaL10n.text("Claude Desktop quits and reopens, so finish active tasks first.")
+        case .claudeCode:
+            return MoaL10n.text("Updates only ANTHROPIC_* env fields in ~/.claude/settings.json. New Claude Code sessions will use this provider.")
         case .workbuddy:
             return MoaL10n.text("WorkBuddy AI quits and reopens, so finish active tasks first. Do not use Log Out.")
         case .workbuddyCN:
@@ -517,6 +701,8 @@ final class MoaAccountManagerModel: ObservableObject {
             return MoaL10n.text("DeepSeek Harness quits and reopens, so finish active tasks and close other DSH instances first. Do not use Log Out.")
         case .antigravity:
             return MoaL10n.text("Antigravity quits and reopens. Finish active tasks and close agy and Antigravity IDE extensions first; they share the active login.")
+        case .geminiCLI:
+            return MoaL10n.text("Replaces ~/.gemini/oauth_creds.json and google_accounts.json. Finish active Gemini CLI tasks first; Antigravity credentials stay untouched.")
         }
     }
 
@@ -650,6 +836,8 @@ private struct MoaAccountSectionView: View {
                 addButton(MoaL10n.text("Add Config")) { model.add(.codexConfig) }
             case .claude:
                 addButton(MoaL10n.text("Add Provider")) { model.add(.claude) }
+            case .claudeCode:
+                addButton(MoaL10n.text("Add Provider")) { model.add(.claudeCode) }
             case .workbuddy, .workbuddyCN:
                 addButton(MoaL10n.text("Save Current Login")) { model.add(section.group) }
                 addButton(MoaL10n.text("Add Another Account")) { model.addAnotherLogin(section.group) }
@@ -659,6 +847,9 @@ private struct MoaAccountSectionView: View {
             case .antigravity:
                 addButton(MoaL10n.text("Save Current Login")) { model.add(.antigravity) }
                 addButton(MoaL10n.text("Add Another Account")) { model.addAnotherLogin(.antigravity) }
+            case .geminiCLI:
+                addButton(MoaL10n.text("Save Current Login")) { model.add(.geminiCLI) }
+                addButton(MoaL10n.text("Add Another Account")) { model.addAnotherLogin(.geminiCLI) }
             }
             Spacer()
         }

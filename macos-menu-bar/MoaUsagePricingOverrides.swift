@@ -286,6 +286,14 @@ final class MoaUsagePricingOverrideController {
         cachedRevision = dataAccess.revision
     }
 
+    func removeAll() throws {
+        try dataAccess.lock()
+        defer { dataAccess.unlock() }
+        lock.lock()
+        defer { lock.unlock() }
+        try save([])
+    }
+
     private func normalizedModel(source: MoaUsageSource, model: String) -> String {
         switch source {
         case .codex:
@@ -294,7 +302,7 @@ final class MoaUsagePricingOverrideController {
             return MoaUsagePricing.normalizeClaudeModel(model)
         case .zcode:
             return MoaUsagePricing.normalizeZCodeModel(model)
-        case .workbuddy, .workbuddyCN:
+        case .workbuddy, .workbuddyCN, .antigravity, .deepseek:
             return model.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         }
     }
